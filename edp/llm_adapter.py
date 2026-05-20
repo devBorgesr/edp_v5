@@ -543,6 +543,7 @@ REGRAS ABSOLUTAS:
         self._memory     = None
         self._pipeline   = None
         self._ctx_builder = None
+        self._co_occurrence = None  # PR2 v3.13.6
 
         self._init_edp_subsystems()
 
@@ -873,6 +874,19 @@ REGRAS ABSOLUTAS:
         except Exception as e:
             logger.warning("[EDPRuntime] context_builder indisponível: %s", e)
 
+        # PR2 v3.13.6 — CoOccurrenceTracker (observação passiva de pares retrieved)
+        # Não modifica comportamento; apenas conta quando memórias aparecem juntas.
+        try:
+            from .co_occurrence import CoOccurrenceTracker
+            self._co_occurrence = CoOccurrenceTracker(self.session_id)
+            logger.info(
+                "[EDPRuntime] CoOccurrenceTracker ativo | session=%s",
+                self.session_id,
+            )
+        except Exception as e:
+            self._co_occurrence = None
+            logger.warning("[EDPRuntime] CoOccurrenceTracker indisponível: %s", e)
+
     def _compress_input(self, text: str) -> tuple[str, float, int]:
         """Comprime input via pipeline EDP. Retorna (texto, reduction_pct, n_blocks)."""
         if self._pipeline is None or not self._auto_compress:
@@ -939,6 +953,10 @@ REGRAS ABSOLUTAS:
 
             # ── Retrieval por similaridade ──────────────────────────────────
             results = self._memory.retrieve(query, top_k=5, min_score=0.20)
+            # PR2: coleta IDs do retrieval por similaridade (exclui janela imediata)
+            # para registrar co-ocorrência. Memórias que estão em seen_ids vieram
+            # da janela imediata e NÃO contam (D2: excluir janela imediata).
+            co_occurrence_ids: list[str] = []
             for r in results:
                 eid = r.get("id")
                 if eid and eid in seen_ids:
@@ -946,6 +964,9 @@ REGRAS ABSOLUTAS:
                 txt = r.get("text") or ""
                 if not txt:
                     continue
+                # Capturar ID para co-occurrence (só memórias que entraram no contexto)
+                if eid:
+                    co_occurrence_ids.append(eid)
                 # Tempo relativo
                 ts = r.get("timestamp")
                 rel_time = _format_relative_time(ts, now) if ts else None
@@ -962,6 +983,23 @@ REGRAS ABSOLUTAS:
 
                 prefix = f"[{', '.join(tags)}] " if tags else ""
                 blocks.append(prefix + txt)
+
+            # PR2: registra co-ocorrência (observação passiva)
+            # Decisão D1: top-5 (mantém comportamento atual do EDP)
+            # Decisão D2: já excluiu janela imediata via seen_ids acima
+            # Decisão D4: save atômico ocorre dentro do tracker
+            if self._co_occurrence and len(co_occurrence_ids) >= 2:
+                try:
+                    n_pairs = self._co_occurrence.record_co_occurrence(co_occurrence_ids)
+                    self._co_occurrence.save()
+                    logger.debug(
+                        "[co_occurrence] %d pares registrados (memórias: %d)",
+                        n_pairs, len(co_occurrence_ids),
+                    )
+                except Exception as e:
+                    # Falha em co-occurrence NUNCA deve quebrar retrieval
+                    logger.warning("[co_occurrence] hook falhou (ignorado): %s", e)
+
             return blocks, len(blocks)
         except Exception as e:
             logger.debug("[retrieve_context] erro: %s", e)
