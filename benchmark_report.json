@@ -1,0 +1,1673 @@
+{
+  "summary": {
+    "total": 88,
+    "passed": 88,
+    "failed": 0,
+    "duration_s": 263.39
+  },
+  "results": [
+    {
+      "name": "PHI = 1.618033... (golden ratio)",
+      "category": "SCORING \u2014 Motor de pontua\u00e7\u00e3o cognitiva",
+      "passed": true,
+      "latency_ms": 2.138,
+      "throughput_ops_s": 467.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "PHI": 1.618033988749895
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "_assemble_score: 10k amostras em [0,1]",
+      "category": "SCORING \u2014 Motor de pontua\u00e7\u00e3o cognitiva",
+      "passed": true,
+      "latency_ms": 84.788,
+      "throughput_ops_s": 11.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "samples": 10000
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "compute_score (embedding dim=384)",
+      "category": "SCORING \u2014 Motor de pontua\u00e7\u00e3o cognitiva",
+      "passed": true,
+      "latency_ms": 5.707,
+      "throughput_ops_s": 175.2,
+      "p50_ms": 5.597,
+      "p95_ms": 6.15,
+      "p99_ms": 7.217,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "compute_score: 1000 scores batch",
+      "category": "SCORING \u2014 Motor de pontua\u00e7\u00e3o cognitiva",
+      "passed": true,
+      "latency_ms": 569.578,
+      "throughput_ops_s": 1.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "throughput_score_per_s": 1815.0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "classify_score: distribui\u00e7\u00e3o de decis\u00f5es",
+      "category": "SCORING \u2014 Motor de pontua\u00e7\u00e3o cognitiva",
+      "passed": true,
+      "latency_ms": 25.763,
+      "throughput_ops_s": 38.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "distribution": {
+          "DROP": 4217,
+          "SUMMARIZE": 2959,
+          "KEEP": 2824
+        }
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "cosine.add(1000 docs)",
+      "category": "RETRIEVAL \u2014 Motor de busca vetorial",
+      "passed": true,
+      "latency_ms": 3.985,
+      "throughput_ops_s": 250.9,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_docs": 1000
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "cosine.search top_k=10",
+      "category": "RETRIEVAL \u2014 Motor de busca vetorial",
+      "passed": true,
+      "latency_ms": 8.902,
+      "throughput_ops_s": 112.3,
+      "p50_ms": 8.795,
+      "p95_ms": 9.203,
+      "p99_ms": 11.001,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "cosine escalabilidade 1k\u219210k",
+      "category": "RETRIEVAL \u2014 Motor de busca vetorial",
+      "passed": true,
+      "latency_ms": 678.252,
+      "throughput_ops_s": 1.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "latency_by_n": {
+          "100": 3.004,
+          "500": 5.706,
+          "1000": 11.401,
+          "5000": 40.49,
+          "10000": 73.35
+        },
+        "scale_factor_100x_n": 24.4
+      },
+      "error": null,
+      "bottleneck": "O(n\u00b7dim) cosine: 24.4\u00d7 mais lento com 100\u00d7 mais docs"
+    },
+    {
+      "name": "deduplicate: O(n) matrix (1000 items)",
+      "category": "RETRIEVAL \u2014 Motor de busca vetorial",
+      "passed": true,
+      "latency_ms": 650.155,
+      "throughput_ops_s": 1.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "items_in": 1000,
+        "items_out": 1000,
+        "dedup_ms": 597.57
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "enhanced_search (200 entries, temporal)",
+      "category": "RETRIEVAL \u2014 Motor de busca vetorial",
+      "passed": true,
+      "latency_ms": 19.062,
+      "throughput_ops_s": 52.5,
+      "p50_ms": 18.793,
+      "p95_ms": 20.657,
+      "p99_ms": 22.497,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "WorkingMemory.add (100 entries, buffer=20)",
+      "category": "MEMORY \u2014 Hierarquia de mem\u00f3ria cognitiva",
+      "passed": true,
+      "latency_ms": 20.202,
+      "throughput_ops_s": 49.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "final_size": 20
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "EpisodicMemory.add (200 entries)",
+      "category": "MEMORY \u2014 Hierarquia de mem\u00f3ria cognitiva",
+      "passed": true,
+      "latency_ms": 1933.32,
+      "throughput_ops_s": 0.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_entries": 200
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "EpisodicMemory.retrieve (batch cosine, 200 entries)",
+      "category": "MEMORY \u2014 Hierarquia de mem\u00f3ria cognitiva",
+      "passed": true,
+      "latency_ms": 777.982,
+      "throughput_ops_s": 1.3,
+      "p50_ms": 769.247,
+      "p95_ms": 842.29,
+      "p99_ms": 960.38,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "SemanticMemory.retrieve (_emb_cache)",
+      "category": "MEMORY \u2014 Hierarquia de mem\u00f3ria cognitiva",
+      "passed": true,
+      "latency_ms": 2.572,
+      "throughput_ops_s": 388.8,
+      "p50_ms": 2.543,
+      "p95_ms": 2.691,
+      "p99_ms": 3.009,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "EpisodicMemory: 20 threads concorrentes",
+      "category": "MEMORY \u2014 Hierarquia de mem\u00f3ria cognitiva",
+      "passed": true,
+      "latency_ms": 15494.862,
+      "throughput_ops_s": 0.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "threads": 20,
+        "errors": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "MemoryStore escalabilidade 10\u21921000 entries (batch)",
+      "category": "MEMORY \u2014 Hierarquia de mem\u00f3ria cognitiva",
+      "passed": true,
+      "latency_ms": 6742.045,
+      "throughput_ops_s": 0.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "memory_growth_kb": {
+          "10": 0.0,
+          "100": 0.0,
+          "500": 0.0,
+          "1000": 0.0
+        },
+        "latency_ms_by_n": {
+          "10": 44.1,
+          "100": 398.9,
+          "500": 1986.0,
+          "1000": 3992.4
+        }
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "batch_add(1000 docs)",
+      "category": "VECTOR STORE \u2014 InMemoryVectorStore",
+      "passed": true,
+      "latency_ms": 188.705,
+      "throughput_ops_s": 5.3,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "added": 1000
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "query top_k=10 (argpartition O(n))",
+      "category": "VECTOR STORE \u2014 InMemoryVectorStore",
+      "passed": true,
+      "latency_ms": 1.07,
+      "throughput_ops_s": 934.6,
+      "p50_ms": 0.62,
+      "p95_ms": 0.691,
+      "p99_ms": 0.822,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "query precision@1",
+      "category": "VECTOR STORE \u2014 InMemoryVectorStore",
+      "passed": true,
+      "latency_ms": 2.788,
+      "throughput_ops_s": 358.7,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "top1_id": "doc_0",
+        "top1_score": 1.0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "escalabilidade query 1k\u219210k",
+      "category": "VECTOR STORE \u2014 InMemoryVectorStore",
+      "passed": true,
+      "latency_ms": 6955.96,
+      "throughput_ops_s": 0.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "latency_by_n": {
+          "1000": 79.837,
+          "2000": 160.45,
+          "5000": 403.346,
+          "10000": 807.429
+        }
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "20 queries concorrentes",
+      "category": "VECTOR STORE \u2014 InMemoryVectorStore",
+      "passed": true,
+      "latency_ms": 26.648,
+      "throughput_ops_s": 37.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "concurrent_threads": 20
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "delete(500) + compact()",
+      "category": "VECTOR STORE \u2014 InMemoryVectorStore",
+      "passed": true,
+      "latency_ms": 23.287,
+      "throughput_ops_s": 42.9,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "removed": 500
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "run_pipeline (prioridade=alta)",
+      "category": "PIPELINE \u2014 Processamento cognitivo end-to-end",
+      "passed": true,
+      "latency_ms": 33429.825,
+      "throughput_ops_s": 0.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "tokens_in": 74,
+        "tokens_out": 44,
+        "reduction_pct": 40.5,
+        "n_blocks": 3
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "run_pipeline (prioridade=media)",
+      "category": "PIPELINE \u2014 Processamento cognitivo end-to-end",
+      "passed": true,
+      "latency_ms": 392.796,
+      "throughput_ops_s": 2.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "tokens_in": 37,
+        "tokens_out": 28,
+        "reduction_pct": 24.3,
+        "n_blocks": 2
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "run_pipeline (prioridade=baixa)",
+      "category": "PIPELINE \u2014 Processamento cognitivo end-to-end",
+      "passed": true,
+      "latency_ms": 370.487,
+      "throughput_ops_s": 2.7,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "tokens_in": 31,
+        "tokens_out": 31,
+        "reduction_pct": 0.0,
+        "n_blocks": 2
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "pipeline throughput: 50 execu\u00e7\u00f5es",
+      "category": "PIPELINE \u2014 Processamento cognitivo end-to-end",
+      "passed": true,
+      "latency_ms": 5054.933,
+      "throughput_ops_s": 0.2,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "pipelines_per_s": 9.9
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "pipeline: 10 threads concorrentes",
+      "category": "PIPELINE \u2014 Processamento cognitivo end-to-end",
+      "passed": true,
+      "latency_ms": 866.548,
+      "throughput_ops_s": 1.2,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "errors": 0,
+        "success": 10,
+        "avg_reduction": 23.5
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "pipeline stress: 200 execu\u00e7\u00f5es (mem\u00f3ria)",
+      "category": "PIPELINE \u2014 Processamento cognitivo end-to-end",
+      "passed": true,
+      "latency_ms": 20393.549,
+      "throughput_ops_s": 0.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "mem_growth_kb": 0.0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "begin_write + put(100 nodes)",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 5.471,
+      "throughput_ops_s": 182.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "nodes_in_gen": 100
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "snapshot() lock-free read",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 0.003,
+      "throughput_ops_s": 333333.3,
+      "p50_ms": 0.003,
+      "p95_ms": 0.003,
+      "p99_ms": 0.003,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "create_snapshot (checkpoint vazio)",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 2.901,
+      "throughput_ops_s": 344.7,
+      "p50_ms": 2.771,
+      "p95_ms": 3.241,
+      "p99_ms": 4.929,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "top_k_by_score(k=10, n=100)",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 0.72,
+      "throughput_ops_s": 1388.9,
+      "p50_ms": 0.681,
+      "p95_ms": 0.897,
+      "p99_ms": 1.213,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "rollback para gera\u00e7\u00e3o anterior",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 6.925,
+      "throughput_ops_s": 144.4,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "rollback_ok": true
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "validate_snapshot (com checksum cache)",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 2.2,
+      "throughput_ops_s": 454.6,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "v1_is_valid": false,
+        "v2_is_valid": false,
+        "cache_exists": true
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "20 leituras concorrentes (lock-free)",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 37.852,
+      "throughput_ops_s": 26.4,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "errors": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "snapshot.top_k_by_score(k=10, n=10k)",
+      "category": "SNAPSHOT MANAGER \u2014 Consist\u00eancia geracional",
+      "passed": true,
+      "latency_ms": 3358.026,
+      "throughput_ops_s": 0.3,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_nodes": 10000
+      },
+      "error": null,
+      "bottleneck": "heapq.nlargest O(n log k): 63.90ms para n=10k"
+    },
+    {
+      "name": "request_retrieval: 1000 requests",
+      "category": "ECONOMY \u2014 Budget cognitivo",
+      "passed": true,
+      "latency_ms": 18.353,
+      "throughput_ops_s": 54.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "granted": 1000,
+        "denied": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "mode transition NORMAL\u2192EMERGENCY",
+      "category": "ECONOMY \u2014 Budget cognitivo",
+      "passed": true,
+      "latency_ms": 55.837,
+      "throughput_ops_s": 17.9,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "mode": "normal",
+        "metrics": {
+          "total_requests": 0,
+          "total_granted": 0,
+          "total_denied": 0,
+          "grant_rate": 1.0,
+          "mode_changes": 0
+        }
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "starvation boost: recurso idle",
+      "category": "ECONOMY \u2014 Budget cognitivo",
+      "passed": true,
+      "latency_ms": 169.842,
+      "throughput_ops_s": 5.9,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "fill_before": 0.333,
+        "fill_after": 1.0,
+        "boost_applied": true
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "20 threads concorrentes",
+      "category": "ECONOMY \u2014 Budget cognitivo",
+      "passed": true,
+      "latency_ms": 22.696,
+      "throughput_ops_s": 44.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "concurrent_results": {
+          "granted": 20,
+          "denied": 0
+        }
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "escalada NORMAL\u2192EMERGENCY (20 ticks)",
+      "category": "META STABILITY \u2014 Homeostase cognitiva",
+      "passed": true,
+      "latency_ms": 4.264,
+      "throughput_ops_s": 234.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "final_mode": "critical",
+        "mode_sequence": [
+          "normal",
+          "elevated",
+          "degraded",
+          "critical"
+        ]
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "recovery EMERGENCY\u2192NORMAL (50 ticks)",
+      "category": "META STABILITY \u2014 Homeostase cognitiva",
+      "passed": true,
+      "latency_ms": 5.999,
+      "throughput_ops_s": 166.7,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "final_mode": "normal",
+        "mode_sequence": [
+          "degraded",
+          "elevated",
+          "normal"
+        ]
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "anti-oscillation: altern\u00e2ncia de sinal",
+      "category": "META STABILITY \u2014 Homeostase cognitiva",
+      "passed": true,
+      "latency_ms": 8.794,
+      "throughput_ops_s": 113.7,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "mode_changes": 0,
+        "max_expected": 20
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "update(signals) throughput",
+      "category": "META STABILITY \u2014 Homeostase cognitiva",
+      "passed": true,
+      "latency_ms": 0.063,
+      "throughput_ops_s": 15873.0,
+      "p50_ms": 0.059,
+      "p95_ms": 0.095,
+      "p99_ms": 0.115,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "OperationalParams mapeamento",
+      "category": "META STABILITY \u2014 Homeostase cognitiva",
+      "passed": true,
+      "latency_ms": 2.343,
+      "throughput_ops_s": 426.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "modes_verified": 5
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "effective_k sem storm (k=10)",
+      "category": "STORM GUARD \u2014 Prote\u00e7\u00e3o contra overload",
+      "passed": true,
+      "latency_ms": 2.115,
+      "throughput_ops_s": 472.9,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "k_effective": 10
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "indu\u00e7\u00e3o de storm (alta taxa + satura\u00e7\u00e3o)",
+      "category": "STORM GUARD \u2014 Prote\u00e7\u00e3o contra overload",
+      "passed": true,
+      "latency_ms": 84.181,
+      "throughput_ops_s": 11.9,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "storm_triggered": false
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "effective_k reduzido sob storm",
+      "category": "STORM GUARD \u2014 Prote\u00e7\u00e3o contra overload",
+      "passed": true,
+      "latency_ms": 2.829,
+      "throughput_ops_s": 353.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "k_under_storm": 4
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "reset + recovery autom\u00e1tico",
+      "category": "STORM GUARD \u2014 Prote\u00e7\u00e3o contra overload",
+      "passed": true,
+      "latency_ms": 2.301,
+      "throughput_ops_s": 434.6,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "after_reset": {
+          "composite_score": 0.0,
+          "storm_active": false,
+          "in_cooldown": false,
+          "storm_count": 0,
+          "effective_k_mult": 1.0,
+          "abstraction_entropy": 0.0
+        }
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "record(results) throughput",
+      "category": "STORM GUARD \u2014 Prote\u00e7\u00e3o contra overload",
+      "passed": true,
+      "latency_ms": 0.005,
+      "throughput_ops_s": 200000.0,
+      "p50_ms": 0.005,
+      "p95_ms": 0.005,
+      "p99_ms": 0.008,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "absorb_tick(delta=0.05) inst\u00e2ncia isolada",
+      "category": "PRESSURE REGULATOR \u2014 Controle din\u00e2mico de press\u00e3o",
+      "passed": true,
+      "latency_ms": 0.093,
+      "throughput_ops_s": 10752.7,
+      "p50_ms": 0.089,
+      "p95_ms": 0.099,
+      "p99_ms": 0.171,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "escalada gradual 0\u21920.9 (100 ticks)",
+      "category": "PRESSURE REGULATOR \u2014 Controle din\u00e2mico de press\u00e3o",
+      "passed": true,
+      "latency_ms": 14.149,
+      "throughput_ops_s": 70.7,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "final_pressure": 0.6409,
+        "max_pressure": 0.6409,
+        "monotonic": true
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "satura\u00e7\u00e3o e cooldown autom\u00e1tico",
+      "category": "PRESSURE REGULATOR \u2014 Controle din\u00e2mico de press\u00e3o",
+      "passed": true,
+      "latency_ms": 7.572,
+      "throughput_ops_s": 132.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "saturated": true
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "reset_local drain",
+      "category": "PRESSURE REGULATOR \u2014 Controle din\u00e2mico de press\u00e3o",
+      "passed": true,
+      "latency_ms": 2.714,
+      "throughput_ops_s": 368.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "pressure_after_reset": 0.0012
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "anti-spike: delta=1.0 limitado",
+      "category": "PRESSURE REGULATOR \u2014 Controle din\u00e2mico de press\u00e3o",
+      "passed": true,
+      "latency_ms": 2.424,
+      "throughput_ops_s": 412.6,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "raw_delta": 1.0,
+        "capped_result": 0.12
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "measure_and_rebalance(100 n\u00f3s diversos)",
+      "category": "BIODIVERSITY \u2014 Diversidade sem\u00e2ntica",
+      "passed": true,
+      "latency_ms": 80.939,
+      "throughput_ops_s": 12.4,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "mrd": 0.9023,
+        "entropy": 0.9998,
+        "collapse": false,
+        "n_updated": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "detec\u00e7\u00e3o de collapse (n\u00f3s concentrados)",
+      "category": "BIODIVERSITY \u2014 Diversidade sem\u00e2ntica",
+      "passed": true,
+      "latency_ms": 76.831,
+      "throughput_ops_s": 13.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "mrd_collapsed": 0.0183,
+        "collapse": true,
+        "nodes_updated": 0,
+        "mrd_target": 0.15
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "escalabilidade: 10\u21921000 n\u00f3s",
+      "category": "BIODIVERSITY \u2014 Diversidade sem\u00e2ntica",
+      "passed": true,
+      "latency_ms": 733.058,
+      "throughput_ops_s": 1.4,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "latency_by_n": {
+          "10": 15.24,
+          "50": 36.3,
+          "100": 57.15,
+          "500": 150.44,
+          "1000": 249.89
+        }
+      },
+      "error": null,
+      "bottleneck": "O(n\u00b7dim\u00b7k_iter): 16.4\u00d7 para 100\u00d7 mais n\u00f3s"
+    },
+    {
+      "name": "imutabilidade: n\u00f3s originais n\u00e3o alterados",
+      "category": "BIODIVERSITY \u2014 Diversidade sem\u00e2ntica",
+      "passed": true,
+      "latency_ms": 69.499,
+      "throughput_ops_s": 14.4,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "orig_intact": true,
+        "n_new_objects": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "record(event): 500 eventos",
+      "category": "DECISION GRAPH \u2014 Causalidade ass\u00edncrona",
+      "passed": true,
+      "latency_ms": 265.452,
+      "throughput_ops_s": 3.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "dropped": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "obs_pressure() (backpressure signal)",
+      "category": "DECISION GRAPH \u2014 Causalidade ass\u00edncrona",
+      "passed": true,
+      "latency_ms": 2.221,
+      "throughput_ops_s": 450.3,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "queue_fill": 0.0,
+        "dropped": 0,
+        "pressure": 0.0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "stats() com grafo populado",
+      "category": "DECISION GRAPH \u2014 Causalidade ass\u00edncrona",
+      "passed": true,
+      "latency_ms": 198.475,
+      "throughput_ops_s": 5.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_nodes": 500,
+        "n_edges": 1494,
+        "processed": 500,
+        "dropped": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "anti-ciclo: 1000 eventos encadeados",
+      "category": "DECISION GRAPH \u2014 Causalidade ass\u00edncrona",
+      "passed": true,
+      "latency_ms": 590.381,
+      "throughput_ops_s": 1.7,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_nodes": 858,
+        "n_edges": 2568,
+        "edges_ok": true
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "20 records concorrentes (non-blocking)",
+      "category": "DECISION GRAPH \u2014 Causalidade ass\u00edncrona",
+      "passed": true,
+      "latency_ms": 24.884,
+      "throughput_ops_s": 40.2,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "errors": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "cluster_entries(n=100)",
+      "category": "CONSOLIDATION \u2014 Clustering sem\u00e2ntico",
+      "passed": true,
+      "latency_ms": 14.593,
+      "throughput_ops_s": 68.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_clusters": 100,
+        "n_entries": 100,
+        "avg_cluster": 1.0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "cluster_entries(n=500)",
+      "category": "CONSOLIDATION \u2014 Clustering sem\u00e2ntico",
+      "passed": true,
+      "latency_ms": 195.936,
+      "throughput_ops_s": 5.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_clusters": 500,
+        "n_entries": 500,
+        "avg_cluster": 1.0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "cluster_entries(n=1000)",
+      "category": "CONSOLIDATION \u2014 Clustering sem\u00e2ntico",
+      "passed": true,
+      "latency_ms": 627.035,
+      "throughput_ops_s": 1.6,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_clusters": 1000,
+        "n_entries": 1000,
+        "avg_cluster": 1.0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "dynamic_threshold (busca bin\u00e1ria, 200 entries)",
+      "category": "CONSOLIDATION \u2014 Clustering sem\u00e2ntico",
+      "passed": true,
+      "latency_ms": 438.159,
+      "throughput_ops_s": 2.3,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "threshold": 0.5
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "merge_cluster (50 entries em 1 cluster)",
+      "category": "CONSOLIDATION \u2014 Clustering sem\u00e2ntico",
+      "passed": true,
+      "latency_ms": 3.404,
+      "throughput_ops_s": 293.8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "merged_from": 50
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "build_context (MMR vetorizado, 60 candidatos)",
+      "category": "CONTEXT BUILDER \u2014 MMR vetorizado",
+      "passed": true,
+      "latency_ms": 271.169,
+      "throughput_ops_s": 3.7,
+      "p50_ms": 259.59,
+      "p95_ms": 261.991,
+      "p99_ms": 549.47,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "diversity: context blocks s\u00e3o diversos",
+      "category": "CONTEXT BUILDER \u2014 MMR vetorizado",
+      "passed": true,
+      "latency_ms": 276.049,
+      "throughput_ops_s": 3.6,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_blocks": 10,
+        "diversity": 0.4885,
+        "coverage": 0.3522,
+        "token_count": 125
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "snapshot defensivo: candidates imut\u00e1vel",
+      "category": "CONTEXT BUILDER \u2014 MMR vetorizado",
+      "passed": true,
+      "latency_ms": 4665.88,
+      "throughput_ops_s": 0.2,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "result_variance": [
+          5
+        ]
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "build_from_entries vetorizado (500 entries)",
+      "category": "BELIEF GRAPH \u2014 Grafo de cren\u00e7as",
+      "passed": true,
+      "latency_ms": 14944.906,
+      "throughput_ops_s": 0.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "edges_added": 124745,
+        "n_entries": 500
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "get_neighbors (top_k=10)",
+      "category": "BELIEF GRAPH \u2014 Grafo de cren\u00e7as",
+      "passed": true,
+      "latency_ms": 0.172,
+      "throughput_ops_s": 5814.0,
+      "p50_ms": 0.167,
+      "p95_ms": 0.178,
+      "p99_ms": 0.295,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "standalone build_from_entries (200 entries)",
+      "category": "BELIEF GRAPH \u2014 Grafo de cren\u00e7as",
+      "passed": true,
+      "latency_ms": 2394.37,
+      "throughput_ops_s": 0.4,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "edges": 19900
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "BeliefGraph.stats()",
+      "category": "BELIEF GRAPH \u2014 Grafo de cren\u00e7as",
+      "passed": true,
+      "latency_ms": 20.179,
+      "throughput_ops_s": 49.6,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "n_nodes": 500,
+        "n_edges": 3744,
+        "avg_degree": 14.98,
+        "max_degree": 15,
+        "relations": {
+          "contradicts": 3744
+        }
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "apply_decay (remove arestas fracas)",
+      "category": "BELIEF GRAPH \u2014 Grafo de cren\u00e7as",
+      "passed": true,
+      "latency_ms": 57.641,
+      "throughput_ops_s": 17.3,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "edges_removed": 22
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "put_batch(100 embeddings)",
+      "category": "CACHE \u2014 SQLite embedding cache",
+      "passed": true,
+      "latency_ms": 27.816,
+      "throughput_ops_s": 36.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "get_batch(100) \u2192 100% cache hit",
+      "category": "CACHE \u2014 SQLite embedding cache",
+      "passed": true,
+      "latency_ms": 14.686,
+      "throughput_ops_s": 68.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "hits": 100,
+        "missing": 0
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "get(single text)",
+      "category": "CACHE \u2014 SQLite embedding cache",
+      "passed": true,
+      "latency_ms": 2.961,
+      "throughput_ops_s": 337.7,
+      "p50_ms": 2.941,
+      "p95_ms": 3.473,
+      "p99_ms": 3.854,
+      "memory_kb": 0.0,
+      "details": {},
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "put_retrieval + get_retrieval (fix B30)",
+      "category": "CACHE \u2014 SQLite embedding cache",
+      "passed": true,
+      "latency_ms": 2.448,
+      "throughput_ops_s": 408.5,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "deleted_sess1": 2,
+        "sess2_intact": true
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "evict_lru (keep=50)",
+      "category": "CACHE \u2014 SQLite embedding cache",
+      "passed": true,
+      "latency_ms": 14.503,
+      "throughput_ops_s": 69.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "before": 100,
+        "after": 50
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "stress: 200 pipelines sequenciais (degrada\u00e7\u00e3o)",
+      "category": "STRESS \u2014 Pipeline sob carga cont\u00ednua",
+      "passed": true,
+      "latency_ms": 11183.447,
+      "throughput_ops_s": 0.1,
+      "p50_ms": 51.13,
+      "p95_ms": 60.35,
+      "p99_ms": 74.0,
+      "memory_kb": 0.0,
+      "details": {
+        "first_10_avg_ms": 131.91,
+        "last_10_avg_ms": 52.21,
+        "degradation_pct": -60.4,
+        "max_latency_ms": 777.58
+      },
+      "error": null,
+      "bottleneck": "Degrada\u00e7\u00e3o de -60.4% \u2014 cache miss ou GC pressure"
+    },
+    {
+      "name": "stress: 5 sess\u00f5es \u00d7 20 pipelines (100 total concorrentes)",
+      "category": "STRESS \u2014 Pipeline sob carga cont\u00ednua",
+      "passed": true,
+      "latency_ms": 4505.039,
+      "throughput_ops_s": 0.2,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "total_executions": 100,
+        "errors": 0,
+        "avg_ms": 223.64,
+        "p95_ms": 236.71
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "ciclo completo: normal\u2192emergency\u2192recovery",
+      "category": "STRESS \u2014 Press\u00e3o de mem\u00f3ria e degrada\u00e7\u00e3o cognitiva",
+      "passed": true,
+      "latency_ms": 35.297,
+      "throughput_ops_s": 28.3,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "mode_distribution": {
+          "normal": 110,
+          "elevated": 16,
+          "degraded": 74,
+          "critical": 0,
+          "emergency": 0,
+          "recovery": 0
+        },
+        "budget_denied": 0,
+        "final_mode": "normal"
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "complexidade: cosine search",
+      "category": "COMPLEXITY ANALYSIS \u2014 Predi\u00e7\u00e3o de escala",
+      "passed": true,
+      "latency_ms": 76.2,
+      "throughput_ops_s": 13.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "times_ms": {
+          "100": 4.339973995229229,
+          "500": 10.643037006957456,
+          "1000": 12.176933989394456,
+          "5000": 46.65181000018492
+        },
+        "exponent": 0.61,
+        "complexity": "O(n)",
+        "label": "cosine search"
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "complexidade: belief_graph.build_from_entries",
+      "category": "COMPLEXITY ANALYSIS \u2014 Predi\u00e7\u00e3o de escala",
+      "passed": true,
+      "latency_ms": 15435.279,
+      "throughput_ops_s": 0.1,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "times_ms": {
+          "50": 110.16434800694697,
+          "100": 461.74706499732565,
+          "200": 1974.4495260092663,
+          "500": 12886.712345003616
+        },
+        "exponent": 2.07,
+        "complexity": "O(n\u00b2)"
+      },
+      "error": null,
+      "bottleneck": null
+    },
+    {
+      "name": "complexidade: consolidation.cluster_entries",
+      "category": "COMPLEXITY ANALYSIS \u2014 Predi\u00e7\u00e3o de escala",
+      "passed": true,
+      "latency_ms": 198.81,
+      "throughput_ops_s": 5.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0,
+      "memory_kb": 0.0,
+      "details": {
+        "times_ms": {
+          "50": 3.7624300020979717,
+          "100": 7.825763008440845,
+          "200": 24.40425100212451,
+          "500": 160.55106499698013
+        },
+        "exponent": 1.63,
+        "complexity": "O(n\u00b2)"
+      },
+      "error": null,
+      "bottleneck": null
+    }
+  ],
+  "predictions": [
+    {
+      "module": "scoring.py",
+      "operation": "compute_score em batch",
+      "complexity": "O(n\u00b7dim) por score via cosine_similarity",
+      "bottleneck_at_n": 50000,
+      "risk": "MEDIUM",
+      "recommendation": "Vetorizar em matriz batch: compute_score_batch(texts, emb_matrix, ctx_emb)"
+    },
+    {
+      "module": "retrieval.py",
+      "operation": "cosine.search",
+      "complexity": "O(n\u00b7dim) \u2014 linear nos documentos",
+      "bottleneck_at_n": 100000,
+      "risk": "HIGH",
+      "recommendation": "Migrar para faiss_ivf (O(\u221an\u00b7dim)) ou hnsw (O(log n\u00b7dim))"
+    },
+    {
+      "module": "memory.py",
+      "operation": "EpisodicMemory.retrieve",
+      "complexity": "O(n\u00b7dim) batch cosine \u2014 j\u00e1 otimizado",
+      "bottleneck_at_n": 50000,
+      "risk": "MEDIUM",
+      "recommendation": "Adicionar FAISS index interno para n>10k entries"
+    },
+    {
+      "module": "memory.py",
+      "operation": "np.vstack na reconstitui\u00e7\u00e3o",
+      "complexity": "O(n) em cada chamada get_emb_matrix()",
+      "bottleneck_at_n": 20000,
+      "risk": "LOW",
+      "recommendation": "_emb_cache j\u00e1 implementado \u2014 verificar invalida\u00e7\u00e3o excessiva"
+    },
+    {
+      "module": "vector_store.py",
+      "operation": "InMemoryVectorStore.query",
+      "complexity": "O(n\u00b7dim) dot-product NumPy \u2014 argpartition O(n)",
+      "bottleneck_at_n": 500000,
+      "risk": "HIGH",
+      "recommendation": "Para n>100k: usar FAISS HNSW via RetrievalEngine(backend='hnsw')"
+    },
+    {
+      "module": "pipeline.py",
+      "operation": "run_pipeline \u2014 est\u00e1gio de embeddings",
+      "complexity": "O(n_chunks \u00b7 dim) \u2014 dominante no pipeline",
+      "bottleneck_at_n": 500,
+      "risk": "HIGH",
+      "recommendation": "Cache de embeddings (cache.py) j\u00e1 implementado \u2014 verificar hit rate"
+    },
+    {
+      "module": "pipeline.py",
+      "operation": "dedup_chunks \u2014 cosine_similarity(matrix)",
+      "complexity": "O(n\u00b2) em chunks \u2014 mas n_chunks tipicamente < 50",
+      "bottleneck_at_n": 200,
+      "risk": "LOW",
+      "recommendation": "Para documentos muito longos (>5k tokens), aumentar CHUNK_SIZE"
+    },
+    {
+      "module": "snapshot_manager.py",
+      "operation": "top_k_by_score",
+      "complexity": "O(n log k) heapq \u2014 j\u00e1 otimizado",
+      "bottleneck_at_n": 500000,
+      "risk": "MEDIUM",
+      "recommendation": "Para n>100k: manter \u00edndice pr\u00e9-ordenado atualizado incrementalmente"
+    },
+    {
+      "module": "snapshot_manager.py",
+      "operation": "_compute_generation_checksum",
+      "complexity": "O(n\u00b7len(id)) \u2014 linear nos n\u00f3s",
+      "bottleneck_at_n": 100000,
+      "risk": "MEDIUM",
+      "recommendation": "Checksum cache j\u00e1 implementado (P-S5) \u2014 verificar taxa de invalida\u00e7\u00e3o"
+    },
+    {
+      "module": "biodiversity.py",
+      "operation": "k-means lite por abstraction level",
+      "complexity": "O(n\u00b7k\u00b7dim\u00b75iter) \u2014 5 itera\u00e7\u00f5es Lloyd",
+      "bottleneck_at_n": 5000,
+      "risk": "MEDIUM",
+      "recommendation": "Reduzir max_centroids_per_level para n>1k ou usar sampling"
+    },
+    {
+      "module": "decision_graph_v32.py",
+      "operation": "worker batch processing",
+      "complexity": "O(batch \u00d7 anti_cycle_DFS) \u2014 DFS limitado a 100 n\u00f3s",
+      "bottleneck_at_n": 10000,
+      "risk": "MEDIUM",
+      "recommendation": "Aumentar worker_batch_size e reduzir anti-cycle search depth"
+    },
+    {
+      "module": "consolidation.py",
+      "operation": "cluster_entries (single-linkage O(n\u00b2))",
+      "complexity": "O(n\u00b2) \u2014 quadr\u00e1tico na similaridade",
+      "bottleneck_at_n": 5000,
+      "risk": "HIGH",
+      "recommendation": "Para n>1k: usar MiniBatchKMeans ou HDBSCAN por amostragem"
+    },
+    {
+      "module": "belief_graph.py",
+      "operation": "build_from_entries",
+      "complexity": "O(n\u00b2) pares via np.triu_indices \u2014 mas vetorizado NumPy",
+      "bottleneck_at_n": 10000,
+      "risk": "HIGH",
+      "recommendation": "Para n>2k: usar threshold mais alto ou sampling aleat\u00f3rio de pares"
+    },
+    {
+      "module": "retrieval.py / vector_store.py",
+      "operation": "cosine_search",
+      "complexity": "O(n)",
+      "bottleneck_at_n": 1639344,
+      "risk": "MEDIUM",
+      "recommendation": "Usar FAISS HNSW para escala > 100k documentos"
+    },
+    {
+      "module": "consolidation.py",
+      "operation": "cluster_entries (single-linkage)",
+      "complexity": "O(n\u00b2)",
+      "bottleneck_at_n": 2000,
+      "risk": "HIGH",
+      "recommendation": "Substituir por HDBSCAN ou MiniBatchKMeans para n>1k"
+    }
+  ],
+  "system": {
+    "python": "3.14.4",
+    "platform": "Windows-10-10.0.14393-SP0",
+    "cpu_count": 8,
+    "ram_gb": 7.9,
+    "numpy": "2.4.4",
+    "timestamp": "2026-05-15 12uman:44:03"
+  }
+}

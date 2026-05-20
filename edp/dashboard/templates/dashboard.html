@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDP v3.5 - Cognitive Runtime Dashboard</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+<!--SIDEBAR_CSS-->
+</head>
+<body>
+
+<!--SIDEBAR_HTML-->
+
+<header>
+  <div class="status-dot" id="status-dot"></div>
+  <h1>EDP v3.5</h1>
+  <span class="badge">Cognitive Runtime</span>
+  <span style="margin-left:auto;color:var(--muted);font-size:11px" id="last-update">-</span>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2>Runtime Health</h2>
+    <div class="metric"><span class="label">Status</span><span class="value" id="h-status">...</span></div>
+    <div class="metric"><span class="label">Versao</span><span class="value" id="h-version">...</span></div>
+    <div class="metric"><span class="label">Sessoes ativas</span><span class="value" id="h-sessions">...</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Memoria Cognitiva</h2>
+    <div class="metric"><span class="label">Episodica</span><span class="value" id="m-episodic">...</span></div>
+    <div class="metric"><span class="label">Semantica</span><span class="value" id="m-semantic">...</span></div>
+    <div class="metric"><span class="label">Working</span><span class="value" id="m-working">...</span></div>
+    <div class="metric"><span class="label">Total</span><span class="value" id="m-total">...</span></div>
+  </div>
+
+  <div class="card">
+    <h2>LLM Performance</h2>
+    <div class="metric"><span class="label">Modelo</span><span class="value" id="llm-model">-</span></div>
+    <div class="metric"><span class="label">Provider</span><span class="value" id="llm-provider">-</span></div>
+    <div class="metric"><span class="label">Latencia media</span><span class="value" id="llm-lat">-</span></div>
+    <div class="metric"><span class="label">Requests total</span><span class="value" id="llm-req">-</span></div>
+    <div class="metric"><span class="label">Memory hits medio</span><span class="value" id="llm-hits">-</span></div>
+    <div class="metric"><span class="label">Erros</span><span class="value" id="llm-err">-</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Retrieval Stats</h2>
+    <div class="metric"><span class="label">Score medio</span><span class="value" id="r-score">...</span></div>
+    <div class="metric"><span class="label">Compressao media</span><span class="value" id="r-comp">...</span></div>
+    <div class="metric"><span class="label">Cache hits</span><span class="value" id="r-cache">...</span></div>
+  </div>
+
+  <div class="card chat-area">
+    <h2>Chat Cognitivo</h2>
+
+    <div class="connect-row">
+      <select id="provider">
+        <option value="anthropic" selected>Anthropic (Claude)</option>
+        <option value="ollama">Ollama (local)</option>
+        <option value="lm_studio">LM Studio (local)</option>
+        <option value="openai">OpenAI</option>
+      </select>
+      <input id="model-input" placeholder="modelo" value="claude-haiku-4-5">
+      <input id="url-input" placeholder="URL base (apenas local)" value="" style="display:none">
+      <input id="apikey-input" placeholder="API key (sk-ant-... ou sk-...)" type="password" value="" style="flex:2">
+      <button id="connect-btn">Conectar</button>
+      <span id="conn-status">Desconectado</span>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">
+      Modelos: <b>claude-haiku-4-5</b> (barato), <b>claude-sonnet-4-6</b> (qualidade), <b>claude-opus-4-7</b> (raciocínio)
+    </div>
+
+    <div class="chat-box" id="chat-box"></div>
+    <div id="stage-info"></div>
+
+    <div class="input-row">
+      <input id="chat-input" placeholder="Digite sua mensagem...">
+      <button id="send-btn">Enviar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Snapshot Info</h2>
+    <pre id="snapshot-data">Carregando...</pre>
+  </div>
+
+  <div class="card">
+    <h2>Metricas de Sistema</h2>
+    <pre id="raw-metrics">Carregando...</pre>
+  </div>
+
+</main>
+
+<script src="/static/dashboard.js"></script>
+<!--SIDEBAR_JS-->
+</body>
+</html>

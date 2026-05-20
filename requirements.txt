@@ -1,0 +1,20 @@
+# EDP v3.3 — dependências
+# Instale com: pip install -r requirements.txt
+
+# Core (obrigatório)
+numpy>=1.24
+scikit-learn>=1.2
+sentence-transformers>=2.2
+
+# API (obrigatório para python run.py serve)
+fastapi>=0.100
+uvicorn>=0.20
+pydantic>=2.0
+
+# Opcional mas recomendado
+psutil>=5.9           # métricas de RAM no benchmark
+faiss-cpu>=1.7        # ANN retrieval acelerado (10-100x mais rápido)
+# hnswlib>=0.7        # alternativa ao FAISS para HNSW
+
+# Nota: sqlite3 e zlib já fazem parte da stdlib do Python
+# Nota: sentence-transformers baixa o modelo na 1ª execução (~90MB)
