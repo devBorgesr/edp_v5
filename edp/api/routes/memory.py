@@ -611,6 +611,104 @@ async def memory_dominance(
         raise HTTPException(500, str(e))
 
 
+# ─────────────────────────────────────────────────────────────────────
+# PR3 v3.13.6 — Co-occurrence (campo de interações entre ideias)
+# ─────────────────────────────────────────────────────────────────────
+
+@router.get("/memory/co_occurrence")
+async def memory_co_occurrence(
+    session_id: str = "default",
+    id:         str = "",
+    top_k:      int = 10,
+):
+    """
+    Retorna co-ocorrências de memórias.
+
+    Modos:
+      - Sem `id`: retorna estatísticas globais + top memórias com mais conexões
+      - Com `id`: retorna as `top_k` memórias mais co-occorridas com essa ID
+
+    Co-ocorrência = quantas vezes duas memórias apareceram juntas no retrieval
+    (top-5 por similaridade, exclui janela imediata).
+
+    Sinal emergente do uso real: ideias que interagem ficam ligadas.
+    """
+    try:
+        from ...co_occurrence import CoOccurrenceTracker
+    except ImportError as e:
+        raise HTTPException(503, f"CoOccurrenceTracker indisponível: {e}")
+
+    try:
+        tracker = CoOccurrenceTracker(session_id)
+    except Exception as e:
+        raise HTTPException(500, f"falha ao inicializar tracker: {e}")
+
+    # Modo 1: consulta específica
+    if id:
+        results = tracker.get_top_co_occurred(id, top_k=top_k)
+
+        # Enriquecer com info da memória (texto, source_type) se disponível
+        mem = get_memory(session_id)
+        if is_valid(mem):
+            entries_by_id = {e.get("id"): e for e in mem.episodic.entries}
+            enriched = []
+            for r in results:
+                related_id = r["id"]
+                related_entry = entries_by_id.get(related_id, {})
+                enriched.append({
+                    "id":           related_id,
+                    "count":        r["count"],
+                    "last_seen":    r["last_seen"],
+                    "text_snippet": (related_entry.get("text") or "")[:100],
+                    "source_type":  related_entry.get("source_type"),
+                    "status":       related_entry.get("epistemic_status"),
+                })
+            results = enriched
+
+        return {
+            "query_id":   id,
+            "session_id": session_id,
+            "n_results":  len(results),
+            "results":    results,
+        }
+
+    # Modo 2: visão geral
+    stats = tracker.stats()
+
+    # Top memórias com mais conexões (mais "atratores")
+    top_attractors = sorted(
+        tracker.pairs.items(),
+        key=lambda kv: len(kv[1]),
+        reverse=True,
+    )[:top_k]
+
+    # Enriquecer
+    mem = get_memory(session_id)
+    entries_by_id = {}
+    if is_valid(mem):
+        entries_by_id = {e.get("id"): e for e in mem.episodic.entries}
+
+    enriched_attractors = []
+    for memory_id, neighbors in top_attractors:
+        entry = entries_by_id.get(memory_id, {})
+        # Soma de todos os counts (peso total de conexões)
+        total_strength = sum(n["count"] for n in neighbors.values())
+        enriched_attractors.append({
+            "id":              memory_id,
+            "n_neighbors":     len(neighbors),
+            "total_strength":  total_strength,
+            "text_snippet":    (entry.get("text") or "")[:100],
+            "source_type":     entry.get("source_type"),
+            "status":          entry.get("epistemic_status"),
+        })
+
+    return {
+        "session_id":   session_id,
+        "stats":        stats,
+        "top_attractors": enriched_attractors,
+    }
+
+
 @router.get("/memory/{entry_id}")
 async def memory_get(entry_id: str, session_id: str = "default"):
     """Detalhes de 1 entry."""
@@ -938,6 +1036,21 @@ h1 { color:#f1f5f9; border-bottom:2px solid #334155; padding-bottom:10px;
                                        margin-left:10px;"></span>
   </div>
   <div id="topics-list" style="margin-top:10px;font-size:12px;"></div>
+</div>
+
+<div class="consolidate-panel" style="border-color:#f59e0b;">
+  <h3>
+    <span>🪐 Campo de Co-Ocorrência</span>
+    <a href="#" onclick="loadCoOccurrence(); return false;"
+       style="font-size:11px;color:#fcd34d;font-weight:400;">↻ atualizar</a>
+  </h3>
+  <p style="font-size:11px;color:#94a3b8;margin:2px 0 8px 0;">
+    Memórias que aparecem juntas em retrievals formam "atratores".
+    Sinal emergente: ideias que interagem ganham peso uma sobre a outra.
+  </p>
+  <div id="cooccurrence-result" style="margin-top:6px;font-size:12px;">
+    <span style="color:#64748b;">Clique em "atualizar" para ver o campo.</span>
+  </div>
 </div>
 
 <div class="filters">
@@ -1494,6 +1607,130 @@ async function loadDominance() {
     document.getElementById('dom-table').innerHTML = html;
   } catch(e) {
     console.error('loadDominance:', e);
+  }
+}
+
+async function loadCoOccurrence() {
+  const el = document.getElementById('cooccurrence-result');
+  el.innerHTML = '<span style="color:#94a3b8;">Carregando...</span>';
+  try {
+    const r = await fetch('/memory/co_occurrence?session_id=' + SESSION + '&top_k=10');
+    if (!r.ok) {
+      el.innerHTML = '<span style="color:#f87171;">Erro ao carregar (' + r.status + ')</span>';
+      return;
+    }
+    const d = await r.json();
+    const stats = d.stats || {};
+    const attractors = d.top_attractors || [];
+
+    if (!stats.total_unique_pairs || stats.total_unique_pairs === 0) {
+      el.innerHTML = '<span style="color:#64748b;">Ainda sem dados. ' +
+                     'Use o chat normalmente — pares se formam conforme memórias aparecem juntas em retrievals.</span>';
+      return;
+    }
+
+    let html = '<div style="display:flex;gap:14px;font-size:11px;color:#94a3b8;' +
+               'margin-bottom:10px;flex-wrap:wrap;">' +
+               '<span>Pares únicos: <b style="color:#fcd34d;">' +
+                 stats.total_unique_pairs + '</b></span>' +
+               '<span>Co-ocorrências totais: <b style="color:#fcd34d;">' +
+                 stats.total_co_occurrences + '</b></span>' +
+               '<span>Memórias rastreadas: <b style="color:#fcd34d;">' +
+                 stats.tracked_memories + '</b></span>' +
+               '</div>';
+
+    if (attractors.length === 0) {
+      html += '<span style="color:#64748b;">Sem atratores ainda.</span>';
+      el.innerHTML = html;
+      return;
+    }
+
+    const maxNeighbors = attractors[0].n_neighbors || 1;
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+            '<thead><tr style="text-align:left;border-bottom:1px solid #334155;color:#94a3b8;">' +
+            '<th style="padding:4px 6px;">#</th>' +
+            '<th style="padding:4px 6px;">Memória (atrator)</th>' +
+            '<th style="padding:4px 6px;">Source</th>' +
+            '<th style="padding:4px 6px;text-align:right;">Vizinhos</th>' +
+            '<th style="padding:4px 6px;text-align:right;">Força total</th>' +
+            '<th style="padding:4px 6px;"></th>' +
+            '</tr></thead><tbody>';
+
+    attractors.forEach((a, idx) => {
+      const barW = Math.max(2, Math.round((a.n_neighbors / maxNeighbors) * 60));
+      const snippet = (a.text_snippet || '').replace(/^\\[session_summary\\]\\s*/, '');
+      const truncated = snippet.length > 70 ? snippet.slice(0, 70) + '...' : snippet;
+      const stype = a.source_type || 'unknown';
+      html += '<tr style="border-bottom:1px solid #1e293b;">' +
+                '<td style="padding:4px 6px;color:#64748b;">' + (idx + 1) + '</td>' +
+                '<td style="padding:4px 6px;" title="' + escapeHtml(a.id) + '">' +
+                  '<span style="color:#cbd5e1;">' + escapeHtml(truncated) + '</span>' +
+                '</td>' +
+                '<td style="padding:4px 6px;">' +
+                  '<span style="font-size:10px;color:#94a3b8;">' +
+                    escapeHtml(stype.slice(0, 18)) + '</span>' +
+                '</td>' +
+                '<td style="padding:4px 6px;text-align:right;">' +
+                  '<span style="display:inline-block;height:8px;background:#f59e0b;' +
+                  'opacity:0.5;width:' + barW + 'px;margin-right:4px;border-radius:2px;"></span>' +
+                  '<b style="color:#fcd34d;">' + a.n_neighbors + '</b>' +
+                '</td>' +
+                '<td style="padding:4px 6px;text-align:right;color:#94a3b8;">' +
+                  a.total_strength +
+                '</td>' +
+                '<td style="padding:4px 6px;">' +
+                  '<a href="#" onclick="showCoOccurrenceFor(\\'' + a.id + '\\'); return false;" ' +
+                  'style="font-size:10px;color:#7dd3fc;">ver vizinhos</a>' +
+                '</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div id="cooccurrence-detail" style="margin-top:10px;"></div>';
+    el.innerHTML = html;
+  } catch(e) {
+    console.error('loadCoOccurrence:', e);
+    el.innerHTML = '<span style="color:#f87171;">Erro: ' + escapeHtml(String(e)) + '</span>';
+  }
+}
+
+async function showCoOccurrenceFor(memId) {
+  const detailEl = document.getElementById('cooccurrence-detail');
+  if (!detailEl) return;
+  detailEl.innerHTML = '<span style="color:#94a3b8;font-size:11px;">Carregando vizinhos...</span>';
+  try {
+    const r = await fetch('/memory/co_occurrence?session_id=' + SESSION +
+                          '&id=' + encodeURIComponent(memId) + '&top_k=10');
+    if (!r.ok) {
+      detailEl.innerHTML = '<span style="color:#f87171;font-size:11px;">Erro</span>';
+      return;
+    }
+    const d = await r.json();
+    if (!d.results || d.results.length === 0) {
+      detailEl.innerHTML = '<span style="color:#64748b;font-size:11px;">Sem vizinhos.</span>';
+      return;
+    }
+
+    let html = '<div style="font-size:11px;color:#fcd34d;margin-bottom:6px;">' +
+               '↳ Memórias co-occorridas com <code style="color:#7dd3fc;">' +
+                 escapeHtml(memId.slice(0, 8)) + '...</code>:</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+            '<tbody>';
+    d.results.forEach((n, idx) => {
+      const snippet = (n.text_snippet || '').replace(/^\\[session_summary\\]\\s*/, '');
+      const truncated = snippet.length > 70 ? snippet.slice(0, 70) + '...' : snippet;
+      html += '<tr style="border-bottom:1px solid #1e293b;">' +
+                '<td style="padding:3px 6px;color:#64748b;">' + (idx + 1) + '</td>' +
+                '<td style="padding:3px 6px;color:#cbd5e1;">' + escapeHtml(truncated) + '</td>' +
+                '<td style="padding:3px 6px;text-align:right;color:#fcd34d;font-weight:600;">' +
+                  n.count + 'x</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table>';
+    detailEl.innerHTML = html;
+  } catch(e) {
+    console.error('showCoOccurrenceFor:', e);
+    detailEl.innerHTML = '<span style="color:#f87171;font-size:11px;">Erro: ' +
+                         escapeHtml(String(e)) + '</span>';
   }
 }
 
