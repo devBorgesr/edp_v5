@@ -281,8 +281,20 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                     )
                                     runtime._llm_config.model = chosen_model
                                     # Propaga para o provider real
-                                    if hasattr(runtime, "_anthropic_provider") and runtime._anthropic_provider:
-                                        runtime._anthropic_provider.config.model = chosen_model
+                                    # _anthropic_provider vive em runtime._client (LLMClient),
+                                    # não no runtime direto. Bug do v3.13.1 corrigido agora
+                                    # de verdade.
+                                    if (
+                                        hasattr(runtime, "_client")
+                                        and runtime._client is not None
+                                        and hasattr(runtime._client, "_anthropic_provider")
+                                        and runtime._client._anthropic_provider is not None
+                                    ):
+                                        runtime._client._anthropic_provider.config.model = chosen_model
+                                    # Também atualiza config interna do LLMClient
+                                    if hasattr(runtime, "_client") and runtime._client is not None:
+                                        if hasattr(runtime._client, "_cfg"):
+                                            runtime._client._cfg.model = chosen_model
                                 runtime._last_routed_model = chosen_model
                                 routing_info = routing
                                 # Notifica frontend antes do llm_start
