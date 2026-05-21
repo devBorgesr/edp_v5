@@ -924,6 +924,10 @@ REGRAS ABSOLUTAS:
             blocks: List[str] = []
             seen_ids: set = set()
 
+            # Coletores para debug (v3.13.8)
+            _debug_immediate: list[dict] = []
+            _debug_similarity: list[dict] = []
+
             # ── Janela imediata: últimos 2 turnos da sessão atual ───────────
             # Estes ENTRAM sempre, mesmo que retrieval não os priorize.
             # Hotfix v3.13.2: filtra session_summaries para não poluírem como
@@ -948,6 +952,13 @@ REGRAS ABSOLUTAS:
                         if eid:
                             seen_ids.add(eid)
                         blocks.append(f"[{label}] {txt}")
+                        # Debug: registra o que entrou na janela imediata
+                        _debug_immediate.append({
+                            "id":          eid,
+                            "label":       label,
+                            "text":        txt,
+                            "source_type": entry.get("source_type"),
+                        })
             except Exception as e:
                 logger.debug("[retrieve_context] janela imediata falhou: %s", e)
 
@@ -983,6 +994,14 @@ REGRAS ABSOLUTAS:
 
                 prefix = f"[{', '.join(tags)}] " if tags else ""
                 blocks.append(prefix + txt)
+                # Debug: registra entrada do retrieval
+                _debug_similarity.append({
+                    "id":               eid,
+                    "ranking_score":    r.get("ranking_score", r.get("score", 0)),
+                    "text":             txt,
+                    "source_type":      stype,
+                    "epistemic_status": status,
+                })
 
             # PR2: registra co-ocorrência (observação passiva)
             # Decisão D1: top-5 (mantém comportamento atual do EDP)
@@ -999,6 +1018,20 @@ REGRAS ABSOLUTAS:
                 except Exception as e:
                     # Falha em co-occurrence NUNCA deve quebrar retrieval
                     logger.warning("[co_occurrence] hook falhou (ignorado): %s", e)
+
+            # v3.13.8: log do contexto completo para debug
+            # Nunca quebra retrieval — try/except envolve tudo.
+            try:
+                from .context_debug import log_context
+                log_context(
+                    session_id=self.session_id,
+                    user_message=query,
+                    immediate_window=_debug_immediate,
+                    similarity_results=_debug_similarity,
+                    final_blocks=blocks,
+                )
+            except Exception as e:
+                logger.debug("[context_debug] log falhou: %s", e)
 
             return blocks, len(blocks)
         except Exception as e:
