@@ -30,6 +30,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .config import MEMORY_DIR
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 
 SIMILAR_THRESH     = 0.65
 CONTRADICT_THRESH  = 0.20
@@ -45,18 +46,18 @@ class BeliefEdge:
     target_id:      str
     relation:       str
     strength:       float
-    created_at:     float = field(default_factory=time.time)
-    last_updated:   float = field(default_factory=time.time)
+    created_at:     float = field(default_factory=_now)
+    last_updated:   float = field(default_factory=_now)
     co_occurrences: int   = 1
 
     @property
     def effective_strength(self) -> float:
-        dias = (time.time() - self.last_updated) / 86_400.0
+        dias = (_now() - self.last_updated) / 86_400.0
         return round(self.strength * math.exp(-DECAY_RATE * max(dias, 0.0)), 4)
 
     def reinforce(self, delta: float = 0.05) -> None:
         self.strength       = min(round(self.strength + delta, 4), 1.0)
-        self.last_updated   = time.time()
+        self.last_updated   = _now()
         self.co_occurrences += 1
 
     def to_dict(self) -> dict:
@@ -77,8 +78,8 @@ class BeliefEdge:
             target_id=d["target_id"],
             relation=d.get("relation", "neutral"),
             strength=float(d.get("strength", 0.5)),
-            created_at=float(d.get("created_at", time.time())),
-            last_updated=float(d.get("last_updated", time.time())),
+            created_at=float(d.get("created_at", _now())),
+            last_updated=float(d.get("last_updated", _now())),
             co_occurrences=int(d.get("co_occurrences", 1)),
         )
 

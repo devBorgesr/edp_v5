@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import MEMORY_DIR
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 
 logger = logging.getLogger("edp.co_occurrence")
 
@@ -133,7 +134,7 @@ class CoOccurrenceTracker:
         if len(unique_ids) < 2:
             return 0
 
-        now = time.time()
+        now = _now()
         pairs_updated = 0
 
         with self._lock:

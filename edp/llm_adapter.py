@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Generator, List, Optional
 
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
+
 logger = logging.getLogger("edp.llm_adapter")
 
 
@@ -689,10 +691,10 @@ REGRAS ABSOLUTAS:
 
         # 6. Atualiza histórico (in-memory, sem persistir como episódico)
         self._history.append({
-            "role": "user",    "content": user_message,    "ts": time.time()
+            "role": "user",    "content": user_message,    "ts": _now()
         })
         self._history.append({
-            "role": "assistant", "content": response_text, "ts": time.time()
+            "role": "assistant", "content": response_text, "ts": _now()
         })
 
         ms = (time.perf_counter() - t0) * 1000
@@ -919,8 +921,7 @@ REGRAS ABSOLUTAS:
         if self._memory is None:
             return [], 0
         try:
-            import time as _t
-            now = _t.time()
+            now = _now()
             blocks: List[str] = []
             seen_ids: set = set()
 
@@ -1123,8 +1124,7 @@ REGRAS ABSOLUTAS:
         recent_turns: list = []
         all_history:  list = []
         try:
-            import time as _t
-            now_ts = _t.time()
+            now_ts = _now()
             if self._memory is not None and hasattr(self._memory, "episodic"):
                 # Peça 1 (v3.13.9): ordena por timestamp antes de pegar
                 # últimos/primeiros, pois a lista pode estar embaralhada.

@@ -24,6 +24,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from .embeddings import embed_one, embed
 from .temporal import decay
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 
 
 @dataclass
@@ -100,7 +101,7 @@ def build_context(
                 "relevance":      sim,
                 "recency":        1.0,
                 "source":         "pipeline",
-                "ultimo_acesso":  time.time(),
+                "ultimo_acesso":  _now(),
             })
 
     # Memory retrieval
@@ -112,9 +113,9 @@ def build_context(
             "text":           r["text"],
             "embedding":      emb,
             "relevance":      float(r.get("ranking_score", r.get("score", 0.5))),
-            "recency":        float(decay(r.get("ultimo_acesso", time.time()))),
+            "recency":        float(decay(r.get("ultimo_acesso", _now()))),
             "source":         r.get("layer", "episodic"),
-            "ultimo_acesso":  r.get("ultimo_acesso", time.time()),
+            "ultimo_acesso":  r.get("ultimo_acesso", _now()),
         })
 
     if not candidates:

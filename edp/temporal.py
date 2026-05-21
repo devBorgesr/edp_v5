@@ -7,6 +7,7 @@ import math
 import time
 
 from .config import DECAY_LAMBDA, TEMPORAL_DECAY_TYPE, TEMPORAL_GAUSSIAN_STD
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 
 # ── Decay functions ───────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ def decay_exponential(ultimo_acesso: float, lam: float = DECAY_LAMBDA) -> float:
     score = exp(-λ × dias_desde_acesso)
     λ=0.1 → meia-vida ~7d | λ=0.5 → meia-vida ~1.4d
     """
-    dias = (time.time() - ultimo_acesso) / 86_400.0
+    dias = (_now() - ultimo_acesso) / 86_400.0
     return math.exp(-lam * max(dias, 0.0))
 
 def decay_gaussian(
@@ -27,7 +28,7 @@ def decay_gaussian(
     Decay gaussiano — queda mais suave no início, depois rápida.
     score = exp(-0.5 × (dias/std)²)
     """
-    dias = (time.time() - ultimo_acesso) / 86_400.0
+    dias = (_now() - ultimo_acesso) / 86_400.0
     return math.exp(-0.5 * (max(dias, 0.0) / std_dias) ** 2)
 
 def decay(ultimo_acesso: float) -> float:
@@ -78,5 +79,5 @@ def recency_rank(entries: list[dict], top_k: int | None = None) -> list[dict]:
 
 def age_days(timestamp: float) -> float:
     """Retorna a idade de um timestamp em dias."""
-    return (time.time() - timestamp) / 86_400.0
+    return (_now() - timestamp) / 86_400.0
 

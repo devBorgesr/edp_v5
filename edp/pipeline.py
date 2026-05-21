@@ -32,6 +32,7 @@ from .attention import dynamic_focus
 from .compression import extractive_summarize, fuse_chunks
 from .config import CHUNK_SIZE, DEDUP_THRESH, HIGH_SCORE, MID_SCORE, MIN_WORDS
 from .embeddings import deduplicate, embed, embed_one
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 from .filters import preprocessar
 from .learning_gate import gate_info, memory_priority, should_store
 from .meta_reasoner import MetaReasoner
@@ -535,7 +536,7 @@ def run_pipeline(
                 "embedding":     chunk_embs[i],
                 "score_inicial": chunk_scores_raw[i],
                 "acessos":       1,
-                "ultimo_acesso": time.time(),
+                "ultimo_acesso": _now(),
                 "prioridade":    "media",
             }
             for i in range(len(chunks))

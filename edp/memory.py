@@ -33,6 +33,7 @@ from .config import (
 )
 from .embeddings import embed_one
 from .temporal import decay, access_boost, recency_rank
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 from . import metrics as M
 
 # ── Utilitário de serialização ────────────────────────────────────────────────
@@ -74,7 +75,7 @@ def _new_entry(
       embedding_model:  nome do modelo usado
       embedding_version: versão do modelo
     """
-    agora = time.time()
+    agora = _now()
     # Confidence: se não fornecido, deriva do score (clamp 0..1)
     if confidence is None:
         confidence = max(0.0, min(1.0, float(score)))
@@ -230,7 +231,7 @@ class EpisodicMemory:
         ])
         sims = cosine_similarity(emb_matrix, [query_emb]).flatten()
 
-        agora = time.time()
+        agora = _now()
         scored = []
         skipped_blocked = 0     # contagem de filtradas por epistemic_status
 
@@ -451,7 +452,7 @@ class EpisodicMemory:
             if text is not None:
                 e["text"] = text
                 # Marca que embedding ficou potencialmente defasado
-                e["text_edited_at"] = time.time()
+                e["text_edited_at"] = _now()
             if epistemic_status is not None:
                 if epistemic_status not in VALID_STATUS:
                     raise ValueError(
@@ -476,7 +477,7 @@ class EpisodicMemory:
                 e["human_note"] = str(note)[:500]
 
             # Sempre atualiza updated_at
-            e["updated_at"] = time.time()
+            e["updated_at"] = _now()
             self._dirty = True
             self.save()
             return True
@@ -855,7 +856,7 @@ class MemoryStore:
             reverse=True,
         ):
             d    = decay(e["ultimo_acesso"])
-            dias = (time.time() - e["ultimo_acesso"]) / 86_400
+            dias = (_now() - e["ultimo_acesso"]) / 86_400
             lines.append(
                 f"  [{e['prioridade']:5s}] "
                 f"decay={d:.3f} | "
@@ -903,7 +904,7 @@ class MemoryStore:
             return False
         entry["score_inicial"] = round(min(entry.get("score_inicial", 0.5) + boost, 1.0), 4)
         entry["acessos"]       = entry.get("acessos", 0) + 1
-        entry["ultimo_acesso"] = time.time()
+        entry["ultimo_acesso"] = _now()
         self.save()
         return True
 

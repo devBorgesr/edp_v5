@@ -33,6 +33,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from .config import MEMORY_DIR, CONSOLIDATION_SIM_THRESH, DECAY_LAMBDA
 from .embeddings import embed_one
+from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 
 logger = logging.getLogger("edp.semantic_memory")
 
@@ -49,13 +50,13 @@ class Concept:
     confidence:  float
     source_ids:  list
     reinforced:  int   = 0
-    created_at:  float = field(default_factory=time.time)
-    last_seen:   float = field(default_factory=time.time)
+    created_at:  float = field(default_factory=_now)
+    last_seen:   float = field(default_factory=_now)
     decay_rate:  float = 0.01
 
     @property
     def decay(self) -> float:
-        return math.exp(-self.decay_rate * (time.time() - self.last_seen) / 86400)
+        return math.exp(-self.decay_rate * (_now() - self.last_seen) / 86400)
 
     @property
     def effective_confidence(self) -> float:
@@ -63,7 +64,7 @@ class Concept:
 
     def reinforce(self, boost: float = REINFORCEMENT_BOOST) -> None:
         self.confidence = min(round(self.confidence + boost, 4), 1.0)
-        self.last_seen  = time.time()
+        self.last_seen  = _now()
         self.reinforced += 1
 
     def to_dict(self) -> dict:
