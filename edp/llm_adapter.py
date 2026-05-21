@@ -933,12 +933,20 @@ REGRAS ABSOLUTAS:
             # Hotfix v3.13.2: filtra session_summaries para não poluírem como
             # "turno anterior" (causava resposta confusa quando summary era
             # o último entry gravado).
+            # Peça 1 (v3.13.9): ordena por timestamp antes de pegar [-2:],
+            # porque self._memory.episodic.entries NÃO está garantidamente
+            # em ordem cronológica (operações como reclassify_all e repair
+            # podem embaralhar). Sem este sort, [-2:] pode retornar turnos
+            # de DIAS atrás como "turno anterior".
             try:
                 if hasattr(self._memory, "episodic"):
-                    real_entries = [
-                        e for e in self._memory.episodic.entries
-                        if e.get("source_type") != "session_summary"
-                    ]
+                    real_entries = sorted(
+                        [
+                            e for e in self._memory.episodic.entries
+                            if e.get("source_type") != "session_summary"
+                        ],
+                        key=lambda e: e.get("timestamp", 0),
+                    )
                     recent_entries = real_entries[-2:]
                     # Mais antigo primeiro → mais novo por último
                     immediate_labels = ["2 turnos atrás", "turno anterior"]
@@ -1118,7 +1126,12 @@ REGRAS ABSOLUTAS:
             import time as _t
             now_ts = _t.time()
             if self._memory is not None and hasattr(self._memory, "episodic"):
-                entries = list(self._memory.episodic.entries)
+                # Peça 1 (v3.13.9): ordena por timestamp antes de pegar
+                # últimos/primeiros, pois a lista pode estar embaralhada.
+                entries = sorted(
+                    list(self._memory.episodic.entries),
+                    key=lambda e: e.get("timestamp", 0),
+                )
                 # Últimos 5 turnos (recent): mais úteis quando datados
                 for e in entries[-5:]:
                     txt = (e.get("text", "") or "")[:300]

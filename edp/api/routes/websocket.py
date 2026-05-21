@@ -178,11 +178,18 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         # ── Janela imediata: últimos 2 turnos ─────────────
                         # Hotfix v3.13.2: filtra session_summaries (espelha
                         # mudança em llm_adapter para manter UI consistente)
+                        # Peça 1 (v3.13.9): ordena por timestamp antes de [-2:],
+                        # porque memory.episodic.entries não está garantidamente
+                        # em ordem cronológica (operações como reclassify_all e
+                        # repair_episodic podem embaralhar).
                         try:
-                            real_entries = [
-                                e for e in memory.episodic.entries
-                                if e.get("source_type") != "session_summary"
-                            ]
+                            real_entries = sorted(
+                                [
+                                    e for e in memory.episodic.entries
+                                    if e.get("source_type") != "session_summary"
+                                ],
+                                key=lambda e: e.get("timestamp", 0),
+                            )
                             recent = real_entries[-2:]
                             labels_immediate = ["2 turnos atrás", "turno anterior"]
                             if len(recent) == 1:
