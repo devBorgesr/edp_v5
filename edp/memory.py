@@ -33,7 +33,8 @@ from .config import (
 )
 from .embeddings import embed_one
 from .temporal import decay, access_boost, recency_rank
-from .clock import now as _now  # Peça 0.2a — relógio interno robusto
+from .clock import now as _now, is_verified as _clock_verified  # Peça 0.2a — relógio interno robusto
+from . import schema_v1 as _schema  # Peça 0.3 — schema novo
 from . import metrics as M
 
 # ── Utilitário de serialização ────────────────────────────────────────────────
@@ -118,6 +119,28 @@ def _new_entry(
         # ── Embedding versioning (drift detection) ───────────────────────────
         "embedding_model":   emb_model,
         "embedding_version": emb_version,
+
+        # ── Schema v1 (Peça 0.3) ─────────────────────────────────────────────
+        # Camada (i) tempo absoluto: t_absolute redundante com 'timestamp'
+        # mas explícito para legibilidade
+        _schema.FIELD_T_ABSOLUTE:                agora,
+        # Camada (ii) tempo vivencial: campos esqueleto, preenchidos em 0.4
+        _schema.FIELD_T_USER_SESSION_START:      None,
+        _schema.FIELD_T_USER_TURN_N:             None,
+        _schema.FIELD_T_MODEL_CONTEXT_START:     None,
+        _schema.FIELD_T_MODEL_TURN_N:            None,
+        _schema.FIELD_GAP_BEFORE:                None,   # calculado em add()
+        _schema.FIELD_GAP_CAUSE:                 None,   # peça 2 preenche
+        _schema.FIELD_GAP_RESOLUTION:            None,   # peça 2 preenche
+        # Camada (iii) origem do conhecimento
+        _schema.FIELD_ORIGIN:                    _schema.ORIGIN_MEASURED,
+        _schema.FIELD_T_LOADED:                  None,   # só p/ ORIGIN_REFERENCE
+        _schema.FIELD_REFERENCE_SOURCE:          None,   # só p/ ORIGIN_REFERENCE
+        _schema.FIELD_INTERNAL_TEMPORAL_CLAIMS:  None,   # só p/ ORIGIN_REFERENCE
+        # Confiabilidade temporal: True se clock estava em fallback
+        _schema.FIELD_TEMPORAL_UNRELIABLE:       (not _clock_verified()),
+        # Versão do schema (sempre presente em novos entries)
+        _schema.FIELD_SCHEMA_VERSION:            _schema.SCHEMA_VERSION,
     }
 
 # ── Working Memory ─────────────────────────────────────────────────────────────
@@ -726,6 +749,25 @@ class MemoryStore:
                 epistemic_status=epistemic_status,
                 derived_from=derived_from,
             )
+
+        # ── Peça 0.3: calcula gap_before ────────────────────────────────────
+        # gap_before = t_absolute deste entry - t_absolute mais recente entre
+        # entries 'measured' já presentes em episodic.
+        # Tolerância: falha de cálculo não bloqueia gravação.
+        try:
+            if entry.get(_schema.FIELD_ORIGIN, _schema.ORIGIN_MEASURED) == _schema.ORIGIN_MEASURED:
+                cur_ts = entry.get(_schema.FIELD_T_ABSOLUTE, entry.get("timestamp"))
+                if cur_ts is not None and self.episodic.entries:
+                    prev_ts = max(
+                        (e.get(_schema.FIELD_T_ABSOLUTE, e.get("timestamp", 0)) or 0)
+                        for e in self.episodic.entries
+                        if e.get(_schema.FIELD_ORIGIN, _schema.ORIGIN_MEASURED) == _schema.ORIGIN_MEASURED
+                    )
+                    if prev_ts and prev_ts < cur_ts:
+                        entry[_schema.FIELD_GAP_BEFORE] = float(cur_ts - prev_ts)
+        except Exception:
+            pass
+
         if to_working:
             self.working.add(entry)
         self.episodic.add(entry)
