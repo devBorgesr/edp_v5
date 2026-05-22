@@ -23,6 +23,7 @@ from enum import Enum
 from typing import Callable, Deque, List, Optional, Tuple
 
 from .types_v32 import DecisionEvent, DecisionEventType
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 
 # ── Enums ──────────────────────────────────────────────────────────────────────
@@ -186,7 +187,7 @@ class MetaStabilityController:
 
             # Registra histórico
             self._history.append({
-                "ts":        time.time(),
+                "ts":        _now(),
                 "composite": round(composite, 4),
                 "mode":      self._mode.value,
                 "ema_pressure": round(self._ema_pressure, 4),

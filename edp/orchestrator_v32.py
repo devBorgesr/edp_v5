@@ -81,6 +81,7 @@ from .pressure_regulator import FractalPressureRegulator, PressureConfig
 from .pressure_monitor import PressureMonitor, PressureMonitorConfig, PressureDimension
 from .embedding_cache import EmbeddingCache, EmbeddingCacheConfig
 from .vector_store import VectorStoreProtocol, InMemoryVectorStore
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 
 # ==================================================
@@ -427,7 +428,7 @@ class OrchestratorV32:
             warnings.append(f"GRAPH_DROPPING_EVENTS:{graph_stats['dropped']}")
 
         return SystemHealthV32(
-            timestamp=time.time(),
+            timestamp=_now(),
             stability_mode=meta_summary.get("current_mode", "unknown"),
             composite_pressure=surface.composite,
             pressure_dimensions=dict(surface.dimensions),
@@ -555,7 +556,7 @@ class OrchestratorV32:
             return
 
         import math
-        now = time.time()
+        now = _now()
         half_lives = {
             AbstractionLevel.EPISODIC:        3_600.0,
             AbstractionLevel.EVENT:          86_400.0,

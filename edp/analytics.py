@@ -23,6 +23,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .temporal import decay, age_days
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 from . import metrics as M
 
 
@@ -41,8 +42,8 @@ def _concept_to_entry(concept) -> dict:
         "prioridade":    "alta" if getattr(concept, "confidence", 0.5) > 0.70 else "media",
         "score_inicial": getattr(concept, "effective_confidence", 0.5),
         "acessos":       getattr(concept, "reinforced", 0),
-        "timestamp":     getattr(concept, "created_at", time.time()),
-        "ultimo_acesso": getattr(concept, "last_seen", time.time()),
+        "timestamp":     getattr(concept, "created_at", _now()),
+        "ultimo_acesso": getattr(concept, "last_seen", _now()),
     }
 
 
@@ -67,7 +68,7 @@ def _semantic_entries(memory_store) -> list:
 def memory_health_report(memory_store) -> dict:
     ep  = memory_store.episodic.entries
     sm  = _semantic_entries(memory_store)  # [FIX-1]
-    now = time.time()
+    now = _now()
 
     decays    = [decay(e.get("ultimo_acesso", now)) for e in ep]
     avg_decay = round(sum(decays) / max(len(decays), 1), 4)
@@ -115,7 +116,7 @@ def _health(avg_decay: float, critical: int, total: int) -> str:
 # ── Distribution ──────────────────────────────────────────────────────────────
 
 def memory_distribution(memory_store) -> dict:
-    now = time.time()
+    now = _now()
 
     def _bucket_age(age: float) -> str:
         if age < 1:   return "<1d"

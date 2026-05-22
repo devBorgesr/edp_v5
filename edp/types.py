@@ -3,8 +3,7 @@ types.py (PATCHED)
 [P-F1] 3 símbolos importados 2× em from .exceptions import:
        PressureSaturationError, ConsolidationCascadeError, RetrievalBudgetExceeded
        Linter silenciava silenciosamente — agora único bloco de import.
-"""
-"""
+
 FRACTAL EDP — CORE TYPE CONTRACTS
 All fundamental data structures. No business logic here.
 Immutable contracts — changes here ripple everywhere.
@@ -17,6 +16,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Dict, FrozenSet, List, Optional, Tuple
 import time
+
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 
 # ==================================================
@@ -98,9 +99,9 @@ class CognitiveNode:
     embedding: Optional[List[float]] = None
 
     # Temporal
-    timestamp: float = field(default_factory=time.time)
-    last_accessed: float = field(default_factory=time.time)
-    last_modified: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=_now)
+    last_accessed: float = field(default_factory=_now)
+    last_modified: float = field(default_factory=_now)
 
     # Source
     source: str = "unknown"
@@ -131,15 +132,15 @@ class CognitiveNode:
 
     def touch(self) -> None:
         """Record access without modifying semantic content."""
-        self.last_accessed = time.time()
+        self.last_accessed = _now()
         self.retrieval_count += 1
 
     def age_seconds(self) -> float:
-        return time.time() - self.timestamp
+        return _now() - self.timestamp
 
     def staleness(self) -> float:
         """How long since last access, normalized."""
-        return time.time() - self.last_accessed
+        return _now() - self.last_accessed
 
     def effective_score(self) -> float:
         """Combined relevance score for retrieval ranking."""
@@ -162,7 +163,7 @@ class CognitiveTick:
     Every significant operation emits a CognitiveTick.
     """
     tick_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=_now)
 
     pressure_delta: float = 0.0
     semantic_load: float = 0.0
@@ -198,7 +199,7 @@ class DecisionEvent:
     """
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: DecisionEventType = DecisionEventType.RETRIEVAL
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=_now)
 
     # Causality
     causes: List[str] = field(default_factory=list)         # decision_event ids
@@ -304,12 +305,12 @@ class SemanticCluster:
     centroid_embedding: Optional[List[float]] = None
     summary_node_id: Optional[str] = None   # points to CognitiveNode at level+1
     local_pressure: float = 0.0
-    created_at: float = field(default_factory=time.time)
-    last_consolidated: float = field(default_factory=time.time)
+    created_at: float = field(default_factory=_now)
+    last_consolidated: float = field(default_factory=_now)
     consolidation_cooldown_until: float = 0.0   # anti-cascade
 
     def is_in_cooldown(self) -> bool:
-        return time.time() < self.consolidation_cooldown_until
+        return _now() < self.consolidation_cooldown_until
 
     def member_count(self) -> int:
         return len(self.node_ids)

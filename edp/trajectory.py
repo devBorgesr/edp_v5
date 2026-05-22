@@ -18,6 +18,8 @@ from typing import List, Dict, Optional
 import logging
 import time as _time
 
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
+
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -90,7 +92,7 @@ def build_trajectory(memory_store) -> dict:
             return _empty_result()
 
         valid.sort(key=lambda x: x["timestamp"])
-        now = _time.time()
+        now = _now()
 
         # ── Folhas: últimas memórias por timestamp ────────────────────
         leaves = []
@@ -203,5 +205,5 @@ def _empty_result() -> dict:
             "last_ts":     None,
             "span_days":   0,
         },
-        "computed_at": _time.time(),
+        "computed_at": _now(),
     }

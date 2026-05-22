@@ -9,6 +9,7 @@ from typing import Optional
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from . import metrics as M
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 MAX_REFLECTION_DEPTH = 3
 REFLECTION_COOLDOWN  = 5.0
@@ -38,7 +39,7 @@ class MetaReasoner:
         global _last_ts, _active
         if self.depth>=MAX_REFLECTION_DEPTH:
             return ReflectionResult(0.5,[],[],0.5,"max depth",{},self.depth,True,"max_depth")
-        now=time.time()
+        now=_now()
         if now-_last_ts<REFLECTION_COOLDOWN:
             return ReflectionResult(0.5,[],[],0.5,"cooldown",{},self.depth,True,"cooldown")
         with _meta_lock:  # [P-F4] atomic check-and-set

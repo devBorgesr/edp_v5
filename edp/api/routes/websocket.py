@@ -32,6 +32,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ...runtime import get_runtime, get_memory, is_valid, get_error
 from ...runtime.pressure_governor import get_governor, PressureLevel
 from ...runtime.inference_queue import get_queue, QueueFull, QueueTimeout
+from ...clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 logger = logging.getLogger("edp.ws")
 
@@ -71,7 +72,7 @@ async def _heartbeat_loop(websocket: WebSocket, session_id: str, stop_event: asy
                 await websocket.send_json({
                     "type": "heartbeat",
                     "seq":  seq,
-                    "ts":   time.time(),
+                    "ts":   _now(),
                 })
             except Exception:
                 # WS já morto — para silenciosamente

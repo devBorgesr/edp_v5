@@ -23,6 +23,8 @@ import re
 import logging
 import time as _time
 
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
+
 logger = logging.getLogger("edp.affective_calibration")
 
 
@@ -348,7 +350,7 @@ def calibrate_affect(
         "distortion":    distortion,
         "instructions":  instructions,
         "any_triggered": len(instructions) > 0,
-        "timestamp":     _time.time(),
+        "timestamp":     _now(),
     }
 
 

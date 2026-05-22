@@ -37,6 +37,7 @@ from .types_v32 import (
     AbstractionLevel, ImmutableCognitiveNode,
     ScoringPolicy, DecisionEvent, DecisionEventType,
 )
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -142,7 +143,7 @@ class SemanticBiodiversityEngine:
         valid = [n for n in nodes if n.embedding is not None and len(n.embedding) > 0]
         if len(valid) < self._cfg.min_nodes_for_analysis:
             report = BiodiversityReport(
-                timestamp=time.time(),
+                timestamp=_now(),
                 n_nodes_analyzed=len(valid),
                 mean_radial_distance=1.0,  # assume diverso se poucos nós
                 global_entropy=1.0,
@@ -198,7 +199,7 @@ class SemanticBiodiversityEngine:
             self._emit_alert(mrd, global_entropy, collapse_detected, dominance_detected)
 
         report = BiodiversityReport(
-            timestamp=time.time(),
+            timestamp=_now(),
             n_nodes_analyzed=len(valid),
             mean_radial_distance=round(mrd, 4),
             global_entropy=round(global_entropy, 4),

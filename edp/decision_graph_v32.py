@@ -29,6 +29,7 @@ from queue import Empty, Full, Queue
 from typing import Callable, DefaultDict, Dict, List, Optional, Set, Tuple
 
 from .types_v32 import DecisionEvent, DecisionEventType
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -304,7 +305,7 @@ class AsyncDecisionGraph:
 
     def _prune(self) -> None:
         """Remove nós antigos além do max_age."""
-        now = time.time()
+        now = _now()
         with self._lock:
             to_remove = [
                 nid for nid, n in self._nodes.items()

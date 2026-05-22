@@ -44,6 +44,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Deque, List, Optional, Dict, Any
 
+from ..clock import now as _now  # Peça 0.2b — relógio interno robusto
+
 logger = logging.getLogger("edp.runtime.contradiction")
 
 
@@ -98,7 +100,7 @@ class ConflictFlag:
     similarity:  float
     text_a:      str
     text_b:      str
-    detected_at: float = field(default_factory=time.time)
+    detected_at: float = field(default_factory=_now)
     reason:      str   = "negation_asymmetry"
 
     # Feedback humano (preenchido após review)
@@ -244,7 +246,7 @@ class ContradictionFlagger:
             return False
 
         # Gera flag_id determinístico (mesma par + ts = mesmo id)
-        ts = time.time()
+        ts = _now()
         flag_id = f"flag_{int(ts)}_{id_a[:6]}_{id_b[:6]}"
 
         flag = ConflictFlag(
@@ -371,7 +373,7 @@ class ContradictionFlagger:
                 return False
 
             target.feedback      = feedback
-            target.feedback_at   = time.time()
+            target.feedback_at   = _now()
             target.feedback_note = note[:500]   # limita tamanho da nota
 
         # Persiste versão atualizada (append, vence pelo flag_id mais recente)
@@ -437,7 +439,7 @@ class ContradictionFlagger:
         fp_sim     = sum(fp_sims) / len(fp_sims) if fp_sims else None
 
         # Idade do mais antigo unreviewed
-        now = time.time()
+        now = _now()
         unreviewed_ages = [
             (now - f.detected_at) / 86400.0
             for f in flags if f.feedback == FlagFeedback.UNREVIEWED

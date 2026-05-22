@@ -26,6 +26,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, List, Optional
 
+from ..clock import now as _now  # Peça 0.2b — relógio interno robusto
+
 logger = logging.getLogger("edp.runtime.retrieval_monitor")
 
 ROLLING_DAYS = 7
@@ -82,7 +84,7 @@ class RetrievalQualityMonitor:
         )
 
     def _current_bucket(self) -> DailyBucket:
-        now = time.time()
+        now = _now()
         day_start = now - (now % SECONDS_PER_DAY)
         if not self.buckets or self.buckets[-1].day_start_ts < day_start:
             self.buckets.append(DailyBucket(day_start_ts=day_start))
@@ -118,7 +120,7 @@ class RetrievalQualityMonitor:
         self._check_warnings()
 
     def _check_warnings(self) -> None:
-        now = time.time()
+        now = _now()
         if now - self._last_warn_ts < self._warn_cooldown:
             return
 

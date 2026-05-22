@@ -27,6 +27,7 @@ from .config import (
     EPISODIC_MEM_SIZE,
     MEMORY_DIR,
 )
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 from . import metrics as M
 
 FORGET_THRESH   = 0.08
@@ -45,7 +46,7 @@ class CognitiveAction:
     target_ids: list
     reason:     str
     priority:   float
-    ts:         float = field(default_factory=time.time)
+    ts:         float = field(default_factory=_now)
 
     def to_dict(self) -> dict:
         return {
@@ -61,7 +62,7 @@ class CognitiveAction:
 class SchedulerReport:
     actions:      List[CognitiveAction]
     entries_eval: int
-    ts:           float = field(default_factory=time.time)
+    ts:           float = field(default_factory=_now)
 
     @property
     def summary(self) -> dict:
@@ -217,7 +218,7 @@ class CognitiveScheduler:
 
     def _forget(self, episodes: list) -> List[CognitiveAction]:
         out: List[CognitiveAction] = []
-        now = time.time()
+        now = _now()
         for i, e in enumerate(episodes):
             eid  = _entry_id(e, str(i))
             dias = (now - e.get("ultimo_acesso", now)) / 86_400.0
@@ -306,7 +307,7 @@ class CognitiveScheduler:
 
         # [FIX-3] funciona com Concept dataclass ou dict
         concept_texts = {_text_of(c)[:60] for c in concepts}
-        now = time.time()
+        now = _now()
         out: List[CognitiveAction] = []
 
         for i, e in enumerate(episodes):
@@ -335,7 +336,7 @@ class CognitiveScheduler:
                     "n_entries":  n,
                     "n_actions":  len(actions),
                     "actions":    [a.to_dict() for a in actions[:10]],
-                    "ts":         time.time(),
+                    "ts":         _now(),
                 }, ensure_ascii=False) + "\n")
         except OSError:
             pass  # [FIX-5] não derruba o pipeline por falha de I/O

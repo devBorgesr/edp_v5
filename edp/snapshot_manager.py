@@ -81,6 +81,7 @@ from .types_v32 import (
     ScoringPolicy,
     DEFAULT_SCORING_POLICY,
 )
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 _T = TypeVar("_T")
 
@@ -184,7 +185,7 @@ class ValidationResult:
     node_integrity_ok:  bool
     corrupted_node_ids: Tuple[str, ...]
     error_message:      Optional[str]
-    validated_at:       float = field(default_factory=time.time)
+    validated_at:       float = field(default_factory=_now)
 
 
 # ==================================================
@@ -309,7 +310,7 @@ class CognitiveGeneration:
             raise RuntimeError(f"Generation {self.generation_id} already frozen")
         self._checksum   = checksum
         self.state       = GenerationState.CURRENT
-        self.promoted_at = time.time()
+        self.promoted_at = _now()
         self._frozen     = True
         self._metadata   = SnapshotMetadata(
             generation_id=self.generation_id,
@@ -948,7 +949,7 @@ class CognitiveSnapshotManager:
         return SnapshotDiff(
             from_generation=old.generation_id,
             to_generation=new.generation_id,
-            promoted_at=new.promoted_at or time.time(),
+            promoted_at=new.promoted_at or _now(),
             added_ids=frozenset(added),
             removed_ids=frozenset(removed),
             modified_ids=frozenset(modified),
@@ -1025,9 +1026,9 @@ class CognitiveSnapshotManager:
             id=d["id"],
             text=d.get("text", ""),
             embedding=tuple(emb) if emb is not None else None,
-            timestamp=d.get("timestamp", time.time()),
-            last_accessed=d.get("last_accessed", time.time()),
-            last_modified=d.get("last_modified", time.time()),
+            timestamp=d.get("timestamp", _now()),
+            last_accessed=d.get("last_accessed", _now()),
+            last_modified=d.get("last_modified", _now()),
             source=d.get("source", "disk"),
             semantic_entropy=d.get("semantic_entropy", 0.0),
             novelty_score=d.get("novelty_score", 1.0),

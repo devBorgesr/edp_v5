@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
+
 
 # ==================================================
 # ENUMERATIONS
@@ -249,7 +251,7 @@ class ImmutableCognitiveNode:
         checksum: Optional[str] = None,
         generation: int = 0,
     ) -> None:
-        now = time.time()
+        now = _now()
         object.__setattr__(self, '_id', id or str(uuid.uuid4()))
         object.__setattr__(self, '_text', text)
         object.__setattr__(self, '_embedding', embedding)
@@ -327,10 +329,10 @@ class ImmutableCognitiveNode:
 
     # ---- Computed ----
     def age_seconds(self) -> float:
-        return time.time() - self._timestamp  # type: ignore
+        return _now() - self._timestamp  # type: ignore
 
     def staleness(self) -> float:
-        return time.time() - self._last_accessed  # type: ignore
+        return _now() - self._last_accessed  # type: ignore
 
     def effective_score(self, policy: ScoringPolicy = DEFAULT_SCORING_POLICY) -> float:
         """Score computed via injected policy. No hardcoded formula."""
@@ -373,7 +375,7 @@ class ImmutableCognitiveNode:
     def with_touch(self) -> "ImmutableCognitiveNode":
         """Return new node with access recorded. Does NOT mutate self."""
         return self._clone(
-            last_accessed=time.time(),
+            last_accessed=_now(),
             retrieval_count=self._retrieval_count + 1,  # type: ignore
             generation=self._generation + 1,  # type: ignore
         )
@@ -451,7 +453,7 @@ class CognitiveTick:
     Weights sum to 1.0. Source: empirical from v3.1 runs.
     """
     tick_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=_now)
 
     pressure_delta: float = 0.0
     semantic_load: float = 0.0
@@ -487,7 +489,7 @@ class DecisionEvent:
     """
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: DecisionEventType = DecisionEventType.RETRIEVAL
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=_now)
 
     causes: Tuple[str, ...] = ()
     affected_nodes: Tuple[str, ...] = ()
@@ -594,15 +596,15 @@ class SemanticCluster:
     centroid_embedding: Optional[Tuple[float, ...]] = None
     summary_node_id: Optional[str] = None
     local_pressure: float = 0.0
-    created_at: float = field(default_factory=time.time)
-    last_consolidated: float = field(default_factory=time.time)
+    created_at: float = field(default_factory=_now)
+    last_consolidated: float = field(default_factory=_now)
     consolidation_cooldown_until: float = 0.0
 
     # Jitter seed assigned at cluster creation — deterministic per cluster
     cooldown_jitter_seed: float = field(default_factory=random.random)
 
     def is_in_cooldown(self) -> bool:
-        return time.time() < self.consolidation_cooldown_until
+        return _now() < self.consolidation_cooldown_until
 
     def set_cooldown(self, base_seconds: float) -> None:
         """
@@ -611,8 +613,8 @@ class SemanticCluster:
         """
         rng = random.Random(self.cooldown_jitter_seed + self.last_consolidated)
         jitter = rng.uniform(0, base_seconds * 0.5)
-        self.consolidation_cooldown_until = time.time() + base_seconds + jitter
-        self.last_consolidated = time.time()
+        self.consolidation_cooldown_until = _now() + base_seconds + jitter
+        self.last_consolidated = _now()
 
     def member_count(self) -> int:
         return len(self.node_ids)

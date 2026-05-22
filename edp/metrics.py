@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from collections import defaultdict
 
 from .config import METRICS_LOG
+from .clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 # estado in-memory do processo atual
 _stats: dict[str, list[float]] = defaultdict(list)
@@ -58,7 +59,7 @@ def semantic_redundancy(score: float) -> None:
 
 def _log(entry: dict) -> None:
     METRICS_LOG.parent.mkdir(parents=True, exist_ok=True)
-    entry["ts"] = time.time()
+    entry["ts"] = _now()
     with open(METRICS_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
