@@ -75,6 +75,12 @@ ORIGINS = (ORIGIN_MEASURED, ORIGIN_REFERENCE)
 # Camada (i)
 FIELD_T_ABSOLUTE = "t_absolute"
 
+# Peça 0.4 (reduzida): sessão do EDP — vitalícia
+# Único ID gerado na primeira ignição, persiste até a morte do usuário.
+# Distinto das sessões do usuário (login/logout, futuro) e do modelo (peça 2).
+FIELD_EDP_SESSION_ID    = "edp_session_id"
+FIELD_EDP_SESSION_START = "edp_session_start"
+
 # Camada (ii)
 FIELD_T_USER_SESSION_START   = "t_user_session_start"
 FIELD_T_USER_TURN_N          = "t_user_turn_n"
@@ -107,6 +113,10 @@ def measured_entry_defaults() -> dict:
 
     Campos t_user_*, t_model_*, gap_cause, gap_resolution ficam None até
     serem preenchidos pela peça 2 (detecção de sessões/contextos/gaps).
+
+    edp_session_id e edp_session_start NÃO entram aqui — são preenchidos
+    em runtime via memory._get_edp_lifetime() porque dependem do estado
+    do EDP, não são defaults estáticos.
 
     gap_before é calculado no momento de add(); aqui só placeholder.
     temporal_unreliable é setado conforme estado do clock no momento.

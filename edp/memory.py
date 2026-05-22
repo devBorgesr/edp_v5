@@ -143,6 +143,50 @@ def _safe_load_json(path):
         return None
 
 
+# ── Peça 0.4 (reduzida): Lifetime state do EDP ────────────────────────────────
+
+def _edp_lifetime_path() -> Path:
+    """Caminho do arquivo que guarda o estado vitalício do EDP."""
+    return MEMORY_DIR / "edp_lifetime.json"
+
+
+def _get_edp_lifetime() -> dict:
+    """
+    Retorna {edp_session_id, edp_session_start} do EDP.
+
+    Se não existir (primeiro entry da vida do EDP): cria, salva, retorna.
+    Esta é a "ignição": acontece UMA vez na vida do EDP, e os valores
+    permanecem constantes até a morte do usuário/EDP.
+
+    Retorno:
+        dict com chaves edp_session_id (str uuid) e edp_session_start (float t_absolute)
+    """
+    path = _edp_lifetime_path()
+
+    # Tenta carregar existente
+    if path.exists():
+        try:
+            data = _safe_load_json(path)
+            if data and "edp_session_id" in data and "edp_session_start" in data:
+                return data
+        except Exception:
+            pass  # Se corrompido, recria abaixo
+
+    # Não existe ou está corrompido: cria agora (ignição)
+    lifetime = {
+        "edp_session_id":    str(uuid.uuid4()),
+        "edp_session_start": _now(),
+    }
+    try:
+        _atomic_write_json(path, lifetime, indent=2)
+    except Exception:
+        # Mesmo se não conseguir persistir, retorna o valor gerado
+        # (próxima chamada vai tentar de novo)
+        pass
+
+    return lifetime
+
+
 def _new_entry(
     text: str,
     score: float,
@@ -165,6 +209,10 @@ def _new_entry(
       embedding_model:  nome do modelo usado
       embedding_version: versão do modelo
     """
+    # Peça 0.4 (reduzida): carrega lifetime do EDP (ignição na primeira chamada)
+    # Carregado ANTES de 'agora' para garantir session_start <= t_absolute do entry
+    _edp_lifetime = _get_edp_lifetime()
+
     agora = _now()
     # Confidence: se não fornecido, deriva do score (clamp 0..1)
     if confidence is None:
@@ -213,6 +261,10 @@ def _new_entry(
         # Camada (i) tempo absoluto: t_absolute redundante com 'timestamp'
         # mas explícito para legibilidade
         _schema.FIELD_T_ABSOLUTE:                agora,
+        # Peça 0.4 (reduzida): sessão do EDP — vitalícia
+        # Carregada uma vez na ignição, constante até a morte
+        _schema.FIELD_EDP_SESSION_ID:            _edp_lifetime["edp_session_id"],
+        _schema.FIELD_EDP_SESSION_START:         _edp_lifetime["edp_session_start"],
         # Camada (ii) tempo vivencial: campos esqueleto, preenchidos em 0.4
         _schema.FIELD_T_USER_SESSION_START:      None,
         _schema.FIELD_T_USER_TURN_N:             None,
