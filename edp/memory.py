@@ -18,6 +18,7 @@ PATCHES APLICADOS:
 """
 import json
 import math
+import os
 import threading
 import time
 import uuid
@@ -53,6 +54,94 @@ def _deserialize(entries: list[dict]) -> list[dict]:
         if "embedding" in e and isinstance(e["embedding"], list):
             e["embedding"] = np.array(e["embedding"], dtype=np.float32)
     return entries
+
+
+# ── Peça 0.3.1: Write atômico e load tolerante ────────────────────────────────
+
+def _atomic_write_json(path, data, *, indent: int = 2) -> None:
+    """
+    Grava JSON de forma atômica: tmp → fsync → rename.
+
+    Se processo for interrompido no meio da gravação, o arquivo original
+    fica intacto (apenas o .tmp pode estar parcial). Próximo boot lê o
+    original sem corrupção.
+
+    Robusto em POSIX e Windows (os.replace é atômico em ambos).
+
+    Args:
+        path: caminho do arquivo final
+        data: dado serializável em JSON
+        indent: indentação do JSON
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+
+    # 1. Escreve no .tmp
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=indent)
+        f.flush()
+        try:
+            # 2. Força sincronização com disco (não só buffer do OS)
+            os.fsync(f.fileno())
+        except (OSError, AttributeError):
+            # Alguns FS não suportam fsync; segue mesmo assim
+            pass
+
+    # 3. Replace atômico — substitui o destino numa operação só
+    os.replace(tmp, path)
+
+
+def _safe_load_json(path):
+    """
+    Carrega JSON tolerando corrupção por write parcial.
+
+    Estratégia:
+      1. Tenta json.load() normal
+      2. Se falhar com 'Extra data' (dados depois do JSON válido):
+         tenta recuperar a parte válida procurando último ']' fechado
+      3. Se ainda falhar, retorna None (caller decide se inicia vazio)
+
+    NÃO modifica o arquivo automaticamente; apenas retorna o conteúdo
+    recuperado para o caller decidir o que fazer.
+
+    Returns:
+        dados (list/dict) ou None se irrecuperável
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        # Tenta recuperar JSON válido cortando lixo depois do último ']' ou '}'
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Busca último fecha-array/fecha-objeto que parsing bem
+            for cut in range(len(content), 0, -1):
+                if content[cut-1] in "]}":
+                    candidate = content[:cut]
+                    try:
+                        data = json.loads(candidate)
+                        # Conseguiu recuperar
+                        import logging
+                        logger = logging.getLogger("edp.memory")
+                        logger.warning(
+                            "[memory] JSON corrompido em %s recuperado por truncamento "
+                            "(perdeu %d bytes de lixo: %r)",
+                            path, len(content) - cut, content[cut:cut+50]
+                        )
+                        return data
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+
+        # Não recuperou — re-raise o erro original
+        raise
+    except FileNotFoundError:
+        return None
+
 
 def _new_entry(
     text: str,
@@ -197,14 +286,16 @@ class EpisodicMemory:
 
     def _load(self) -> None:
         if self.path.exists():
-            with open(self.path, "r", encoding="utf-8") as f:
-                self.entries = _deserialize(json.load(f))
+            # Peça 0.3.1: usa _safe_load_json que tolera JSON corrompido por write parcial
+            data = _safe_load_json(self.path)
+            if data is not None:
+                self.entries = _deserialize(data)
 
     def save(self) -> None:
         # [P8] Lock garante que writes concorrentes não corrompem o JSON
+        # Peça 0.3.1: write atômico via tmp + fsync + rename
         with self._lock:
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(_serialize(self.entries), f, ensure_ascii=False, indent=2)
+            _atomic_write_json(self.path, _serialize(self.entries))
 
     def add(self, entry: dict) -> None:
         entry = dict(entry)
@@ -588,14 +679,16 @@ class SemanticMemory:
 
     def _load(self) -> None:
         if self.path.exists():
-            with open(self.path, "r", encoding="utf-8") as f:
-                self.entries = _deserialize(json.load(f))
+            # Peça 0.3.1: usa _safe_load_json
+            data = _safe_load_json(self.path)
+            if data is not None:
+                self.entries = _deserialize(data)
         self._cache_dirty = True
 
     def save(self) -> None:
+        # Peça 0.3.1: write atômico
         with self._lock:
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(_serialize(self.entries), f, ensure_ascii=False, indent=2)
+            _atomic_write_json(self.path, _serialize(self.entries))
 
     def promote(self, entry: dict) -> None:
         """Promove uma entrada episódica para memória semântica."""
