@@ -81,6 +81,11 @@ FIELD_T_ABSOLUTE = "t_absolute"
 FIELD_EDP_SESSION_ID    = "edp_session_id"
 FIELD_EDP_SESSION_START = "edp_session_start"
 
+# Peça 2.0: vinculação a bloco
+# Bloco é a unidade real de validação. Entry novo é vinculado ao bloco aberto
+# atual. Entries antigos (pré-fresh-start) ficam sem block_id (None).
+FIELD_BLOCK_ID = "block_id"
+
 # Camada (ii)
 FIELD_T_USER_SESSION_START   = "t_user_session_start"
 FIELD_T_USER_TURN_N          = "t_user_turn_n"

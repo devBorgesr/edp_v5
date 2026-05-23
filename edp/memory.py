@@ -265,6 +265,8 @@ def _new_entry(
         # Carregada uma vez na ignição, constante até a morte
         _schema.FIELD_EDP_SESSION_ID:            _edp_lifetime["edp_session_id"],
         _schema.FIELD_EDP_SESSION_START:         _edp_lifetime["edp_session_start"],
+        # Peça 2.0: bloco — preenchido em MemoryStore.add via link_entry_to_active_block
+        _schema.FIELD_BLOCK_ID:                  None,
         # Camada (ii) tempo vivencial: campos esqueleto, preenchidos em 0.4
         _schema.FIELD_T_USER_SESSION_START:      None,
         _schema.FIELD_T_USER_TURN_N:             None,
@@ -840,9 +842,14 @@ class MemoryStore:
         self.episodic    = EpisodicMemory(session_id)
         self.semantic    = SemanticMemory(session_id)
 
+        # Peça 2.0: BlockManager — gerencia blocos da sessão
+        from .blocks import BlockManager
+        self.blocks      = BlockManager(session_id, MEMORY_DIR)
+
         print(
             f"[Memory] Sessão '{session_id}' carregada "
-            f"(episódica={len(self.episodic)} | semântica={len(self.semantic)})"
+            f"(episódica={len(self.episodic)} | semântica={len(self.semantic)} "
+            f"| blocos={len(self.blocks.blocks)})"
         )
 
     # ── v2-compat ──────────────────────────────────────────────────────────────
@@ -911,6 +918,22 @@ class MemoryStore:
                     if prev_ts and prev_ts < cur_ts:
                         entry[_schema.FIELD_GAP_BEFORE] = float(cur_ts - prev_ts)
         except Exception:
+            pass
+
+        # ── Peça 2.0: vincula entry ao bloco aberto atual ──────────────────
+        # Apenas para entries 'measured' — entries 'reference' (peça 4) ficam
+        # sem block_id (são histórico importado, não conversa viva).
+        try:
+            if entry.get(_schema.FIELD_ORIGIN, _schema.ORIGIN_MEASURED) == _schema.ORIGIN_MEASURED:
+                edp_sid = entry.get(_schema.FIELD_EDP_SESSION_ID)
+                if edp_sid:
+                    block_id = self.blocks.link_entry_to_active_block(
+                        entry_id=entry["id"],
+                        edp_session_id=edp_sid,
+                    )
+                    entry[_schema.FIELD_BLOCK_ID] = block_id
+        except Exception:
+            # Tolerância: falha de bloco não bloqueia gravação
             pass
 
         if to_working:
