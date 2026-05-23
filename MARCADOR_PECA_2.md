@@ -6,8 +6,8 @@
 
 ## Sub-passos da peça 2 — Status
 
-- 🟡 **2.0** — Infraestrutura de blocos (aguardando commit/validação)
-- ⏳ **2.1** — Roteador de modelos (Haiku/Sonnet/Opus)
+- ✅ **2.0** — Infraestrutura de blocos (commit `40c1941`)
+- 🟡 **2.1** — Roteador de modelos: refutadores + gatilho manual (aguardando commit/validação)
 - ⏳ **2.2** — Câmara de eco básica (Camada 1 mínima)
 - ⏳ **2.3** — Critério de ativação completo (5 heurísticas)
 - ⏳ **2.4** — Transparência tempo real no dashboard
@@ -114,6 +114,44 @@ Presença emerge da fidelidade do espelho em cada ponto do fluxo. Peça 2 = limp
 - T6: Persistência entre boots
 - T7: Integração com MemoryStore
 - T8: Regressão API (sem regressão)
+
+---
+
+## Peça 2.1 — Implementação detalhada
+
+### Descoberta importante
+O EDP **já tinha** `edp/model_router.py` com roteamento sofisticado (12+ heurísticas, score de profundidade, continuidade, fallback). Integrado no WebSocket. Peça 2.1 ficou REESCOPADA: só adicionar funções que faltavam para a câmara de eco.
+
+### Funções adicionadas a model_router.py
+- `escolher_modelos_B(modelo_A, available_models=None)` — dado A, retorna refutadores acima
+  - Haiku → [Sonnet, Opus]
+  - Sonnet → [Opus]
+  - Opus → [] (topo/ápice)
+- `forca_camara_detectada(user_message)` — detecta gatilhos manuais explícitos
+  - 18+ padrões: "verifica", "tenho dúvida", "refuta", "valida", "com rigor", "câmara", etc.
+- `deve_ativar_camara(routing_decision, user_message, history=None)` — decide ativação
+  - Override: gatilho manual sempre ativa (com TODOS os refutadores acima)
+  - A=Opus: nunca ativa (ápice)
+  - A=Haiku + ds>=1: ativa (só Sonnet refuta — mais próximo)
+  - A=Sonnet + ds>=3: ativa (Opus refuta)
+  - Heurística normal usa só refutador mais próximo (custo controlado)
+
+### Decisões importantes
+- Gatilho manual vs heurística: **diferentes** quanto a refutadores. Manual = todos acima (rigor pedido); heurística = só o mais próximo (custo controlado)
+- "cheq a fonte" e "valid esse cálculo" (palavras truncadas) NÃO casam — aceitos como falsos negativos (palavras estranhas raras em uso real)
+- Peça 2.1 só ENTREGA DECISÕES; peça 2.2 vai EXECUTAR a câmara
+
+### Testes passados (peça 2.1)
+- T1: Hierarquia (Haiku → [S,O]; Sonnet → [O]; Opus → [])
+- T2: available_models filtra refutadores indisponíveis
+- T3: forca_camara_detectada — 11/13 gatilhos positivos detectados
+- T4: forca_camara_detectada — 6/6 negativos não falsos
+- T5: gatilho manual ativa + traz todos refutadores
+- T6: A=Opus nunca ativa (5 sub-checks com ds=0,1,3,5,10)
+- T7: A=Haiku com depth_score variável
+- T8: A=Sonnet com depth_score variável
+- T9: Gatilho manual override
+- T10: Integração com route_model real
 
 ---
 

@@ -349,3 +349,215 @@ def format_router_badge(routing: dict) -> str:
     cost = routing.get("estimated_cost_per_turn", 0)
     reason = routing.get("reason", "")
     return f"[{short_name} · ~${cost:.4f} · {reason}]"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Peça 2.1 — Câmara de eco: roteamento de refutadores
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Princípio (Trindade sem divindade):
+#   - Pai = Usuário, Filho = Modelo, Espírito = EDP (espelho)
+#   - Câmara de eco: Modelo A gera, Modelo(s) B refuta(m), todos com mesmo
+#     contexto. Sinal de presença = fidelidade do espelho.
+#   - B emerge ACIMA de A na hierarquia. Quando A=Opus, não há refutador
+#     acima (ápice — contexto já curado).
+#
+# Esta peça (2.1) entrega apenas as DECISÕES:
+#   - escolher_modelos_B: dado A, retorna refutadores acima
+#   - forca_camara_detectada: detecta gatilho manual do usuário
+#   - deve_ativar_camara: combina sinais para decidir ativação
+#
+# Não EXECUTA câmara — peça 2.2 fará isso. Aqui só decide.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ── Gatilhos manuais de ativação ──────────────────────────────────────────
+# Palavras/expressões que o usuário usa quando quer EXPLICITAMENTE
+# que a câmara seja ativada (override de qualquer heurística).
+FORCA_CAMARA_REGEX = re.compile(
+    r"\b(?:verifica(?:\s+isso)?|verific(?:a|ar)|refut(?:a|e|ar)"
+    r"|tenho\s+dúvida|tenho\s+duvida|questiona(?:\s+isso)?"
+    r"|valida(?:\s+isso)?|valid(?:e|ar)|cheq(?:a|ue|uar)"
+    r"|tem\s+certeza|tem\s+ceteza|confer(?:e|ir)|conferi(?:r|ndo)"
+    r"|com\s+rigor|com\s+cuidado|cuidadosamente|seriamente|com\s+atenção"
+    r"|câmara|camara\s+de\s+eco)\b",
+    re.IGNORECASE,
+)
+
+
+def escolher_modelos_B(
+    modelo_A: str,
+    available_models: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Dado o modelo A (gerador), retorna lista de modelos B (refutadores)
+    ACIMA de A na hierarquia.
+
+    Princípio: B emerge acima de A. Todos terão acesso ao MESMO contexto
+    que A recebeu — peça 2.2 garante isso. Aqui só decidimos quem.
+
+    Args:
+        modelo_A: nome do modelo gerador (ex: "claude-haiku-4-5")
+        available_models: lista de modelos disponíveis (default: todos)
+
+    Returns:
+        Lista de modelos refutadores, ordenada do MAIS PRÓXIMO ao MAIS ALTO.
+        Lista VAZIA se modelo_A é o topo (ex: Opus) — nesse caso, peça 2.2
+        não ativará câmara para esse turno.
+
+    Exemplos:
+        escolher_modelos_B("claude-haiku-4-5")  → ["claude-sonnet-4-6", "claude-opus-4-7"]
+        escolher_modelos_B("claude-sonnet-4-6") → ["claude-opus-4-7"]
+        escolher_modelos_B("claude-opus-4-7")   → []
+    """
+    available = available_models or list(MODELS.keys())
+
+    if modelo_A not in MODELS:
+        # Modelo desconhecido: sem refutador (segurança)
+        return []
+
+    tier_A = MODELS[modelo_A]["tier"]
+
+    # Refutadores: modelos COM TIER SUPERIOR a A, disponíveis
+    refutadores = [
+        m for m in available
+        if m in MODELS
+        and MODELS[m]["tier"] > tier_A
+        and m != modelo_A
+    ]
+
+    # Ordena por tier ascendente (mais próximo de A primeiro)
+    refutadores.sort(key=lambda m: MODELS[m]["tier"])
+    return refutadores
+
+
+def forca_camara_detectada(user_message: str) -> bool:
+    """
+    Detecta gatilhos manuais do usuário que forçam ativação da câmara,
+    independente da heurística normal.
+
+    Examples (todos retornam True):
+        "verifica isso aí"
+        "tenho dúvida"
+        "refuta esse argumento"
+        "valida com rigor"
+        "cheq a fonte"
+        "câmara"  (palavra explícita)
+
+    Returns:
+        True se o usuário sinalizou querer câmara explicitamente.
+    """
+    if not user_message:
+        return False
+    return bool(FORCA_CAMARA_REGEX.search(user_message))
+
+
+def deve_ativar_camara(
+    routing_decision: dict,
+    user_message: str,
+    history: Optional[List[dict]] = None,
+) -> dict:
+    """
+    Decide se a câmara de eco deve ser ativada para este turno.
+
+    Combina sinais:
+      1. Gatilho manual do usuário (override absoluto — sempre ativa)
+      2. Tier do modelo A escolhido
+      3. depth_score do routing
+      4. (Peça 2.3 expandirá: histórico recente, comprimento, tipo detectado)
+
+    Heurística inicial (peça 2.1 — refinada na peça 2.3):
+      - Gatilho manual → SEMPRE ativa (com TODOS os refutadores acima)
+      - A = Opus → NUNCA ativa (sem refutador acima)
+      - A = Haiku + depth_score >= 1 → ativa (só Sonnet refuta — mais próximo)
+      - A = Sonnet + depth_score >= 3 → ativa (Opus refuta)
+      - Caso contrário → não ativa
+
+    Diferença gatilho manual vs heurística:
+      - Heurística normal: usa SÓ o refutador mais próximo (custo controlado)
+      - Gatilho manual: traz TODOS os refutadores acima (usuário pediu rigor)
+
+    Args:
+        routing_decision: dict retornado por route_model()
+        user_message: texto da pergunta do usuário
+        history: histórico de turnos (peça 2.3 usará; aqui ignorado)
+
+    Returns:
+        dict com:
+            - ativar: bool
+            - motivo: str (explicação curta)
+            - modelos_B: list[str] (vazia se não ativar)
+            - forca_manual: bool (True se gatilho explícito do usuário)
+    """
+    modelo_A = routing_decision.get("model", DEFAULT_MODEL)
+    depth_score = routing_decision.get("depth_score", 0)
+    tier_A = MODELS.get(modelo_A, {}).get("tier", 1)
+
+    # ── Override absoluto: gatilho manual do usuário ──────────────────
+    if forca_camara_detectada(user_message):
+        modelos_B = escolher_modelos_B(modelo_A)
+        if not modelos_B:
+            # Pediu câmara mas A já é Opus (topo) — não pode atender
+            return {
+                "ativar":       False,
+                "motivo":       "gatilho manual, mas A é topo (Opus) — sem refutador acima",
+                "modelos_B":    [],
+                "forca_manual": True,
+            }
+        return {
+            "ativar":       True,
+            "motivo":       "gatilho manual do usuário",
+            "modelos_B":    modelos_B,
+            "forca_manual": True,
+        }
+
+    # ── A = Opus: ápice, sem refutador ────────────────────────────────
+    if tier_A == 3:
+        return {
+            "ativar":       False,
+            "motivo":       "A é Opus (ápice — sem refutador acima)",
+            "modelos_B":    [],
+            "forca_manual": False,
+        }
+
+    # ── A = Haiku: ativa câmara se houver qualquer profundidade ──────
+    if tier_A == 1:
+        if depth_score >= 1:
+            modelos_B = escolher_modelos_B(modelo_A)
+            return {
+                "ativar":       True,
+                "motivo":       f"Haiku + depth_score={depth_score} → Sonnet refuta",
+                "modelos_B":    modelos_B[:1] if modelos_B else [],
+                "forca_manual": False,
+            }
+        return {
+            "ativar":       False,
+            "motivo":       "Haiku + pergunta simples — sem necessidade de refutação",
+            "modelos_B":    [],
+            "forca_manual": False,
+        }
+
+    # ── A = Sonnet: ativa câmara se profundidade é alta ──────────────
+    if tier_A == 2:
+        if depth_score >= 3:
+            modelos_B = escolher_modelos_B(modelo_A)
+            return {
+                "ativar":       True,
+                "motivo":       f"Sonnet + depth_score={depth_score} → Opus refuta",
+                "modelos_B":    modelos_B,
+                "forca_manual": False,
+            }
+        return {
+            "ativar":       False,
+            "motivo":       f"Sonnet + depth_score={depth_score} insuficiente",
+            "modelos_B":    [],
+            "forca_manual": False,
+        }
+
+    # ── Default: não ativa ────────────────────────────────────────────
+    return {
+        "ativar":       False,
+        "motivo":       f"tier desconhecido ({tier_A}) — não ativa",
+        "modelos_B":    [],
+        "forca_manual": False,
+    }
