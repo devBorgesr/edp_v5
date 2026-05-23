@@ -127,6 +127,21 @@ Validável só construindo e observando.
 
 5. **CRÍTICA — Autenticação multi-usuário:** atualmente single-user, sem autenticação. Quando for compartilhar EDP com outros usuários, é trabalho de prioridade máxima.
 
+6. **Janela de inconsistência memória/disco entre boot e primeiro save:**
+   Quando `_safe_load_json` recupera JSON corrompido no boot, o arquivo no
+   disco continua com o lixo até o primeiro batch save acontecer (que pode
+   demorar dependendo do uso). Nessa janela, se o servidor crashar, adições
+   em memória se perdem e o disco volta a ser fonte de verdade com lixo.
+
+   Mitigação possível (não urgente): forçar flush imediato após boot
+   quando `_safe_load_json` detectar recuperação.
+
+   Observado em produção: 2026-05-22 ~19:46 BRT, durante validação Check 6.
+   Reproduzível: usuário adicionou lixo manual no JSON com Add-Content,
+   servidor subiu, `_safe_load_json` recuperou 4 entries em memória, mas
+   o disco continuou com o lixo até o primeiro save subsequente (forçado
+   por mensagem nova no chat, ~17 minutos depois). Não bloqueia uso normal.
+
 ---
 
 ## Princípio operacional sustentado
