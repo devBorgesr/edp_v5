@@ -142,6 +142,25 @@ Validável só construindo e observando.
    o disco continuou com o lixo até o primeiro save subsequente (forçado
    por mensagem nova no chat, ~17 minutos depois). Não bloqueia uso normal.
 
+7. **sentence-transformers exige internet em primeira instanciação por processo:**
+   Quando um processo Python instancia `MemoryStore` pela primeira vez sem
+   internet, o `sentence-transformers` tenta verificar metadados do modelo
+   no HuggingFace mesmo quando o modelo já está em cache local. Sem rede,
+   falha com `getaddrinfo failed` e `RuntimeError: Cannot send a request,
+   as the client has been closed.`
+
+   No servidor (`python run.py serve`) NÃO acontece porque o pré-carregamento
+   ocorre durante o boot, normalmente quando há internet. Mas scripts
+   standalone que rodam offline desde o início falham.
+
+   Mitigação possível (não urgente):
+   - Passar `local_files_only=True` para `SentenceTransformer()` quando
+     houver cache local
+   - Ou tratar erro de rede no pré-carregamento e seguir com cache local
+
+   Observado em produção: 2026-05-23 ~08:18 BRT, durante validação Test 7
+   (segunda tentativa offline real). Não afeta uso normal do servidor.
+
 ---
 
 ## Princípio operacional sustentado
