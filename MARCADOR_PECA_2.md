@@ -9,8 +9,8 @@
 - ✅ **2.0** — Infraestrutura de blocos (commit `40c1941`)
 - ✅ **2.1** — Roteador de modelos: refutadores + gatilho manual (commit `9841214`)
 - ✅ **2.2** — Câmara de eco básica backend (commit `086236b`)
-- ⏳ **2.3** — Critério de ativação completo (5 heurísticas)
-- ⏳ **2.4** — Transparência tempo real no dashboard (integra 2.2 em produção)
+- 🟡 **2.3** — Critério de ativação por auto-sinal (REESCOPADA — aguardando commit)
+- ⏳ **2.4** — Transparência tempo real no dashboard (integra 2.2 + 2.3 em produção)
 - ⏳ **2.5** — Verificação humana (Camada 2)
 - ⏳ **2.6** — Fechamento de bloco (heurísticas automáticas)
 - ⏳ **2.7** — Retrieval respeitando blocos *(tensão com 2.8 — pode se fundir)*
@@ -211,6 +211,88 @@ resultado = chamber.executar(
 - T6: A já está limpo (B diz "não necessário") — só 2 chamadas, A vence
 - T7: Fallback gracioso quando B falha
 - T8: Persistência entre boots
+
+---
+
+## Peça 2.3 — Critério de ativação por AUTO-SINAL (REESCOPADA — articulada em 2026-05-24)
+
+### Princípio (articulado pelo usuário)
+
+> "Uma boa forma de ativar a câmara é quando um modelo instruído diz 'essa
+> pergunta eu não consigo responder com confiança, seria especulação minha.'
+> Então ativa a câmara de eco e um modelo melhor analisa o que o modelo A
+> gerou e reformula."
+
+> "A câmara é exclusivamente para validar perguntas e questões difíceis,
+> logo não é uma utilidade para pesquisas comuns. Ela é exclusiva."
+
+**Inversão de paradigma:** câmara não é **decidida externamente** pelo EDP
+analisando a pergunta. É **acionada internamente** quando o próprio modelo A
+admite que está beirando especulação. EDP-Espírito ouve a admissão e
+providencia o refinamento.
+
+### Decisões fixadas
+
+- **Sinalização vem da instrução, não de regex externo** — modelo A é
+  instruído (na Camada 3 da janela 2.8, parte imutável) a ser honesto e
+  transparente sobre dificuldades
+- **5 heurísticas combinadas da proposta original DESCARTADAS** —
+  substituídas pelo critério "auto-sinal do modelo"
+- **Streaming continua normal** — UI mostra "reformulando a resposta"
+  quando câmara ativa (implementação visual em peça 2.4)
+- **Heurísticas externas viram rede de segurança opcional** — parâmetro
+  `usar_heuristica_legada=False` por default
+
+### Arquivos modificados
+
+- `edp/echo_chamber.py`:
+  - `CETICISMO_DEFAULT` refinado: agora inclui HONESTIDADE + transparência
+    radical sobre limites
+  - Frases padronizadas para admissão de limite:
+    - "Não consigo responder isso com confiança — seria especulação minha."
+    - "Não tenho base sólida para afirmar isso."
+    - "Isso está além do que posso afirmar com honestidade."
+  - Nova função `detectar_auto_sinal_de_limite(texto)` — retorna
+    `{detectado, trecho, confianca}` onde confiança é "alta" (frase padrão)
+    ou "media" (variação natural)
+- `edp/model_router.py`:
+  - `deve_ativar_camara` reescrita com nova prioridade:
+    1. Gatilho manual (override absoluto)
+    2. Auto-sinal de A → ativa
+    3. A=Opus → nunca ativa (sem refutador acima)
+    4. Heurística legada (apenas se `usar_heuristica_legada=True`)
+  - Novo retorno: campo `via_auto_sinal` (bool) para rastrear como ativou
+
+### Testes passados (peça 2.3) — 11 testes, 39 sub-checks
+
+- T1: CETICISMO_DEFAULT refinado com HONESTIDADE e frases padrão
+- T2: detector — 5 frases padrão detectadas como "alta confiança"
+- T3: detector — 3 variações naturais detectadas como "média"
+- T4: detector — 7 negativos não falsos
+- T5: sem auto-sinal e sem manual → não ativa (mesmo com ds=10)
+- T6: auto-sinal de Haiku → ativa Sonnet (modelo mais próximo)
+- T7: auto-sinal de Sonnet → ativa Opus
+- T8: Opus admite limite → registra mas não ativa (sem refutador acima)
+- T9: gatilho manual override > auto-sinal (manual ganha)
+- T10: heurística legada funciona quando `usar_heuristica_legada=True`
+- T11: regressão peça 2.1 (escolher_modelos_B, forca_camara_detectada)
+
+### Fluxo final da câmara (após peça 2.3)
+
+```
+1. EDP recebe pergunta do usuário
+2. EDP envia para modelo A (Haiku por default, escala se router escolher)
+3. A gera resposta seguindo CETICISMO_DEFAULT (ceticismo + honestidade)
+4. detectar_auto_sinal_de_limite(resposta_A) → se detectado:
+   a. EDP ativa câmara
+   b. Modelo B (acima de A) recebe contexto + texto_A + 7 checks
+   c. B refuta + reformula
+   d. A avalia reformulação de B
+   e. Vencedor vai para usuário com tag "reformulado"
+5. Senão (sem auto-sinal): resposta de A vai direto para usuário
+```
+
+A câmara fica **reativa**, não preditiva. EDP confia no Filho instruído.
 
 ---
 

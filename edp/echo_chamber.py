@@ -38,12 +38,110 @@ logger = logging.getLogger("edp.echo_chamber")
 # ─────────────────────────────────────────────────────────────────────
 
 # Prompt fixo de ceticismo (sempre injetado em A e B)
+#
+# Peça 2.3: refinado para incluir honestidade + transparência sobre dificuldade.
+# Quando o modelo reconhece que uma resposta beira especulação, ele DEVE
+# admitir explicitamente em vez de fabricar resposta confiante. O EDP detecta
+# léxicamente essa admissão e ativa câmara de eco (modelo B reformula).
+#
+# Princípio (Trindade): Filho instruído opera com ceticismo → admite limite →
+# Espírito ouve admissão → ativa câmara → B refina. EDP-Espírito não julga
+# "isso é confabulação?", apenas reflete a instrução fielmente e responde ao
+# sinal interno do Filho.
 CETICISMO_DEFAULT = """\
-Importante: opere com ceticismo honesto. Não infle avaliações ("ótima pergunta", \
-"isso é fascinante"). Não projete sobre o usuário sem dado. Não force completude \
-quando deveria pausar. Marque claramente o que sabe vs o que chuta. Estruture só \
-quando a estrutura realmente ajuda — prosa contínua é frequentemente melhor.
+Importante: opere com ceticismo honesto e transparência radical.
+
+CETICISMO — sobre o que recebe:
+- Não infle avaliações ("ótima pergunta", "isso é fascinante")
+- Não projete sobre o usuário sem dado
+- Não force completude quando deveria pausar
+- Estruture só quando a estrutura realmente ajuda — prosa contínua é frequentemente melhor
+
+HONESTIDADE — sobre o que entrega:
+- Marque claramente o que você SABE vs o que está chutando
+- Quando não tem base sólida para responder com confiança, ADMITA IMEDIATAMENTE
+- Frases naturais para admitir limite são essas (use exatamente uma delas):
+  • "Não consigo responder isso com confiança — seria especulação minha."
+  • "Não tenho base sólida para afirmar isso."
+  • "Isso está além do que posso afirmar com honestidade."
+- Após admitir, pare. Não tente uma resposta especulativa "por via das dúvidas".
+- O EDP detectará sua admissão e consultará outro modelo mais capaz para refinar.
+
+A honestidade sobre seus limites é mais valiosa que qualquer resposta fabricada.
 """
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Peça 2.3: detecção de auto-sinal de limite
+# ─────────────────────────────────────────────────────────────────────
+#
+# Quando o modelo A admite que não consegue responder com confiança, ele usa
+# uma das frases padronizadas no CETICISMO_DEFAULT. Este detector identifica
+# a admissão e sinaliza ativação da câmara.
+#
+# Não é filtro: é GATILHO. O EDP não decide "isso é confabulação" — apenas
+# detecta quando o próprio modelo já disse "não consigo".
+
+import re as _re
+
+AUTO_SINAL_LIMITE_REGEX = _re.compile(
+    # Frases padronizadas (alta confiança)
+    r"(?:n[ãa]o\s+consigo\s+responder\s+(?:isso|essa)\s+com\s+confian[çc]a"
+    r"|n[ãa]o\s+tenho\s+base\s+s[óo]lida\s+para\s+afirmar"
+    r"|isso\s+est[áa]\s+al[ée]m\s+do\s+que\s+posso\s+afirmar\s+com\s+honestidade"
+    # Variações naturais (média confiança — modelo pode parafrasear)
+    r"|seria\s+especula[çc][ãa]o\s+(?:minha|de\s+minha\s+parte)"
+    r"|n[ãa]o\s+consigo\s+(?:afirmar|garantir)\s+(?:isso|essa)\s+com\s+confian[çc]a"
+    r"|n[ãa]o\s+tenho\s+(?:dados|informa[çc][ãa]o|base)\s+suficiente"
+    r"|al[ée]m\s+do\s+que\s+posso\s+(?:afirmar|responder)\s+com\s+honestidade"
+    r")",
+    _re.IGNORECASE,
+)
+
+
+def detectar_auto_sinal_de_limite(texto: str) -> dict:
+    """
+    Detecta se o modelo A admitiu limite na resposta gerada.
+
+    Resultado dispara câmara de eco — modelo B mais capaz reformula.
+
+    Args:
+        texto: resposta gerada por A (pode ser texto completo ou primeiros chunks)
+
+    Returns:
+        dict com:
+            - detectado: bool
+            - trecho: str — trecho exato detectado (ou "" se nada)
+            - confianca: "alta" | "media" | None
+              alta = frase padronizada exata do CETICISMO_DEFAULT
+              media = variação natural que ainda denota admissão
+    """
+    if not texto:
+        return {"detectado": False, "trecho": "", "confianca": None}
+
+    match = AUTO_SINAL_LIMITE_REGEX.search(texto)
+    if not match:
+        return {"detectado": False, "trecho": "", "confianca": None}
+
+    trecho = match.group(0)
+    trecho_lower = trecho.lower()
+
+    # Classifica confiança da detecção
+    frases_alta = [
+        "não consigo responder",
+        "nao consigo responder",
+        "não tenho base sólida",
+        "nao tenho base solida",
+        "além do que posso afirmar com honestidade",
+        "alem do que posso afirmar com honestidade",
+    ]
+    confianca = "alta" if any(f in trecho_lower for f in frases_alta) else "media"
+
+    return {
+        "detectado": True,
+        "trecho":    trecho,
+        "confianca": confianca,
+    }
 
 
 def _construir_prompt_B(

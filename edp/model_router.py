@@ -456,31 +456,42 @@ def deve_ativar_camara(
     routing_decision: dict,
     user_message: str,
     history: Optional[List[dict]] = None,
+    auto_sinal_de_A: Optional[dict] = None,
+    usar_heuristica_legada: bool = False,
 ) -> dict:
     """
-    Decide se a câmara de eco deve ser ativada para este turno.
+    Decide se a câmara de eco deve ser ativada.
 
-    Combina sinais:
-      1. Gatilho manual do usuário (override absoluto — sempre ativa)
-      2. Tier do modelo A escolhido
-      3. depth_score do routing
-      4. (Peça 2.3 expandirá: histórico recente, comprimento, tipo detectado)
+    PEÇA 2.3 — ATIVAÇÃO POR AUTO-SINAL DO MODELO (não por heurísticas externas)
 
-    Heurística inicial (peça 2.1 — refinada na peça 2.3):
-      - Gatilho manual → SEMPRE ativa (com TODOS os refutadores acima)
-      - A = Opus → NUNCA ativa (sem refutador acima)
-      - A = Haiku + depth_score >= 1 → ativa (só Sonnet refuta — mais próximo)
-      - A = Sonnet + depth_score >= 3 → ativa (Opus refuta)
-      - Caso contrário → não ativa
+    Princípio (articulado pelo usuário 2026-05-24):
+      "Uma boa forma de ativar a câmara é quando um modelo instruído diz
+       'essa pergunta eu não consigo responder com confiança, seria
+       especulação minha'. Então ativa a câmara e um modelo melhor analisa
+       o que o modelo A gerou e reformula."
 
-    Diferença gatilho manual vs heurística:
-      - Heurística normal: usa SÓ o refutador mais próximo (custo controlado)
-      - Gatilho manual: traz TODOS os refutadores acima (usuário pediu rigor)
+    Câmara é EXCLUSIVA, não rotineira. Não é "verificação extra que liga
+    sempre". É reservada para questões difíceis onde a presença real
+    importa. O Filho instruído (Camada 3 da janela com ceticismo +
+    honestidade) RECONHECE quando está beirando especulação e admite.
+    EDP-Espírito ouve a admissão e providencia o refinamento.
+
+    Critério (em ordem de prioridade):
+      1. Gatilho manual do usuário → SEMPRE ativa (override absoluto)
+      2. Auto-sinal de A (modelo admitiu limite) → ativa
+      3. A=Opus → NUNCA ativa (ápice, sem refutador acima)
+      4. Heurística legada (apenas se usar_heuristica_legada=True) — rede
+         de segurança opcional para fase de descoberta
 
     Args:
         routing_decision: dict retornado por route_model()
-        user_message: texto da pergunta do usuário
-        history: histórico de turnos (peça 2.3 usará; aqui ignorado)
+        user_message: texto da pergunta do usuário (para detectar gatilho manual)
+        history: histórico recente (não usado em 2.3; reservado p/ peças futuras)
+        auto_sinal_de_A: resultado de detectar_auto_sinal_de_limite() aplicado
+                         à resposta de A. None se A ainda não respondeu.
+        usar_heuristica_legada: se True, mantém a heurística da peça 2.1
+                                (Haiku+ds>=1, Sonnet+ds>=3) como rede de segurança.
+                                Default False — confiamos no auto-sinal.
 
     Returns:
         dict com:
@@ -488,76 +499,90 @@ def deve_ativar_camara(
             - motivo: str (explicação curta)
             - modelos_B: list[str] (vazia se não ativar)
             - forca_manual: bool (True se gatilho explícito do usuário)
+            - via_auto_sinal: bool (True se ativou por admissão de A)
     """
     modelo_A = routing_decision.get("model", DEFAULT_MODEL)
-    depth_score = routing_decision.get("depth_score", 0)
     tier_A = MODELS.get(modelo_A, {}).get("tier", 1)
 
-    # ── Override absoluto: gatilho manual do usuário ──────────────────
+    # ── Prioridade 1: Override manual do usuário ────────────────────────
     if forca_camara_detectada(user_message):
         modelos_B = escolher_modelos_B(modelo_A)
         if not modelos_B:
-            # Pediu câmara mas A já é Opus (topo) — não pode atender
             return {
-                "ativar":       False,
-                "motivo":       "gatilho manual, mas A é topo (Opus) — sem refutador acima",
-                "modelos_B":    [],
-                "forca_manual": True,
+                "ativar":         False,
+                "motivo":         "gatilho manual, mas A é topo (Opus) — sem refutador acima",
+                "modelos_B":      [],
+                "forca_manual":   True,
+                "via_auto_sinal": False,
             }
         return {
-            "ativar":       True,
-            "motivo":       "gatilho manual do usuário",
-            "modelos_B":    modelos_B,
-            "forca_manual": True,
+            "ativar":         True,
+            "motivo":         "gatilho manual do usuário",
+            "modelos_B":      modelos_B,
+            "forca_manual":   True,
+            "via_auto_sinal": False,
         }
 
-    # ── A = Opus: ápice, sem refutador ────────────────────────────────
+    # ── Prioridade 2: Auto-sinal de A (admissão de limite) ─────────────
+    if auto_sinal_de_A and auto_sinal_de_A.get("detectado"):
+        if tier_A == 3:
+            # A é Opus e admitiu limite — sem refutador acima.
+            # Caso raro e honesto: até Opus tem limites. Não ativa câmara.
+            return {
+                "ativar":         False,
+                "motivo":         "Opus admitiu limite, mas é o topo — sem refutador acima",
+                "modelos_B":      [],
+                "forca_manual":   False,
+                "via_auto_sinal": True,
+            }
+        modelos_B = escolher_modelos_B(modelo_A)
+        confianca = auto_sinal_de_A.get("confianca", "media")
+        # Auto-sinal só usa o refutador mais próximo (custo controlado)
+        return {
+            "ativar":         True,
+            "motivo":         f"A={modelo_A} admitiu limite (confiança detecção: {confianca})",
+            "modelos_B":      modelos_B[:1] if modelos_B else [],
+            "forca_manual":   False,
+            "via_auto_sinal": True,
+        }
+
+    # ── Prioridade 3: A=Opus nunca ativa heuristicamente ───────────────
     if tier_A == 3:
         return {
-            "ativar":       False,
-            "motivo":       "A é Opus (ápice — sem refutador acima)",
-            "modelos_B":    [],
-            "forca_manual": False,
+            "ativar":         False,
+            "motivo":         "A é Opus (ápice — sem refutador acima)",
+            "modelos_B":      [],
+            "forca_manual":   False,
+            "via_auto_sinal": False,
         }
 
-    # ── A = Haiku: ativa câmara se houver qualquer profundidade ──────
-    if tier_A == 1:
-        if depth_score >= 1:
+    # ── Prioridade 4: Heurística legada (rede de segurança opcional) ───
+    if usar_heuristica_legada:
+        depth_score = routing_decision.get("depth_score", 0)
+        if tier_A == 1 and depth_score >= 1:
             modelos_B = escolher_modelos_B(modelo_A)
             return {
-                "ativar":       True,
-                "motivo":       f"Haiku + depth_score={depth_score} → Sonnet refuta",
-                "modelos_B":    modelos_B[:1] if modelos_B else [],
-                "forca_manual": False,
+                "ativar":         True,
+                "motivo":         f"heurística legada: Haiku + ds={depth_score}",
+                "modelos_B":      modelos_B[:1] if modelos_B else [],
+                "forca_manual":   False,
+                "via_auto_sinal": False,
             }
-        return {
-            "ativar":       False,
-            "motivo":       "Haiku + pergunta simples — sem necessidade de refutação",
-            "modelos_B":    [],
-            "forca_manual": False,
-        }
-
-    # ── A = Sonnet: ativa câmara se profundidade é alta ──────────────
-    if tier_A == 2:
-        if depth_score >= 3:
+        if tier_A == 2 and depth_score >= 3:
             modelos_B = escolher_modelos_B(modelo_A)
             return {
-                "ativar":       True,
-                "motivo":       f"Sonnet + depth_score={depth_score} → Opus refuta",
-                "modelos_B":    modelos_B,
-                "forca_manual": False,
+                "ativar":         True,
+                "motivo":         f"heurística legada: Sonnet + ds={depth_score}",
+                "modelos_B":      modelos_B,
+                "forca_manual":   False,
+                "via_auto_sinal": False,
             }
-        return {
-            "ativar":       False,
-            "motivo":       f"Sonnet + depth_score={depth_score} insuficiente",
-            "modelos_B":    [],
-            "forca_manual": False,
-        }
 
     # ── Default: não ativa ────────────────────────────────────────────
     return {
-        "ativar":       False,
-        "motivo":       f"tier desconhecido ({tier_A}) — não ativa",
-        "modelos_B":    [],
-        "forca_manual": False,
+        "ativar":         False,
+        "motivo":         "sem auto-sinal de A e sem gatilho manual",
+        "modelos_B":      [],
+        "forca_manual":   False,
+        "via_auto_sinal": False,
     }
