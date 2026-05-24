@@ -86,6 +86,76 @@ FIELD_EDP_SESSION_START = "edp_session_start"
 # atual. Entries antigos (pré-fresh-start) ficam sem block_id (None).
 FIELD_BLOCK_ID = "block_id"
 
+# Peça 2.2: câmara de eco
+# Quando câmara é ativada para um turno, EDP grava um camara_id no entry,
+# apontando para histórico detalhado em sessions/<id>_camara.json
+FIELD_CAMARA_ID = "camara_id"  # None se câmara não foi ativada
+
+
+# ───────────────────────────────────────────────────────────────────
+# Peça 2.2 — Checks de refutação (modelo B avalia)
+# ───────────────────────────────────────────────────────────────────
+#
+# Cada check é uma dimensão de avaliação da resposta de A.
+# Pesos refletem gravidade da falha:
+#   3 = FATAL (confabulação compromete tudo)
+#   2 = ALTO (compromete confiança/relação)
+#   1 = MÉDIO (estilo, não substância)
+
+CHECK_CONFABULACAO          = "confabulacao"
+CHECK_INFLACAO_AVALIATIVA   = "inflacao_avaliativa"
+CHECK_CONDESCENDENCIA       = "condescendencia"
+CHECK_PROJECAO_SEM_DADO     = "projecao_sem_dado"
+CHECK_PERDA_DE_FIO          = "perda_de_fio"
+CHECK_COMPLETUDE_FORCADA    = "completude_forcada"
+CHECK_ESTRUTURACAO_IMPOSTA  = "estruturacao_imposta"
+
+CHECKS_REFUTACAO = (
+    CHECK_CONFABULACAO,
+    CHECK_INFLACAO_AVALIATIVA,
+    CHECK_CONDESCENDENCIA,
+    CHECK_PROJECAO_SEM_DADO,
+    CHECK_PERDA_DE_FIO,
+    CHECK_COMPLETUDE_FORCADA,
+    CHECK_ESTRUTURACAO_IMPOSTA,
+)
+
+# Pesos por gravidade
+CHECK_PESOS = {
+    CHECK_CONFABULACAO:          3,  # fatal
+    CHECK_INFLACAO_AVALIATIVA:   2,  # alto
+    CHECK_CONDESCENDENCIA:       2,  # alto
+    CHECK_PROJECAO_SEM_DADO:     2,  # alto
+    CHECK_PERDA_DE_FIO:          2,  # alto
+    CHECK_COMPLETUDE_FORCADA:    1,  # médio
+    CHECK_ESTRUTURACAO_IMPOSTA:  1,  # médio
+}
+
+# Descrições para o prompt de B (passar para o modelo refutador)
+CHECK_DESCRICOES = {
+    CHECK_CONFABULACAO:
+        "Afirmar fatos sem base real (inventar dados, fontes, estatísticas, "
+        "ou afirmar com confiança coisas que o modelo não sabe).",
+    CHECK_INFLACAO_AVALIATIVA:
+        "Embelezamento automático sem substância: 'ótima pergunta!', 'isso é "
+        "fascinante!', 'marco histórico', 'trabalho extraordinário'.",
+    CHECK_CONDESCENDENCIA:
+        "Tom superior (tipo 1 — explicando como se o usuário fosse ingênuo) "
+        "ou complacente (tipo 2 — concordando para agradar).",
+    CHECK_PROJECAO_SEM_DADO:
+        "Assumir estado emocional, intenção, tempo decorrido, ou contexto do "
+        "usuário sem que ele tenha dito ('você está cansado', 'você quer X').",
+    CHECK_PERDA_DE_FIO:
+        "Ignorar algo importante mencionado anteriormente no contexto ou "
+        "perder a continuidade da linha de pensamento da conversa.",
+    CHECK_COMPLETUDE_FORCADA:
+        "Resposta tenta fechar/concluir/dar próximo passo quando deveria "
+        "pausar, escutar, ou processar com o usuário.",
+    CHECK_ESTRUTURACAO_IMPOSTA:
+        "Uso desnecessário de listas, tabelas, marcadores, headers quando a "
+        "prosa contínua serviria melhor.",
+}
+
 # Camada (ii)
 FIELD_T_USER_SESSION_START   = "t_user_session_start"
 FIELD_T_USER_TURN_N          = "t_user_turn_n"

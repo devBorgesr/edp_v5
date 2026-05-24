@@ -7,10 +7,10 @@
 ## Sub-passos da peça 2 — Status
 
 - ✅ **2.0** — Infraestrutura de blocos (commit `40c1941`)
-- 🟡 **2.1** — Roteador de modelos: refutadores + gatilho manual (aguardando commit/validação)
-- ⏳ **2.2** — Câmara de eco básica (Camada 1 mínima)
+- ✅ **2.1** — Roteador de modelos: refutadores + gatilho manual
+- 🟡 **2.2** — Câmara de eco básica (backend completo, sem integração WebSocket ainda)
 - ⏳ **2.3** — Critério de ativação completo (5 heurísticas)
-- ⏳ **2.4** — Transparência tempo real no dashboard
+- ⏳ **2.4** — Transparência tempo real no dashboard (integra 2.2 em produção)
 - ⏳ **2.5** — Verificação humana (Camada 2)
 - ⏳ **2.6** — Fechamento de bloco (heurísticas automáticas)
 - ⏳ **2.7** — Retrieval respeitando blocos
@@ -152,6 +152,65 @@ O EDP **já tinha** `edp/model_router.py` com roteamento sofisticado (12+ heurí
 - T8: A=Sonnet com depth_score variável
 - T9: Gatilho manual override
 - T10: Integração com route_model real
+
+---
+
+## Peça 2.2 — Implementação detalhada
+
+### Escopo decidido
+- Backend completo da câmara de eco, **sem integração no WebSocket ainda**
+- Integração visual em produção fica para peça 2.4 (transparência tempo real)
+- Razão: separar lógica de UI; não tocar `websocket.py` (delicado) antes de ter UI rica para mostrar o fluxo
+
+### Arquivos criados/modificados
+- **Novo:** `edp/echo_chamber.py` — orquestração completa da câmara
+- **Modificado:** `edp/schema_v1.py` — adiciona `FIELD_CAMARA_ID`, 7 checks com pesos, descrições
+
+### Decisões implementadas
+- **Streaming desligado durante câmara** (peça 2.2 não usa stream)
+- **Os 7 checks separados e estruturados** (PASS/FAIL por check com justificativa)
+- **A avalia reformulação vendo os checks que B marcou** (não só os textos)
+- **Pesos por gravidade:** 3 (confabulação) / 2 (inflação, condescendência, projeção, perda_de_fio) / 1 (completude_forçada, estruturação_imposta)
+- **Score = sum(PASS·peso) − sum(FAIL·peso)**, max=13, min=-13
+- **Vencedor:** se A concorda ≥70% com reformulação → B vence; ≥40% → ambos_similar; <40% → A
+- **Histórico em arquivo separado:** `sessions/<id>_camara.json` (write atômico)
+- **Entry recebe `camara_id`:** aponta para registro completo
+- **Degradação graciosa:** se B falha ou parse falha → fallback para A solo, registrado
+
+### Componentes principais
+- `_construir_prompt_B(contexto, texto_A, modelo_B)` — prompt estruturado de refutação
+- `_construir_prompt_A_avaliar_B(...)` — prompt para A avaliar reformulação
+- `_parse_resposta_B(texto)` — extrai checks + reformulação
+- `_parse_resposta_A_avaliacao(texto)` — extrai concordância + texto final
+- `calcular_score(checks)` — score do texto
+- `CamaraRecord` (dataclass) — histórico persistido
+- `EchoChamber` — orquestrador com `executar()` síncrono
+
+### Assinatura de uso (futuro)
+```python
+chamber = EchoChamber(session_id, base_dir, llm_caller)
+resultado = chamber.executar(
+    user_message=msg,
+    contexto_completo=ctx,
+    modelo_A="claude-haiku-4-5",
+    modelo_B="claude-sonnet-4-6",
+    edp_session_id="...",
+    block_id="...",
+    texto_A_ja_gerado=None,  # opcional, evita chamar A duas vezes
+)
+# resultado["texto_final"] vai para o usuário
+# resultado["camara_id"] vai para entry.camara_id
+```
+
+### Testes passados (peça 2.2)
+- T1: Schema tem `FIELD_CAMARA_ID`, 7 checks, pesos corretos, max_score=13
+- T2: `calcular_score` — tudo PASS / tudo FAIL / misto
+- T3: parse de B — estruturado / sem reformulação / texto solto (parse_ok=False)
+- T4: parse de avaliação de A — concordância 85% / 100% / texto final
+- T5: Fluxo completo bem-sucedido (B vence com concord=90%)
+- T6: A já está limpo (B diz "não necessário") — só 2 chamadas, A vence
+- T7: Fallback gracioso quando B falha
+- T8: Persistência entre boots
 
 ---
 
