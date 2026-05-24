@@ -58,6 +58,27 @@ def _deserialize(entries: list[dict]) -> list[dict]:
 
 # ── Peça 0.3.1: Write atômico e load tolerante ────────────────────────────────
 
+# Dívida técnica #8: PermissionError [WinError 32] em writes concorrentes no Windows.
+# `os.replace` falha se destino estiver aberto por outro thread (ex: dashboard lendo).
+# Defesas em camadas:
+#   1. Lock global por path (serializa saves do mesmo arquivo)
+#   2. Retry com backoff exponencial em PermissionError/OSError
+#   3. Limpeza de .tmp órfão pré-existente
+
+_WRITE_LOCKS: dict = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+def _get_write_lock(path):
+    """Lock por path (chave = str do path absoluto). Cria lazy."""
+    key = str(Path(path).resolve())
+    with _WRITE_LOCKS_GUARD:
+        lk = _WRITE_LOCKS.get(key)
+        if lk is None:
+            lk = threading.Lock()
+            _WRITE_LOCKS[key] = lk
+        return lk
+
+
 def _atomic_write_json(path, data, *, indent: int = 2) -> None:
     """
     Grava JSON de forma atômica: tmp → fsync → rename.
@@ -66,7 +87,10 @@ def _atomic_write_json(path, data, *, indent: int = 2) -> None:
     fica intacto (apenas o .tmp pode estar parcial). Próximo boot lê o
     original sem corrupção.
 
-    Robusto em POSIX e Windows (os.replace é atômico em ambos).
+    Robusto em POSIX e Windows. Em Windows, `os.replace` pode falhar com
+    PermissionError [WinError 32] se o destino estiver aberto por outro
+    thread (ex: dashboard lendo) ou processo (ex: antivírus escaneando).
+    Defesas: lock por path + retry com backoff.
 
     Args:
         path: caminho do arquivo final
@@ -77,19 +101,43 @@ def _atomic_write_json(path, data, *, indent: int = 2) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
 
-    # 1. Escreve no .tmp
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=indent)
-        f.flush()
-        try:
-            # 2. Força sincronização com disco (não só buffer do OS)
-            os.fsync(f.fileno())
-        except (OSError, AttributeError):
-            # Alguns FS não suportam fsync; segue mesmo assim
-            pass
+    # Serializa saves do mesmo arquivo (evita .tmp órfão por concorrência interna)
+    with _get_write_lock(path):
+        # Limpa .tmp órfão de save anterior que morreu (se houver)
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
-    # 3. Replace atômico — substitui o destino numa operação só
-    os.replace(tmp, path)
+        # 1. Escreve no .tmp
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent)
+            f.flush()
+            try:
+                # 2. Força sincronização com disco (não só buffer do OS)
+                os.fsync(f.fileno())
+            except (OSError, AttributeError):
+                # Alguns FS não suportam fsync; segue mesmo assim
+                pass
+
+        # 3. Replace atômico com retry — Windows pode falhar transientemente
+        # quando destino está aberto por outro processo (antivírus, dashboard, etc).
+        # Backoff: 50ms, 100ms, 200ms, 400ms, 800ms (total ~1.5s antes de desistir)
+        backoffs = (0.05, 0.10, 0.20, 0.40, 0.80)
+        last_err = None
+        for delay in (0.0,) + backoffs:
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                os.replace(tmp, path)
+                return
+            except (PermissionError, OSError) as e:
+                last_err = e
+                continue
+        # Após todas as tentativas, levanta para o caller decidir
+        # (em threads de save automático, é capturado e logado pelo runtime)
+        raise last_err
 
 
 def _safe_load_json(path):

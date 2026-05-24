@@ -1,20 +1,20 @@
 # MARCADOR DE ESTADO — Peça 2 do EDP (Presença)
 
-**Última atualização:** 2026-05-23
+**Última atualização:** 2026-05-24
 
 ---
 
 ## Sub-passos da peça 2 — Status
 
 - ✅ **2.0** — Infraestrutura de blocos (commit `40c1941`)
-- ✅ **2.1** — Roteador de modelos: refutadores + gatilho manual
-- 🟡 **2.2** — Câmara de eco básica (backend completo, sem integração WebSocket ainda)
+- ✅ **2.1** — Roteador de modelos: refutadores + gatilho manual (commit `9841214`)
+- ✅ **2.2** — Câmara de eco básica backend (commit `086236b`)
 - ⏳ **2.3** — Critério de ativação completo (5 heurísticas)
 - ⏳ **2.4** — Transparência tempo real no dashboard (integra 2.2 em produção)
 - ⏳ **2.5** — Verificação humana (Camada 2)
 - ⏳ **2.6** — Fechamento de bloco (heurísticas automáticas)
-- ⏳ **2.7** — Retrieval respeitando blocos
-- ⏳ **2.8** — Construção de contexto na nova era
+- ⏳ **2.7** — Retrieval respeitando blocos *(tensão com 2.8 — pode se fundir)*
+- ⏳ **2.8** — **Arquitetura de janela em 4 camadas** *(REESCOPADA — ver seção dedicada)*
 - ⏳ **2.9** — Freios em processos secundários
 - ⏳ **2.10** — Comentários acumulados em blocos antigos
 
@@ -214,16 +214,65 @@ resultado = chamber.executar(
 
 ---
 
-## Próximos passos (após 2.0 validado)
+## Peça 2.8 — Arquitetura de Janela em 4 Camadas (REESCOPADA — articulada em 2026-05-24)
 
-1. Aplicar zip no PC, commitar 2.0
-2. Subir servidor — verificar log "blocos=0" no boot, "blocos=1" após primeira mensagem
-3. Validar manualmente: entries novos têm `block_id`, arquivo `default_blocks.json` criado
-4. Quando confirmado, seguir para **peça 2.1 (roteador de modelos)**
+### Princípio (articulado pelo usuário)
+
+> "Janela de contexto é o que permite, antes de responder à pergunta, pensar
+> na janela e olhar em pontos de vista diferentes e chegar a uma conclusão
+> mais fácil, precisa e confiante da resposta. **Então não é só injetar
+> várias informações na janela e esperar que o modelo entenda.**"
+
+A janela é **espaço cognitivo de elaboração**, não armazém. Conteúdo importa
+**como estrutura**, não só como volume. Cada camada serve para um tipo
+distinto de pensamento.
+
+### As 4 camadas (ordem FIXA, do topo para o final)
+
+| # | Camada | Conteúdo | Permite ao modelo |
+|---|---|---|---|
+| 1 | **Temporal** | hora atual + timestamps das 4 últimas Q+R | pensar temporalmente, perceber ritmo da conversa |
+| 2 | **Histórico relacionado** | 6 Q+R conectadas à pergunta atual (tokenização + embedding) | olhar pontos de vista anteriores sobre o terreno |
+| 3 | **Prompts do usuário** | ceticismo (imutável) + outros configuráveis | operar segundo o modo que o Pai definiu |
+| 4 | **Técnica de Feynman** | método de 4 etapas, FIXO | estruturar elaboração metodologicamente |
+
+### Dinâmicas
+
+- **Camada 1:** rolante — 4 turnos sempre os mais recentes; hora atualiza a cada turno
+- **Camada 2:** dinâmica por pergunta — busca por tokenização + embedding da pergunta atual
+- **Camada 3:** persistente — configurada pelo usuário via página dedicada do dashboard (Camada 3 = página separada na UI)
+- **Camada 4:** fixa — é o método que mais se aproxima de como o usuário pensa e resolve problemas
+
+### Decisões fixadas
+
+- 4 e 6 (números de turnos das camadas 1 e 2) são **pontos de partida pra testar**, não imutáveis
+- **Ordem 1→2→3→4 é imutável**
+- Camada 3 ganha **página separada** no dashboard (não é o painel principal)
+- Feynman fixo (não configurável)
+
+### Tensão com peça 2.7
+
+A peça 2.7 (retrieval respeitando blocos) **sobrepõe parcialmente** com a Camada 2. Camada 2 já faz retrieval conversacional (turnos Q+R relacionados), o que muda o papel do retrieval clássico. Provavelmente 2.7 e 2.8 se fundem ou 2.7 vira mais simples. Decisão depois.
+
+### Componentes da implementação (escopo grande, vai precisar sub-passos)
+
+- Reescrever `edp/context_builder.py` para construir as 4 camadas
+- Implementar retrieval conversacional (Camada 2 — não puro semântico)
+- Adicionar injeção temporal automática (Camada 1)
+- Página nova no dashboard para gerenciar prompts (Camada 3)
+- Persistir prompts configurados pelo usuário (Camada 3)
+- Texto fixo da Técnica de Feynman como constante (Camada 4)
+
+### Resolve problemas identificados
+
+- **Modelo dizendo "não tenho acesso a horário"** → Camada 1 resolve
+- **Memórias retornadas sem contexto conversacional** → Camada 2 resolve
+- **Modelo sem método para elaborar** → Camada 4 resolve
+- **Usuário sem controle sobre tom do modelo** → Camada 3 resolve
 
 ---
 
-## Dívidas técnicas (recapituladas da peça 0)
+## Dívidas técnicas (recapituladas da peça 0 + descobertas nas peças 2.x)
 
 1. 7 ambíguos da peça 0.2c usam `time.time()` onde `time.monotonic()` seria mais correto
 2. Migração lazy dos entries antigos
@@ -232,3 +281,11 @@ resultado = chamber.executar(
 5. **CRÍTICA — Autenticação multi-usuário** (futuro)
 6. Janela de inconsistência memória/disco entre boot e primeiro save
 7. sentence-transformers exige internet em primeira instanciação por processo
+8. **`PermissionError [WinError 32]` em `_atomic_write_json` no Windows** —
+   ✅ **CORRIGIDA** em 2026-05-24. Defesas em 3 camadas:
+   - Lock global por path (`_get_write_lock`) — serializa saves do mesmo arquivo
+   - Retry com backoff exponencial (50ms, 100ms, 200ms, 400ms, 800ms) em
+     `PermissionError`/`OSError` durante `os.replace`
+   - Limpeza de `.tmp` órfão pré-existente antes de cada save
+   - 8 testes passados (T1-T8), incluindo simulação de Windows transiente
+   - Observação original: 2026-05-24 09:22 BRT, durante uso normal.
