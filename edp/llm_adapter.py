@@ -792,8 +792,16 @@ REGRAS ABSOLUTAS:
                 )
 
         # Armazena resposta completa
-        if full_response and not error_occurred:
-            self._store_to_memory(user_message, "".join(full_response))
+        # Dívida #10 (2026-05-26): stream_chat NÃO chama _store_to_memory porque
+        # o WebSocket (caller principal) já grava a versão completa
+        # (Q[:4000]+A[:12000], source_type=llm_response) em websocket.py:482.
+        # Chamar aqui causaria DUPLICAÇÃO: dois entries por turno (um truncado
+        # em 200+400 com source_type=user_input, outro inteiro). O entry
+        # truncado ganhava score maior no retrieval (maior similaridade focada
+        # + peso 1.00 vs 0.90), envenenando o contexto do modelo.
+        # chat() não-streaming continua usando _store_to_memory normalmente.
+        # if full_response and not error_occurred:
+        #     self._store_to_memory(user_message, "".join(full_response))
 
     def retrieve(self, query: str, top_k: int = 5) -> List[dict]:
         """Recupera entradas de memória relevantes para a query."""
@@ -954,7 +962,12 @@ REGRAS ABSOLUTAS:
                     if len(recent_entries) == 1:
                         immediate_labels = ["turno anterior"]
                     for entry, label in zip(recent_entries, immediate_labels):
-                        txt = (entry.get("text") or "")[:600]
+                        # Dívida #9 (2026-05-25): cap de 600 chars cortava resposta
+                        # técnica densa no meio (P2/P3 de explicações longas).
+                        # Subido para 6000 chars — cobre resposta longa típica
+                        # (~1500 tokens) sem inflar excessivamente. Janela imediata
+                        # ainda é só 2 turnos, então cap absoluto é ~12000 chars.
+                        txt = (entry.get("text") or "")[:6000]
                         if not txt:
                             continue
                         eid = entry.get("id")
@@ -1178,16 +1191,41 @@ REGRAS ABSOLUTAS:
         return rendered, meta
 
     def _store_to_memory(self, user_msg: str, response: str) -> None:
-        """Armazena par pergunta-resposta na memória."""
+        """
+        Armazena par pergunta-resposta na memória.
+
+        Dívida #10 (2026-05-26): caps alinhados com websocket.py:474-475
+        (Q[:4000] + A[:12000]) para evitar truncamento de respostas longas
+        que chegavam ao retrieve com fragmentos. Source adicionado para
+        memory_classifier categorizar como llm_response (peso 0.90) em vez
+        de user_input (peso 1.00) — entry contém Q+A combinados, é resposta
+        do LLM, não input puro do usuário.
+
+        Chamado apenas por chat() não-streaming (API REST /llm/chat).
+        stream_chat() não chama mais (anti-duplicação no fluxo WebSocket).
+        """
         if self._memory is None:
             return
         try:
-            combined = f"Q: {user_msg[:200]}\nA: {response[:400]}"
-            self._memory.add(combined, score=0.65, prioridade="media")
+            combined = f"Q: {user_msg[:4000]}\nA: {response[:12000]}"
+            source = "user"
+            if self._llm_config:
+                source = f"llm:{self._llm_config.model}"
+            self._memory.add(combined, score=0.65, prioridade="media", source=source)
             # Flush assíncrono para não bloquear
             if hasattr(self._memory.episodic, "flush"):
                 threading.Thread(
                     target=self._memory.episodic.flush, daemon=True
                 ).start()
+        except TypeError:
+            # Fallback se memory.add não aceitar source (compat com versões antigas)
+            try:
+                self._memory.add(combined, score=0.65, prioridade="media")
+                if hasattr(self._memory.episodic, "flush"):
+                    threading.Thread(
+                        target=self._memory.episodic.flush, daemon=True
+                    ).start()
+            except Exception as e:
+                logger.debug("[EDPRuntime] store fallback falhou: %s", e)
         except Exception as e:
             logger.debug("[EDPRuntime] store falhou: %s", e)
