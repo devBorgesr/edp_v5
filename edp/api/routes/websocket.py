@@ -446,6 +446,106 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                             "[WS] LLM aborted (cancelled) | tokens parciais=%d descartados",
                                             len(full_text.split()),
                                         )
+                                        # ── Peça 2.4a.3a: ativar câmara se cancel foi por auto-sinal ──
+                                        # Quando o modelo A admitiu limite mid-stream (peça 2.4a.2c
+                                        # detectou frase-padrão), aqui ativamos a câmara: B refuta/refina
+                                        # o que A tentou, A avalia, texto final substitui resposta parcial.
+                                        # Esqueleto: por enquanto só evento camara_resultado (sem eventos
+                                        # detalhados — esses ficam para 2.4a.3b).
+                                        if cancel_token.cancel_reason == "camara_ativada_por_auto_sinal":
+                                            chamber_result = None
+                                            try:
+                                                chamber = runtime.get_echo_chamber()
+                                                if chamber is None:
+                                                    logger.warning(
+                                                        "[WS] camara indisponível — runtime.get_echo_chamber() retornou None"
+                                                    )
+                                                else:
+                                                    # Modelo A é o atual do runtime; B vem do escolher_modelos_B
+                                                    from edp.model_router import escolher_modelos_B
+                                                    modelo_A = runtime._client._cfg.model if runtime._client else "claude-haiku-4-5"
+                                                    modelos_B = escolher_modelos_B(modelo_A)
+                                                    if not modelos_B:
+                                                        logger.warning(
+                                                            "[WS] sem modelo B disponível para A=%s (A já é topo)",
+                                                            modelo_A,
+                                                        )
+                                                    else:
+                                                        modelo_B = modelos_B[0]  # mais próximo na hierarquia
+                                                        # edp_session_id vital para auditoria do registro
+                                                        from edp.memory import _get_edp_lifetime
+                                                        edp_lifetime = _get_edp_lifetime()
+                                                        edp_sid = edp_lifetime.get("edp_session_id", "unknown")
+                                                        logger.info(
+                                                            "[WS] camara executar | A=%s B=%s edp_sid=%s "
+                                                            "texto_A_parcial=%d chars",
+                                                            modelo_A, modelo_B, edp_sid[:8] if edp_sid else "?",
+                                                            len(full_text),
+                                                        )
+                                                        # Câmara é síncrona — roda em executor para não bloquear loop
+                                                        loop = asyncio.get_event_loop()
+                                                        chamber_result = await loop.run_in_executor(
+                                                            None,
+                                                            lambda: chamber.executar(
+                                                                user_message=message,
+                                                                contexto_completo="",  # contexto já está embutido no que A gerou
+                                                                modelo_A=modelo_A,
+                                                                modelo_B=modelo_B,
+                                                                edp_session_id=edp_sid,
+                                                                block_id=None,
+                                                                texto_A_ja_gerado=full_text,
+                                                            ),
+                                                        )
+                                            except Exception as e:
+                                                logger.warning(
+                                                    "[WS] camara falhou: %s: %s",
+                                                    type(e).__name__, e,
+                                                    exc_info=True,
+                                                )
+                                                chamber_result = None
+
+                                            # Se câmara retornou texto final, envia ao frontend e
+                                            # marca llm_used=True para suprimir fallback "modo analise"
+                                            if chamber_result and chamber_result.get("sucesso") and chamber_result.get("texto_final"):
+                                                texto_final = chamber_result["texto_final"]
+                                                camara_id = chamber_result.get("camara_id")
+                                                logger.info(
+                                                    "[WS] camara done | vencedor=%s concordancia=%.2f texto_final=%d chars camara_id=%s",
+                                                    chamber_result.get("vencedor"),
+                                                    chamber_result.get("concordancia_pct", 0.0),
+                                                    len(texto_final),
+                                                    camara_id,
+                                                )
+                                                try:
+                                                    await websocket.send_json({
+                                                        "type":          "camara_resultado",
+                                                        "texto_final":   texto_final,
+                                                        "modelo_A":      modelo_A,
+                                                        "modelo_B":      modelo_B,
+                                                        "vencedor":      chamber_result.get("vencedor"),
+                                                        "concordancia":  chamber_result.get("concordancia_pct"),
+                                                        "camara_id":     camara_id,
+                                                    })
+                                                except Exception as e:
+                                                    logger.warning("[WS] camara send falhou: %s", e)
+                                                # Substitui full_text pelo texto final da câmara
+                                                # (será gravado mais adiante como entry normal, com camara_id no metadata na 2.4a.4)
+                                                full_text = texto_final
+                                                llm_used = True
+                                            else:
+                                                # Câmara não retornou resultado válido → fallback (a):
+                                                # mantém resposta parcial de A com nota técnica.
+                                                # NOTA (Dívida #12): isso é fallback TEMPORÁRIO. Câmara não
+                                                # pode falhar — diferencial do EDP. Endereçar após estabilizar.
+                                                nota_falha = (
+                                                    "\n\n_[câmara indisponível — resposta parcial de A mantida]_"
+                                                )
+                                                full_text = full_text + nota_falha
+                                                llm_used = bool(full_text.strip())
+                                                logger.info(
+                                                    "[WS] camara fallback (a) ativado | full_text=%d chars",
+                                                    len(full_text),
+                                                )
                                     else:
                                         llm_used = bool(full_text)
                                         logger.info("[WS] LLM done | tokens~%d", len(full_text.split()))
