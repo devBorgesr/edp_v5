@@ -341,12 +341,14 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                         first_chunk = True
                                         # ── Peça 2.4a.2: estado de detecção de auto-sinal ────
                                         # Verifica em frase terminada (.!?) para evitar regex
-                                        # em fragmento. Só após 500 chars acumulados — dá espaço
+                                        # em fragmento. Só após 350 chars acumulados — dá espaço
                                         # para o modelo aplicar MÉTODO (CETICISMO_DEFAULT) antes
                                         # de admitir limite. Sem espaço, A admitiria cedo demais
                                         # e a câmara receberia trabalho não-embasado.
-                                        # Atualizado em 2.4a.2b (de 100 → 500) — dá espaço pro método.
-                                        autosinal_min_chars = 500
+                                        # Calibrado em 2.4a.2c (500 → 350) — medição real mostrou
+                                        # que respostas com método aplicado ficam em 400-600 chars,
+                                        # não 800-1000 como estimado inicialmente.
+                                        autosinal_min_chars = 350
                                         autosinal_last_check_len = 0
                                         from edp.echo_chamber import detectar_auto_sinal_de_limite
 
