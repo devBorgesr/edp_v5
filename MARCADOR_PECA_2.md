@@ -371,3 +371,92 @@ A peça 2.7 (retrieval respeitando blocos) **sobrepõe parcialmente** com a Cama
    - Limpeza de `.tmp` órfão pré-existente antes de cada save
    - 8 testes passados (T1-T8), incluindo simulação de Windows transiente
    - Observação original: 2026-05-24 09:22 BRT, durante uso normal.
+
+9. **Truncamento de janela imediata em 600 chars** —
+   ✅ **CORRIGIDA** em 2026-05-25. Diagnóstico mecânico exato:
+   - `edp/llm_adapter.py:957`: `txt = (entry.get("text") or "")[:600]` cortava
+     os últimos 2 turnos da sessão em 600 caracteres antes de injetar no contexto
+     do modelo.
+   - Texto de 3 parágrafos sobre Segunda Lei da Termodinâmica (1814 chars)
+     chegava ao modelo com apenas 33% (P1 truncado em "...integralmente calor
+     em trabalho útil"; P2 e P3 perdidos completamente).
+   - Modelo admitiu explicitamente: "O texto completo do terceiro parágrafo
+     foi truncado no meu contexto."
+   - Correção: cap subido para 6000 chars (~1500 tokens). Janela imediata
+     ainda é 2 turnos, total máximo ~12000 chars no contexto.
+   - Bug crônico — usuário relatou que "sempre aconteceu" desde antes da
+     peça 2. Descoberto após análise sistemática.
+   - **Implicação:** todas as conversas longas anteriores chegaram ao modelo
+     parcialmente truncadas. Articulações grandes (Trindade, peça 2.8, etc)
+     foram processadas com apenas os primeiros 600 chars dos turnos anteriores.
+
+9b. **Truncamento de recent_turns e all_history em 300 chars** —
+   ✅ **CORRIGIDA** em 2026-05-25 (continuação da #9).
+   - `edp/llm_adapter.py:1142` e `:1151`: `txt = ...[:300]` cortavam entries em
+     `_build_enriched_context` (caminho ativo do ContextWindowManager) antes de
+     injetar no contexto do modelo.
+   - Quando texto longo concorria, ContextWindowManager recebia versão cortada
+     em 300 chars, levando o modelo a confabular ou admitir truncamento.
+   - Correção: caps subidos para 6000 chars, alinhados com a janela imediata.
+
+10. **Gravação duplicada com truncamento agressivo em `_store_to_memory`** —
+    ✅ **CORRIGIDA** em 2026-05-26. Diagnóstico mecânico:
+    - `_store_to_memory` em `llm_adapter.py:1190-1191` gravava cada turno como
+      `Q[:200]+A[:400]` com source ausente → `source_type=user_input` (peso 1.00)
+    - WebSocket gravava em paralelo (`websocket.py:482`) versão inteira
+      (`Q[:4000]+A[:12000]`) com `source=llm:...` → `source_type=llm_response` (peso 0.90)
+    - Resultado: DOIS entries por turno. O truncado vencia o retrieval por
+      similaridade focada + peso mais alto, envenenando o contexto do modelo.
+    - Validado empiricamente: teste de recapitulação dos 8 parágrafos sobre
+      transformadores mostrou modelo confabulando recapitulação completamente
+      diferente do original.
+    - **Correção em duas partes:**
+      1. `stream_chat` não chama mais `_store_to_memory` (anti-duplicação no
+         fluxo WebSocket). Linha 794-805 comentada.
+      2. `_store_to_memory` (ainda usado por `chat()` REST) recebeu caps
+         alinhados com WebSocket (200→4000, 400→12000) + `source=f"llm:{model}"`
+         para classificar como `llm_response`.
+    - **Validação em produção (2026-05-26 18:46):**
+      - Modelo gera 8 parágrafos sobre transformadores
+      - Recapitulação fiel a todos os 8
+      - Identificação exata do P7 ("Empilhamento de camadas — GPT-3 96 camadas")
+      - Análise da relação P6/P7/P8 com transições corretas
+
+---
+
+## Status atualizado em 2026-05-27
+
+### Peças concluídas e estáveis
+- ✅ **2.0** — Infraestrutura de blocos (commit `40c1941`)
+- ✅ **2.1** — Roteador de modelos: refutadores + gatilho manual (commit `9841214`)
+- ✅ **2.2** — Câmara de eco backend (commit `086236b`)
+- ✅ **2.3** — Critério de ativação por auto-sinal (commit `ea4900c`)
+
+### Dívidas resolvidas
+- ✅ **#8** — PermissionError WinError 32 (commit `516eb5a`)
+- ✅ **#9** — Truncamento janela imediata 600 chars (commit `cdc250d`)
+- ✅ **#10** — Duplicação stream_chat + caps em _store_to_memory (commit `c0ef1ee`)
+
+### Próximas peças
+- ⏳ **2.4** — Integração da câmara no WebSocket (PRÓXIMA PEÇA — backend + UI)
+- ⏳ **2.5** — Verificação humana (Camada 2)
+- ⏳ **2.6** — Fechamento de bloco
+- ⏳ **2.7** — Retrieval respeitando blocos *(tensão com 2.8 — pode se fundir)*
+- ⏳ **2.8** — Arquitetura de janela em 4 camadas
+- ⏳ **2.9** — Freios em processos secundários
+- ⏳ **2.10** — Comentários acumulados em blocos antigos
+
+### Horizonte arquitetural (articulado em 2026-05-27)
+
+Após 2.4 estabilizar, dois itens fora da decomposição original entram em pauta:
+
+1. **Score composto ponderado** — temporal + semântico + classificação juntos.
+   Já está arquitetado mas não testado. Com bugs de truncamento resolvidos,
+   agora vale calibrar com dados reais.
+
+2. **Filtro de inflexão nos logs** — vetorizar só em pontos críticos
+   (contradições, verificações). Reduz latência e custo simultaneamente.
+
+Esses dois itens são **otimizações** (mexem em sistemas que já funcionam),
+diferentes das peças 2.x que **adicionam camadas novas**. Por isso vêm depois
+da 2.4 — câmara em uso real fornece dados para calibrar score composto.
