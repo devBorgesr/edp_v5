@@ -546,6 +546,10 @@ REGRAS ABSOLUTAS:
         self._pipeline   = None
         self._ctx_builder = None
         self._co_occurrence = None  # PR2 v3.13.6
+        # Peça 2.4a.1 (2026-05-27): câmara de eco lazy.
+        # Instanciada na primeira chamada de get_echo_chamber() para evitar
+        # custo de inicialização quando câmara não é usada (a maioria dos turnos).
+        self._echo_chamber = None
 
         self._init_edp_subsystems()
 
@@ -896,6 +900,82 @@ REGRAS ABSOLUTAS:
         except Exception as e:
             self._co_occurrence = None
             logger.warning("[EDPRuntime] CoOccurrenceTracker indisponível: %s", e)
+
+    # ── Peça 2.4a.1: Câmara de eco lazy ────────────────────────────────────
+
+    def _llm_call_for_chamber(self, modelo: str, system: str, user: str) -> dict:
+        """
+        Callback que a EchoChamber usa para chamar LLM síncrono (não-streaming).
+
+        Retorna dict com {text, cost_usd, latency_ms} esperado pela câmara.
+
+        Usa o mesmo cliente do runtime (`self._client`) que já tem credenciais
+        configuradas. Permite à câmara invocar modelos diferentes do principal
+        (ex: Sonnet para refutar Haiku) sem reinicializar provider.
+        """
+        if self._client is None:
+            return {
+                "text": "[ERRO: nenhum LLM conectado para câmara]",
+                "cost_usd": 0.0,
+                "latency_ms": 0.0,
+            }
+        import time as _time
+        t0 = _time.perf_counter()
+        try:
+            # Override temporário do modelo para esta chamada específica
+            original_model = self._client._cfg.model
+            self._client._cfg.model = modelo
+            try:
+                text = self._client.complete(user, system=system)
+            finally:
+                self._client._cfg.model = original_model
+            latency_ms = (_time.perf_counter() - t0) * 1000.0
+            return {
+                "text": text or "",
+                "cost_usd": 0.0,  # custo real é registrado pelo provider
+                "latency_ms": latency_ms,
+            }
+        except Exception as e:
+            logger.warning("[EDPRuntime] llm_call_for_chamber falhou: %s", e)
+            return {
+                "text": f"[ERRO câmara: {e}]",
+                "cost_usd": 0.0,
+                "latency_ms": (_time.perf_counter() - t0) * 1000.0,
+            }
+
+    def get_echo_chamber(self):
+        """
+        Retorna instância da EchoChamber para esta sessão.
+
+        Lazy: cria na primeira chamada e cacheia. Reusa em chamadas subsequentes.
+        Razão: instanciar EchoChamber carrega dados de `default_camara.json`,
+        custo desnecessário se câmara nunca é ativada nesta sessão.
+
+        Returns:
+            EchoChamber configurada para esta sessão, ou None se módulo indisponível.
+        """
+        if self._echo_chamber is not None:
+            return self._echo_chamber
+
+        try:
+            from .echo_chamber import EchoChamber
+            from pathlib import Path
+            import os
+            base_env = os.environ.get("EDP_BASE_DIR", str(Path.home() / "edp_data"))
+            base_dir = Path(base_env) / "sessions"
+            self._echo_chamber = EchoChamber(
+                session_id=self.session_id,
+                base_dir=base_dir,
+                llm_caller=self._llm_call_for_chamber,
+            )
+            logger.info(
+                "[EDPRuntime] EchoChamber instanciada | session=%s",
+                self.session_id,
+            )
+            return self._echo_chamber
+        except Exception as e:
+            logger.warning("[EDPRuntime] EchoChamber indisponível: %s", e)
+            return None
 
     def _compress_input(self, text: str) -> tuple[str, float, int]:
         """Comprime input via pipeline EDP. Retorna (texto, reduction_pct, n_blocks)."""
