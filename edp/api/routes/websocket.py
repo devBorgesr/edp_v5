@@ -510,9 +510,9 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                 texto_final = chamber_result["texto_final"]
                                                 camara_id = chamber_result.get("camara_id")
                                                 logger.info(
-                                                    "[WS] camara done | vencedor=%s concordancia=%.2f texto_final=%d chars camara_id=%s",
+                                                    "[WS] camara done | vencedor=%s concordancia=%d%% texto_final=%d chars camara_id=%s",
                                                     chamber_result.get("vencedor"),
-                                                    chamber_result.get("concordancia_pct", 0.0),
+                                                    chamber_result.get("concordancia", 0),
                                                     len(texto_final),
                                                     camara_id,
                                                 )
@@ -523,7 +523,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                         "modelo_A":      modelo_A,
                                                         "modelo_B":      modelo_B,
                                                         "vencedor":      chamber_result.get("vencedor"),
-                                                        "concordancia":  chamber_result.get("concordancia_pct"),
+                                                        "concordancia":  chamber_result.get("concordancia"),
                                                         "camara_id":     camara_id,
                                                     })
                                                 except Exception as e:
