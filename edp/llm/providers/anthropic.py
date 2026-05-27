@@ -46,6 +46,17 @@ PRICING = {
 }
 
 
+# ── Modelos que rejeitam parâmetro `temperature` (dívida #11) ────────────────
+# Anthropic descontinuou `temperature` em Opus 4.7+ (HTTP 400 retorna
+# "temperature is deprecated for this model"). Mantém lista explícita: nova
+# versão que rejeitar precisa ser adicionada aqui. Alternativa avaliada foi
+# retry-on-error, mas adiciona latência a cada chamada — manter lista é
+# mais simples até virar problema.
+MODELS_REJECTING_TEMPERATURE = {
+    "claude-opus-4-7",
+}
+
+
 def _pricing_for(model: str) -> dict:
     """Retorna pricing, fazendo prefix-match."""
     if model in PRICING:
@@ -128,9 +139,12 @@ class AnthropicProvider(LLMProviderBase):
             "model":       self.config.model,
             "messages":    messages,
             "max_tokens":  request.max_tokens,
-            "temperature": request.temperature,
             "stream":      stream,
         }
+        # Dívida #11 (2026-05-27): Opus 4.7+ rejeita `temperature`.
+        # Omite o parâmetro para modelos listados em MODELS_REJECTING_TEMPERATURE.
+        if self.config.model not in MODELS_REJECTING_TEMPERATURE:
+            payload["temperature"] = request.temperature
         if system_text:
             payload["system"] = system_text
         if request.stop:
