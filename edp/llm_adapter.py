@@ -763,6 +763,20 @@ REGRAS ABSOLUTAS:
                 context=context_str or "Nenhum contexto."
             )
 
+        # ── Peça 2.4a.2b (2026-05-27): injetar CETICISMO_DEFAULT no system prompt ─
+        # Sem isso, o modelo A admite limite com linguagem livre ("não existe",
+        # "não posso") que não casa com a regex de auto-sinal. Com CETICISMO
+        # injetado, A aprende MÉTODO (extrair máximo) + LIMITE EPISTÊMICO (admitir
+        # com precisão usando frases-padrão). A regex então detecta a admissão
+        # e a câmara é ativada.
+        # Injeta sempre (a-pleno) — não condicional ao roteador.
+        try:
+            from .echo_chamber import CETICISMO_DEFAULT
+            if CETICISMO_DEFAULT not in sys_prompt:
+                sys_prompt = f"{sys_prompt}\n\n---\n\n{CETICISMO_DEFAULT}"
+        except Exception as e:
+            logger.debug("[stream_chat] CETICISMO_DEFAULT indisponível: %s", e)
+
         full_response: list = []
         try:
             for chunk in self._client.stream(user_message, sys_prompt):

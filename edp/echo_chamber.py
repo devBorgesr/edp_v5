@@ -49,7 +49,7 @@ logger = logging.getLogger("edp.echo_chamber")
 # "isso é confabulação?", apenas reflete a instrução fielmente e responde ao
 # sinal interno do Filho.
 CETICISMO_DEFAULT = """\
-Importante: opere com ceticismo honesto e transparência radical.
+Importante: opere com ceticismo honesto, método rigoroso e humildade epistêmica.
 
 CETICISMO — sobre o que recebe:
 - Não infle avaliações ("ótima pergunta", "isso é fascinante")
@@ -59,15 +59,43 @@ CETICISMO — sobre o que recebe:
 
 HONESTIDADE — sobre o que entrega:
 - Marque claramente o que você SABE vs o que está chutando
-- Quando não tem base sólida para responder com confiança, ADMITA IMEDIATAMENTE
-- Frases naturais para admitir limite são essas (use exatamente uma delas):
-  • "Não consigo responder isso com confiança — seria especulação minha."
-  • "Não tenho base sólida para afirmar isso."
-  • "Isso está além do que posso afirmar com honestidade."
-- Após admitir, pare. Não tente uma resposta especulativa "por via das dúvidas".
-- O EDP detectará sua admissão e consultará outro modelo mais capaz para refinar.
+- Quando não tem base sólida para responder, ADMITA — mas não cedo demais (veja MÉTODO abaixo)
+- Honestidade sobre limites é mais valiosa que qualquer resposta fabricada
 
-A honestidade sobre seus limites é mais valiosa que qualquer resposta fabricada.
+MÉTODO — antes de admitir limite, extraia o máximo do problema:
+1. Isole a variável testável: reduza a pergunta a uma sub-questão que possa ser
+   respondida com "sim" ou "não". Evita que o problema pareça monolito impossível.
+2. Trate o "fracasso" como dado: refutar uma hipótese é avanço, não perda. Saber
+   o que NÃO funciona é tão valioso quanto o que funciona.
+3. Mude o ângulo de ataque: se a linha principal trava, busque evidências indiretas,
+   anomalias, exceções. Pergunte: "Se isso fosse verdade, o que mais deveríamos observar?"
+4. Time-boxing: defina limite de esforço para a linha de raciocínio. Permite explorar
+   com tranquilidade sabendo que há plano B.
+5. Documente o processo: registre o que foi tentado. Dado descartado hoje pode ser
+   chave para outro problema amanhã.
+
+LIMITE EPISTÊMICO — quando o método se esgota, admita com precisão:
+1. Humildade epistêmica: "chegamos ao limite do que podemos provar com o que temos
+   hoje" é demonstração de força, não fraqueza. Separe o ego do objeto — a hipótese
+   travou, não a inteligência de quem a formulou.
+2. Formalize o encerramento: declare onde o raciocínio travou e por quê (falta de
+   dado, ausência de tecnologia, contradição lógica). Exponha o paradoxo — defina
+   a fronteira atual como pergunta aberta.
+3. Redirecione a energia: use o limite como combustível para nova linha. Encerramento
+   formal de uma hipótese libera espaço mental para novas ideias. Acolha o aprendizado
+   — o rigor aplicado até ali afiou a capacidade analítica para o próximo desafio.
+
+ADMISSÃO DE LIMITE — quando precisar admitir, use uma destas frases:
+- Para fato simples ausente da base:
+  "Não consigo responder isso com confiança — seria especulação minha."
+- Para limite epistêmico geral (problema aberto da ciência/matemática):
+  "Isso está além do que posso afirmar com honestidade."
+- Para limite após método esgotado (preferida quando se aplicou MÉTODO acima):
+  "Esgotei o método disponível para esta investigação — o bloqueio é: [motivo concreto].
+  A fronteira atual é: [paradoxo ou pergunta aberta específica]."
+
+Após admitir, pare. Não fabrique uma resposta "por via das dúvidas".
+O EDP detectará a admissão e consultará outro modelo mais capaz para refinar.
 """
 
 
@@ -85,17 +113,27 @@ A honestidade sobre seus limites é mais valiosa que qualquer resposta fabricada
 import re as _re
 
 AUTO_SINAL_LIMITE_REGEX = _re.compile(
-    # Frases padronizadas (alta confiança)
+    # Frases padronizadas (alta confiança):
+    # #1 — fato simples ausente da base
     r"(?:n[ãa]o\s+consigo\s+responder\s+(?:isso|essa)\s+com\s+confian[çc]a"
-    r"|n[ãa]o\s+tenho\s+base\s+s[óo]lida\s+para\s+afirmar"
+    # #3 — limite epistêmico geral
     r"|isso\s+est[áa]\s+al[ée]m\s+do\s+que\s+posso\s+afirmar\s+com\s+honestidade"
-    # Variações naturais (média confiança — modelo pode parafrasear)
+    # NOVA — admissão após método esgotado (preferida quando MÉTODO se aplicou)
+    # Casa quando modelo PREENCHE [motivo] e [paradoxo/pergunta] com conteúdo real.
+    # Frase template do CETICISMO_DEFAULT:
+    #   "Esgotei o método disponível para esta investigação — o bloqueio é: [motivo].
+    #    A fronteira atual é: [paradoxo ou pergunta aberta específica]."
+    r"|esgotei\s+o\s+m[ée]todo\s+dispon[íi]vel\s+para\s+esta\s+investiga[çc][ãa]o"
+    r"\s*[—\-:]+\s*o\s+bloqueio\s+[ée]:\s*.+?"
+    r"\s*a\s+fronteira\s+atual\s+[ée]:\s*.+?[.!?]"
+    # Variações naturais (média confiança — modelo pode parafrasear):
     r"|seria\s+especula[çc][ãa]o\s+(?:minha|de\s+minha\s+parte)"
     r"|n[ãa]o\s+consigo\s+(?:afirmar|garantir)\s+(?:isso|essa)\s+com\s+confian[çc]a"
     r"|n[ãa]o\s+tenho\s+(?:dados|informa[çc][ãa]o|base)\s+suficiente"
+    r"|n[ãa]o\s+tenho\s+base\s+s[óo]lida\s+para\s+afirmar"
     r"|al[ée]m\s+do\s+que\s+posso\s+(?:afirmar|responder)\s+com\s+honestidade"
     r")",
-    _re.IGNORECASE,
+    _re.IGNORECASE | _re.DOTALL,
 )
 
 
@@ -127,13 +165,16 @@ def detectar_auto_sinal_de_limite(texto: str) -> dict:
     trecho_lower = trecho.lower()
 
     # Classifica confiança da detecção
+    # Frases de alta confiança = padrões EXATOS do CETICISMO_DEFAULT.
+    # Estes disparam a câmara (ativação automática). Variações naturais ficam
+    # como "media" — registradas mas não disparam.
     frases_alta = [
         "não consigo responder",
         "nao consigo responder",
-        "não tenho base sólida",
-        "nao tenho base solida",
         "além do que posso afirmar com honestidade",
         "alem do que posso afirmar com honestidade",
+        "esgotei o método disponível",
+        "esgotei o metodo disponivel",
     ]
     confianca = "alta" if any(f in trecho_lower for f in frases_alta) else "media"
 
