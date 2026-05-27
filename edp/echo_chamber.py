@@ -123,9 +123,14 @@ AUTO_SINAL_LIMITE_REGEX = _re.compile(
     # Frase template do CETICISMO_DEFAULT:
     #   "Esgotei o método disponível para esta investigação — o bloqueio é: [motivo].
     #    A fronteira atual é: [paradoxo ou pergunta aberta específica]."
-    r"|esgotei\s+o\s+m[ée]todo\s+dispon[íi]vel\s+para\s+esta\s+investiga[çc][ãa]o"
-    r"\s*[—\-:]+\s*o\s+bloqueio\s+[ée]:\s*.+?"
-    r"\s*a\s+fronteira\s+atual\s+[ée]:\s*.+?[.!?]"
+    # Regex flexível: modelo pode pular "para esta investigação", usar `:` em vez
+    # de `—`, omitir "o" antes de "bloqueio". Núcleo obrigatório: "esgotei o método
+    # disponível" + "bloqueio é:" + "fronteira atual é:".
+    r"|esgotei\s+o\s+m[ée]todo\s+dispon[íi]vel"
+    r"(?:\s+para\s+esta\s+investiga[çc][ãa]o)?"
+    r"\s*[—\-:]+\s*"
+    r"(?:o\s+)?bloqueio\s+[ée]:?\s*.+?"
+    r"\s*a\s+fronteira\s+atual\s+[ée]:?\s*.+?[.!?]"
     # Variações naturais (média confiança — modelo pode parafrasear):
     r"|seria\s+especula[çc][ãa]o\s+(?:minha|de\s+minha\s+parte)"
     r"|n[ãa]o\s+consigo\s+(?:afirmar|garantir)\s+(?:isso|essa)\s+com\s+confian[çc]a"
