@@ -339,6 +339,13 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                         loop = asyncio.get_event_loop()
                                         gen  = runtime.stream_chat(message)
                                         first_chunk = True
+                                        # ── Peça 2.4a.2: estado de detecção de auto-sinal ────
+                                        # Verifica em frase terminada (.!?) para evitar regex
+                                        # em fragmento. Só após 100 chars acumulados — abaixo
+                                        # disso, regex de frase-padrão não tem contexto suficiente.
+                                        autosinal_min_chars = 100
+                                        autosinal_last_check_len = 0
+                                        from edp.echo_chamber import detectar_auto_sinal_de_limite
 
                                         async def _next_chunk():
                                             return await loop.run_in_executor(
@@ -386,6 +393,40 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                 )
                                                 cancel_token.cancel("ws_send_failed")
                                                 break
+
+                                            # ── Peça 2.4a.2: detecção de auto-sinal mid-stream ──
+                                            # Só roda se: (1) chunk termina frase (. ! ?),
+                                            # (2) acumulado >= 100 chars, (3) cresceu desde
+                                            # última verificação. Detecção em frase COMPLETA
+                                            # evita regex em fragmento.
+                                            if chunk and chunk.rstrip().endswith((".", "!", "?")):
+                                                texto_acumulado = "".join(chunks)
+                                                if (len(texto_acumulado) >= autosinal_min_chars
+                                                        and len(texto_acumulado) > autosinal_last_check_len):
+                                                    autosinal_last_check_len = len(texto_acumulado)
+                                                    try:
+                                                        auto_sinal = detectar_auto_sinal_de_limite(
+                                                            texto_acumulado
+                                                        )
+                                                    except Exception as e:
+                                                        logger.debug(
+                                                            "[WS] auto-sinal check falhou: %s", e
+                                                        )
+                                                        auto_sinal = {"detectado": False}
+                                                    if (auto_sinal.get("detectado")
+                                                            and auto_sinal.get("confianca") == "alta"):
+                                                        # Frase-padrão completa detectada
+                                                        # → cancela stream para 2.4a.3 ativar câmara
+                                                        logger.info(
+                                                            "[WS] auto-sinal mid-stream | confianca=alta "
+                                                            "trecho='%s' chars_acumulados=%d",
+                                                            auto_sinal["trecho"][:80],
+                                                            len(texto_acumulado),
+                                                        )
+                                                        cancel_token.cancel(
+                                                            "camara_ativada_por_auto_sinal"
+                                                        )
+                                                        break
 
                                     await asyncio.wait_for(
                                         _stream_with_timeout(),
