@@ -1005,13 +1005,22 @@ REGRAS ABSOLUTAS:
         """
         Recupera contexto da memória EDP enriquecido com metadado temporal.
 
-        Pipeline (v3.10):
-          1. SEMPRE inclui últimos 2 turnos da sessão (janela imediata)
-             — independente de similaridade. Evita perda de presença
-             conversacional quando o usuário faz pergunta de follow-up
-             ("qual a base do seu talvez?", "quais conclusões você tirou?")
+        Pipeline (v3.15 + peça 2.5a):
+          1. SEMPRE inclui últimos 6 turnos da sessão (janela imediata expandida)
+             com cap de chars VARIÁVEL — turnos mais recentes ganham mais espaço.
+             Garante presença contínua da thread cognitiva atual, evitando o
+             "reset no meio da conversa" que causava condescendência (modelo
+             perdia o próprio "Não tenho base sólida" de 3 turnos atrás).
+
+             Caps (decrescentes pela ordem cronológica reversa):
+               turno-1 (mais recente): 4000 chars
+               turnos -2, -3:          3000 chars
+               turnos -4, -5, -6:      1500 chars
+
+             Total máximo: ~16500 chars na janela imediata.
+
           2. Retrieval normal por similaridade (top_k=5, deduplicando os
-             já incluídos na janela imediata)
+             já incluídos na janela imediata).
 
         Tags:
           [turno anterior]  → último Q/A
@@ -1031,16 +1040,36 @@ REGRAS ABSOLUTAS:
             _debug_immediate: list[dict] = []
             _debug_similarity: list[dict] = []
 
-            # ── Janela imediata: últimos 2 turnos da sessão atual ───────────
-            # Estes ENTRAM sempre, mesmo que retrieval não os priorize.
-            # Hotfix v3.13.2: filtra session_summaries para não poluírem como
-            # "turno anterior" (causava resposta confusa quando summary era
-            # o último entry gravado).
-            # Peça 1 (v3.13.9): ordena por timestamp antes de pegar [-2:],
-            # porque self._memory.episodic.entries NÃO está garantidamente
-            # em ordem cronológica (operações como reclassify_all e repair
-            # podem embaralhar). Sem este sort, [-2:] pode retornar turnos
-            # de DIAS atrás como "turno anterior".
+            # ── Janela imediata: últimos N turnos da sessão atual ───────────
+            # Peça 2.5a (2026-05-28): expandida de 2 → 6 turnos com cap variável.
+            # Diagnóstico: o EDP estava resetando o modelo no meio de conversas
+            # longas. Modelo perdia a própria admissão "Não tenho base sólida"
+            # de 3 turnos atrás e cedia à pressão do usuário inventando resposta
+            # plausível (caso real: Bayes/Turing — modelo inventou Fourier+Titanic).
+            # Janela curta = sem thread cognitiva = condescendência crônica.
+            #
+            # Cap variável (decrescente pela ordem cronológica reversa):
+            #   turno mais recente (-1):       4000 chars (frescura preservada)
+            #   turnos -2, -3:                 3000 chars (debate denso recente)
+            #   turnos -4, -5, -6:             1500 chars (âncora cronológica)
+            # Total máximo: ~16500 chars na janela imediata.
+            #
+            # Hotfix v3.13.2 mantido: filtra session_summaries para não poluírem
+            # como "turno anterior".
+            # Peça 1 (v3.13.9) mantido: ordena por timestamp antes de [-N:].
+            # Janela imediata mantém precedência sobre retrieval por similaridade.
+            JANELA_IMEDIATA_N = 6
+            # Caps por posição (mais recente primeiro: index 0 = turno-1)
+            CAPS_POR_POSICAO = [4000, 3000, 3000, 1500, 1500, 1500]
+            # Labels pela ordem cronológica (mais antigo primeiro → mais novo por último)
+            LABELS_POR_DISTANCIA = [
+                "6 turnos atrás",
+                "5 turnos atrás",
+                "4 turnos atrás",
+                "3 turnos atrás",
+                "2 turnos atrás",
+                "turno anterior",
+            ]
             try:
                 if hasattr(self._memory, "episodic"):
                     real_entries = sorted(
@@ -1050,18 +1079,21 @@ REGRAS ABSOLUTAS:
                         ],
                         key=lambda e: e.get("timestamp", 0),
                     )
-                    recent_entries = real_entries[-2:]
-                    # Mais antigo primeiro → mais novo por último
-                    immediate_labels = ["2 turnos atrás", "turno anterior"]
-                    if len(recent_entries) == 1:
-                        immediate_labels = ["turno anterior"]
-                    for entry, label in zip(recent_entries, immediate_labels):
-                        # Dívida #9 (2026-05-25): cap de 600 chars cortava resposta
-                        # técnica densa no meio (P2/P3 de explicações longas).
-                        # Subido para 6000 chars — cobre resposta longa típica
-                        # (~1500 tokens) sem inflar excessivamente. Janela imediata
-                        # ainda é só 2 turnos, então cap absoluto é ~12000 chars.
-                        txt = (entry.get("text") or "")[:6000]
+                    recent_entries = real_entries[-JANELA_IMEDIATA_N:]
+                    # Pega os labels finais (alinhados à direita) caso haja menos que N
+                    n_recent = len(recent_entries)
+                    labels_used = LABELS_POR_DISTANCIA[-n_recent:]
+                    # Caps: do mais recente para o mais antigo
+                    # recent_entries[-1] é o mais recente → cap[0]
+                    # recent_entries[-2] é -2 → cap[1] etc.
+                    # Construímos caps_used na mesma ordem cronológica dos entries
+                    # (do mais antigo ao mais novo): reverte CAPS_POR_POSICAO
+                    # para alinhar ao slice atual.
+                    caps_reverse = list(reversed(CAPS_POR_POSICAO[:n_recent]))
+                    # caps_reverse[i] é o cap para recent_entries[i] (i=0 mais antigo)
+
+                    for entry, label, cap in zip(recent_entries, labels_used, caps_reverse):
+                        txt = (entry.get("text") or "")[:cap]
                         if not txt:
                             continue
                         eid = entry.get("id")
@@ -1073,6 +1105,7 @@ REGRAS ABSOLUTAS:
                             "id":          eid,
                             "label":       label,
                             "text":        txt,
+                            "cap_aplicado": cap,
                             "source_type": entry.get("source_type"),
                         })
             except Exception as e:
