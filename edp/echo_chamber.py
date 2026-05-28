@@ -319,6 +319,11 @@ Responda EXATAMENTE neste formato:
 CONCORDANCIA: <0-100>%
 DISCORDANCIA_PRINCIPAL: [se concordância < 100, descreva em 1-2 frases onde \
 você acha que B errou ou exagerou. Se concordância = 100%, escreva "nenhuma".]
+DISCORDANCIA_TIPO: [classifique a discordância em UMA destas categorias: \
+"epistemica" (B afirmou mais do que se sabe / inflou certeza / introduziu \
+imprecisão factual sutil), "estilistica" (apenas estilo, fluidez, formatação, \
+escolha de palavras), ou "nenhuma" (sem discordância). Esta classificação é \
+crítica — telemetria do EDP usa para auditar condescendência futura.]
 TEXTO_FINAL: [escreva o texto final que você considera o melhor. Pode ser \
 exatamente o de B, pode ser misto, pode ser uma terceira versão. Este é o \
 texto que vai para o usuário.]
@@ -410,12 +415,15 @@ def _parse_resposta_A_avaliacao(texto: str) -> dict:
         dict com:
             - concordancia: int (0-100)
             - discordancia: str
+            - discordancia_tipo: "epistemica" | "estilistica" | "nenhuma" | ""
+                                  (peça 2.4a.8: telemetria de condescendência)
             - texto_final: str
             - parse_ok: bool
     """
     result = {
         "concordancia": 0,
         "discordancia": "",
+        "discordancia_tipo": "",
         "texto_final": "",
         "parse_ok": False,
     }
@@ -436,22 +444,51 @@ def _parse_resposta_A_avaliacao(texto: str) -> dict:
         if m:
             result["concordancia"] = min(100, int(m.group(1)))
 
-    # Discordância
+    # Discordância — corta no próximo campo (DISCORDANCIA_TIPO ou TEXTO_FINAL)
     idx_disc = texto_lower.find("discordancia_principal:")
     if idx_disc == -1:
         idx_disc = texto_lower.find("discordância_principal:")
+    idx_tipo = texto_lower.find("discordancia_tipo:")
+    if idx_tipo == -1:
+        idx_tipo = texto_lower.find("discordância_tipo:")
     idx_final = texto_lower.find("texto_final:")
 
     if idx_disc != -1:
-        end_disc = idx_final if idx_final != -1 else len(texto)
+        # Próximo campo após discordancia_principal: TIPO se existir, senão FINAL
+        end_disc = idx_tipo if idx_tipo != -1 else (idx_final if idx_final != -1 else len(texto))
         trecho_disc = texto[idx_disc:end_disc]
-        # Remove cabeçalho
         for prefix in ["discordancia_principal:", "discordância_principal:",
                        "DISCORDANCIA_PRINCIPAL:", "DISCORDÂNCIA_PRINCIPAL:"]:
             if trecho_disc.lower().startswith(prefix.lower()):
                 trecho_disc = trecho_disc[len(prefix):].strip()
                 break
         result["discordancia"] = trecho_disc.strip()
+
+    # ── Peça 2.4a.8: discordancia_tipo ──────────────────────────────
+    # Classificação da discordância (epistemica vs estilistica vs nenhuma)
+    # produzida pelo próprio A no prompt de avaliação. Telemetria para
+    # auditar condescendência em flags.jsonl quando B vence mas A
+    # apontou divergência epistêmica.
+    if idx_tipo != -1:
+        end_tipo = idx_final if idx_final != -1 else len(texto)
+        trecho_tipo = texto[idx_tipo:end_tipo]
+        for prefix in ["discordancia_tipo:", "discordância_tipo:",
+                       "DISCORDANCIA_TIPO:", "DISCORDÂNCIA_TIPO:"]:
+            if trecho_tipo.lower().startswith(prefix.lower()):
+                trecho_tipo = trecho_tipo[len(prefix):].strip()
+                break
+        # Normaliza para um dos 3 valores aceitos. Aceita variações tipo
+        # "epistêmica", "epistemico", aspas, parênteses, comentário extra.
+        tipo_low = trecho_tipo.lower().strip().strip('"').strip("'")
+        if "epist" in tipo_low:
+            result["discordancia_tipo"] = "epistemica"
+        elif "estil" in tipo_low or "form" in tipo_low or "cosmet" in tipo_low:
+            result["discordancia_tipo"] = "estilistica"
+        elif "nenhum" in tipo_low or "n/a" in tipo_low or tipo_low == "":
+            result["discordancia_tipo"] = "nenhuma"
+        else:
+            # Valor não-reconhecido — registra como vazio (não força categoria)
+            result["discordancia_tipo"] = ""
 
     # Texto final
     if idx_final != -1:
@@ -548,6 +585,9 @@ class CamaraRecord:
     latencia_total_ms: int
     fallback_para_A_solo: bool = False
     erro: Optional[str] = None
+    # Peça 2.4a.8: classificação da discordância (telemetria).
+    # "epistemica" | "estilistica" | "nenhuma" | "" (não classificada).
+    discordancia_tipo: str = "nenhuma"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -613,6 +653,61 @@ class EchoChamber:
         with self._lock:
             data = [r.to_dict() for r in self.records]
             _atomic_write_json(self.path, data, indent=2)
+
+    # ── Peça 2.4a.8: telemetria de condescendência ────────────────────────
+    def _gravar_flag_condescendencia(
+        self,
+        camara_id: str,
+        edp_session_id: str,
+        modelo_A: str,
+        modelo_B: str,
+        concordancia: int,
+        discordancia: str,
+    ) -> None:
+        """
+        Grava uma flag em <EDP_BASE_DIR>/flags/flags.jsonl quando a câmara
+        venceu para B MAS A apontou discordância epistêmica. Caso clássico
+        de condescendência: score alto engole objeção semântica de A.
+
+        Não trava decisão — só registra para auditoria. Telemetria pura.
+
+        Schema do registro (JSONL, uma linha):
+            {"origem": "echo_chamber",
+             "tipo": "epistemica",
+             "camara_id": "...",
+             "edp_session_id": "...",
+             "modelo_A": "...",
+             "modelo_B": "...",
+             "concordancia": 95,
+             "discordancia": "...",
+             "timestamp": 1234567890.0}
+
+        Convive com flags de contradiction_flagger (que usam o mesmo
+        arquivo). Distinção pelo campo "origem".
+        """
+        import os, json
+        from pathlib import Path
+        base = os.environ.get("EDP_BASE_DIR", "data")
+        flags_dir = Path(base) / "flags"
+        flags_dir.mkdir(parents=True, exist_ok=True)
+        flags_file = flags_dir / "flags.jsonl"
+        registro = {
+            "origem":          "echo_chamber",
+            "tipo":            "epistemica",
+            "camara_id":       camara_id,
+            "edp_session_id":  edp_session_id,
+            "modelo_A":        modelo_A,
+            "modelo_B":        modelo_B,
+            "concordancia":    concordancia,
+            "discordancia":    discordancia[:500],  # cap pra não inchar
+            "timestamp":       _now(),
+        }
+        with open(flags_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(registro, ensure_ascii=False) + "\n")
+        logger.info(
+            "[camara %s] flag de condescendência registrada | tipo=epistemica concord=%d%%",
+            camara_id[:8], concordancia,
+        )
 
     def executar(
         self,
@@ -757,6 +852,7 @@ class EchoChamber:
         vencedor = "A"
         concordancia = 100
         discordancia = "nenhuma"
+        discordancia_tipo = "nenhuma"  # 2.4a.8: telemetria
 
         # ── Peça 2.4a.6: VETO ASSIMÉTRICO DE TOPO ──────────────────────────
         # Quando A == B (auto-refutação no topo da hierarquia), a reformulação
@@ -806,6 +902,7 @@ class EchoChamber:
 
                 concordancia = parsed_eval["concordancia"]
                 discordancia = parsed_eval["discordancia"]
+                discordancia_tipo = parsed_eval.get("discordancia_tipo", "") or discordancia_tipo
                 texto_proposto_final = parsed_eval["texto_final"]
 
                 if texto_proposto_final and len(texto_proposto_final) > 20:
@@ -852,10 +949,29 @@ class EchoChamber:
             custo_total_usd=round(custo_total, 6),
             latencia_total_ms=latencia_total_ms,
             fallback_para_A_solo=False,
+            discordancia_tipo=discordancia_tipo,  # 2.4a.8
         )
         with self._lock:
             self.records.append(record)
             self.save()
+
+        # ── Peça 2.4a.8: telemetria de condescendência ─────────────────
+        # Quando B venceu MAS A apontou discordância EPISTÊMICA, é caso
+        # potencial de condescendência (score engole objeção semântica).
+        # Grava flag em flags.jsonl para auditoria manual. Não trava
+        # decisão — só registra para análise posterior.
+        if vencedor == "B" and discordancia_tipo == "epistemica":
+            try:
+                self._gravar_flag_condescendencia(
+                    camara_id=camara_id,
+                    edp_session_id=edp_session_id,
+                    modelo_A=modelo_A,
+                    modelo_B=modelo_B,
+                    concordancia=concordancia,
+                    discordancia=discordancia,
+                )
+            except Exception as e:
+                logger.debug("[camara %s] gravar flag falhou: %s", camara_id[:8], e)
 
         resumo = (
             f"câmara {camara_id[:8]}: {modelo_A}→{modelo_B} | "
