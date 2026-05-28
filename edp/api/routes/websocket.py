@@ -484,6 +484,51 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                         )
                                                         # Câmara é síncrona — roda em executor para não bloquear loop
                                                         loop = asyncio.get_event_loop()
+
+                                                        # ── Peça 2.4a.3b: ponte thread→async para eventos ──
+                                                        # Callbacks rodam na thread do executor, mas send_json
+                                                        # é async no loop principal. run_coroutine_threadsafe
+                                                        # agenda o envio no loop a partir da thread.
+                                                        def _emit_threadsafe(payload: dict):
+                                                            try:
+                                                                fut = asyncio.run_coroutine_threadsafe(
+                                                                    websocket.send_json(payload), loop
+                                                                )
+                                                                # timeout curto — não queremos travar a câmara
+                                                                fut.result(timeout=2.0)
+                                                            except Exception as e:
+                                                                logger.debug("[WS] emit camara event falhou: %s", e)
+
+                                                        def _on_camara_iniciada(info: dict):
+                                                            logger.info(
+                                                                "[WS] camara_iniciada | A=%s B=%s",
+                                                                info.get("modelo_A"), info.get("modelo_B"),
+                                                            )
+                                                            _emit_threadsafe({
+                                                                "type":      "camara_iniciada",
+                                                                "camara_id": info.get("camara_id"),
+                                                                "modelo_A":  info.get("modelo_A"),
+                                                                "modelo_B":  info.get("modelo_B"),
+                                                                "trecho_A":  info.get("trecho_A"),
+                                                            })
+
+                                                        def _on_fase_b_completa(info: dict):
+                                                            checks = info.get("checks", {})
+                                                            logger.info(
+                                                                "[WS] camara_fase_b_completa | B=%s checks=%d latencia_B=%dms",
+                                                                info.get("modelo_B"),
+                                                                len(checks) if checks else 0,
+                                                                int(info.get("latencia_ms_B", 0)),
+                                                            )
+                                                            _emit_threadsafe({
+                                                                "type":             "camara_fase_b_completa",
+                                                                "camara_id":        info.get("camara_id"),
+                                                                "modelo_B":         info.get("modelo_B"),
+                                                                "checks":           checks,
+                                                                "latencia_ms_b":    info.get("latencia_ms_B"),
+                                                                "tem_reformulacao": info.get("tem_reformulacao"),
+                                                            })
+
                                                         chamber_result = await loop.run_in_executor(
                                                             None,
                                                             lambda: chamber.executar(
@@ -494,6 +539,8 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                                 edp_session_id=edp_sid,
                                                                 block_id=None,
                                                                 texto_A_ja_gerado=full_text,
+                                                                on_camara_iniciada=_on_camara_iniciada,
+                                                                on_fase_b_completa=_on_fase_b_completa,
                                                             ),
                                                         )
                                             except Exception as e:

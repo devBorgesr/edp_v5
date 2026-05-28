@@ -610,6 +610,8 @@ class EchoChamber:
         edp_session_id: str,
         block_id: Optional[str] = None,
         texto_A_ja_gerado: Optional[str] = None,
+        on_camara_iniciada: Optional[Callable[[dict], None]] = None,
+        on_fase_b_completa: Optional[Callable[[dict], None]] = None,
     ) -> dict:
         """
         Executa a câmara de eco completa.
@@ -623,6 +625,20 @@ class EchoChamber:
             block_id: bloco atual (opcional, para metadados)
             texto_A_ja_gerado: se A já gerou (ex: streaming visível ao usuário),
                               passa aqui para evitar chamar A duas vezes
+            on_camara_iniciada: callback opcional chamado no início da câmara,
+                                APÓS modelos definidos mas antes de B rodar.
+                                Recebe dict com {camara_id, modelo_A, modelo_B, trecho_A}.
+                                Peça 2.4a.3b: usado pelo WebSocket para enviar
+                                evento ao frontend (transparência do fluxo).
+            on_fase_b_completa: callback opcional chamado quando B termina sua
+                                refutação/reformulação, antes de A avaliar.
+                                Recebe dict com {camara_id, modelo_B, checks, latencia_ms_B}.
+                                Peça 2.4a.3b: permite mostrar progresso parcial.
+
+            Callbacks rodam em background thread (executor) — se forem invocar
+            async io, devem usar asyncio.run_coroutine_threadsafe ou similar.
+            Falhas no callback são tolerantes (logger.debug), não interrompem
+            a câmara.
 
         Returns:
             dict com:
@@ -665,18 +681,43 @@ class EchoChamber:
         # ─────────────────────────────────────────────────────────────
         # Passo 2: B refuta
         # ─────────────────────────────────────────────────────────────
+        # Peça 2.4a.3b: callback de início da câmara (frontend tira "caixa preta")
+        if on_camara_iniciada is not None:
+            try:
+                on_camara_iniciada({
+                    "camara_id": camara_id,
+                    "modelo_A":  modelo_A,
+                    "modelo_B":  modelo_B,
+                    "trecho_A":  (texto_A or "")[:200],
+                })
+            except Exception as e:
+                logger.debug("[camara %s] on_camara_iniciada falhou: %s", camara_id[:8], e)
         try:
             logger.info("[camara %s] passo 2: B=%s refutando", camara_id[:8], modelo_B)
             prompt_B = _construir_prompt_B(contexto_completo, texto_A, modelo_B)
+            t_b_start = _now()
             resp_B = self.llm_caller(modelo_B, CETICISMO_DEFAULT, prompt_B)
             texto_B = resp_B.get("text", "")
+            latencia_ms_B = resp_B.get("latency_ms", 0)
             custo_total += resp_B.get("cost_usd", 0.0)
-            latencia_total_ms += resp_B.get("latency_ms", 0)
+            latencia_total_ms += latencia_ms_B
             if not texto_B:
                 raise ValueError("B retornou texto vazio")
             parsed_B = _parse_resposta_B(texto_B)
             if not parsed_B["parse_ok"]:
                 raise ValueError("parse de B falhou (< 4 checks identificados)")
+            # Peça 2.4a.3b: callback de fase B completa
+            if on_fase_b_completa is not None:
+                try:
+                    on_fase_b_completa({
+                        "camara_id":     camara_id,
+                        "modelo_B":      modelo_B,
+                        "checks":        parsed_B["checks"],
+                        "latencia_ms_B": latencia_ms_B,
+                        "tem_reformulacao": bool(parsed_B.get("reformulacao")),
+                    })
+                except Exception as e:
+                    logger.debug("[camara %s] on_fase_b_completa falhou: %s", camara_id[:8], e)
         except Exception as e:
             logger.warning("[camara %s] passo 2 falhou: %s — fallback A solo",
                            camara_id[:8], e)
