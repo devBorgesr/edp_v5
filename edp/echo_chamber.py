@@ -32,6 +32,19 @@ from . import schema_v1 as _schema
 
 logger = logging.getLogger("edp.echo_chamber")
 
+# ── Peça 2.4a.6: checks que autorizam B a vencer no TOPO (auto-refutação) ──
+# Quando A == B (Opus-refuta-Opus), o veto assimétrico só aceita a reformulação
+# de B se algum destes checks "de dano factual" falhou no texto de A. Checks
+# meramente estilísticos/estruturais (inflacao_avaliativa, condescendencia,
+# completude_forcada, estruturacao_imposta) NÃO autorizam — são vetados em favor
+# da honestidade nua de A. Decisão de design: no teto da hierarquia, exigimos
+# prova de dano, não preferência estética.
+CHECKS_DANO_FACTUAL = frozenset({
+    _schema.CHECK_CONFABULACAO,      # inventou fato
+    _schema.CHECK_PROJECAO_SEM_DADO, # afirmou sem base
+    _schema.CHECK_PERDA_DE_FIO,      # contradição interna / incoerência
+})
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Prompts da câmara
@@ -744,6 +757,39 @@ class EchoChamber:
         vencedor = "A"
         concordancia = 100
         discordancia = "nenhuma"
+
+        # ── Peça 2.4a.6: VETO ASSIMÉTRICO DE TOPO ──────────────────────────
+        # Quando A == B (auto-refutação no topo da hierarquia), a reformulação
+        # de B só é considerada se houver DANO FACTUAL real (confabulacao,
+        # projecao_sem_dado, perda_de_fio). Se B só apontou defeitos estéticos
+        # (inflação, condescendência, completude forçada, estruturação), VETAMOS
+        # a reformulação aqui mesmo — sem nem chamar A para avaliar. A honestidade
+        # nua de A prevalece. Isso corrige o paradoxo onde B "melhora" formatação
+        # e infla uma admissão honesta (caso 4ca377aa).
+        eh_topo = (modelo_A == modelo_B)
+        if eh_topo and not reform_desnecessaria:
+            fails_factuais = [
+                cid for cid, c in parsed_B["checks"].items()
+                if c.get("verdict") == "FAIL" and cid in CHECKS_DANO_FACTUAL
+            ]
+            if not fails_factuais:
+                # Nenhum dano factual → veto. Mantém texto de A.
+                fails_esteticos = [
+                    cid for cid, c in parsed_B["checks"].items()
+                    if c.get("verdict") == "FAIL"
+                ]
+                logger.info(
+                    "[camara %s] VETO DE TOPO | A==B==%s | B só apontou defeitos "
+                    "estéticos (%s) sem dano factual → mantém texto honesto de A",
+                    camara_id[:8], modelo_A,
+                    ",".join(fails_esteticos) if fails_esteticos else "nenhum",
+                )
+                reform_desnecessaria = True  # bloqueia o caminho de reformulação
+                vencedor = "A"
+                discordancia = (
+                    f"veto de topo: B apontou apenas {','.join(fails_esteticos) or 'nada'} "
+                    f"(estético), sem dano factual"
+                )
 
         if not reform_desnecessaria:
             try:

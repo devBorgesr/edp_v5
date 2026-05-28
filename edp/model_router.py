@@ -402,13 +402,15 @@ def escolher_modelos_B(
 
     Returns:
         Lista de modelos refutadores, ordenada do MAIS PRÓXIMO ao MAIS ALTO.
-        Lista VAZIA se modelo_A é o topo (ex: Opus) — nesse caso, peça 2.2
-        não ativará câmara para esse turno.
+        Se modelo_A é o topo (ex: Opus), retorna [modelo_A] — auto-refutação.
+        A câmara aplicará VETO ASSIMÉTRICO nesse caso (peça 2.4a.6): Opus-B
+        só vence se detectar dano factual (confabulacao/projecao_sem_dado/
+        perda_de_fio); refinamentos estilísticos são vetados em favor de A.
 
     Exemplos:
         escolher_modelos_B("claude-haiku-4-5")  → ["claude-sonnet-4-6", "claude-opus-4-7"]
         escolher_modelos_B("claude-sonnet-4-6") → ["claude-opus-4-7"]
-        escolher_modelos_B("claude-opus-4-7")   → []
+        escolher_modelos_B("claude-opus-4-7")   → ["claude-opus-4-7"]  (auto-refutação)
     """
     available = available_models or list(MODELS.keys())
 
@@ -428,6 +430,15 @@ def escolher_modelos_B(
 
     # Ordena por tier ascendente (mais próximo de A primeiro)
     refutadores.sort(key=lambda m: MODELS[m]["tier"])
+
+    # ── Peça 2.4a.6: política de topo (auto-refutação) ──────────────
+    # Se A é o topo da hierarquia (sem refutador acima), B = A mesmo.
+    # A câmara aplicará veto assimétrico: Opus-B só substitui Opus-A se
+    # provar dano factual real, não por estética. Garante refinamento no
+    # teto sem abrir mão da honestidade nua de A.
+    if not refutadores and modelo_A in available:
+        return [modelo_A]
+
     return refutadores
 
 
