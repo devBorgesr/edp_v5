@@ -658,6 +658,7 @@ class EpisodicMemory:
         VALID_SOURCE_TYPES = (
             "user_input", "llm_response", "meta_conversation",
             "session_summary", "external", "unknown",
+            "camara_response",  # Peça 2.4a.7: texto refinado pela câmara de eco
         )
 
         for e in self.entries:

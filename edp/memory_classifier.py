@@ -115,6 +115,17 @@ def classify_memory(text: str, source: str = "") -> str:
     if source.startswith("pdf:") or source.startswith("external:") or source.startswith("import:"):
         return "external"
 
+    # 3b) Peça 2.4a.7: proveniência da câmara de eco.
+    # IMPORTANTE: checar ANTES do "llm:" genérico, porque fallback_solo
+    # começa com "llm:". Ordem importa.
+    if source.startswith("camara:"):
+        # Texto refinado pela câmara (B venceu com dano factual corrigido)
+        return "camara_response"
+    if source == "llm:fallback_solo" or source.startswith("llm:fallback_solo"):
+        # Resposta bruta de A — câmara vetou (só estética) ou não havia B,
+        # ou a câmara falhou. NÃO passou por refinamento aceito.
+        return "llm_response"
+
     # 4) Respostas de LLM
     if source.startswith("llm:") or source.startswith("haiku") or source.startswith("claude"):
         return "llm_response"
@@ -131,6 +142,11 @@ def classify_memory(text: str, source: str = "") -> str:
 SOURCE_TYPE_WEIGHTS = {
     "external":          1.20,  # boost: conteúdo curado externo
     "session_summary":   1.15,  # boost leve: resumos ajudam continuidade
+    "camara_response":   1.00,  # Peça 2.4a.7: texto refinado pela câmara.
+                                # Peso NEUTRO por ora — proveniência registrada,
+                                # calibração de peso fica para depois (estabilizar
+                                # antes de otimizar). Marca a linhagem sem ainda
+                                # decidir se refinado vale mais/menos no retrieval.
     "user_input":        1.00,
     "llm_response":      0.90,  # leve desconto: resposta gerada
     "meta_conversation": 0.55,  # desconto forte: anti-dominância

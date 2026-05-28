@@ -334,23 +334,17 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                 # cancel_token será verificado a cada chunk
                                 try:
                                     chunks: list = []
+                                    # ── Peça 2.4a.7: rastreamento de proveniência ──
+                                    # Marca a linhagem do texto final para gravação.
+                                    # None = resposta normal de A (source padrão llm:<model>).
+                                    # "camara:<B>" = câmara venceu (B refinou, dano factual).
+                                    # "llm:fallback_solo" = veto de topo / sem B / câmara falhou.
+                                    camara_source = None
 
                                     async def _stream_with_timeout():
                                         loop = asyncio.get_event_loop()
                                         gen  = runtime.stream_chat(message)
                                         first_chunk = True
-                                        # ── Peça 2.4a.2: estado de detecção de auto-sinal ────
-                                        # Verifica em frase terminada (.!?) para evitar regex
-                                        # em fragmento. Só após 350 chars acumulados — dá espaço
-                                        # para o modelo aplicar MÉTODO (CETICISMO_DEFAULT) antes
-                                        # de admitir limite. Sem espaço, A admitiria cedo demais
-                                        # e a câmara receberia trabalho não-embasado.
-                                        # Calibrado em 2.4a.2c (500 → 350) — medição real mostrou
-                                        # que respostas com método aplicado ficam em 400-600 chars,
-                                        # não 800-1000 como estimado inicialmente.
-                                        autosinal_min_chars = 350
-                                        autosinal_last_check_len = 0
-                                        from edp.echo_chamber import detectar_auto_sinal_de_limite
 
                                         async def _next_chunk():
                                             return await loop.run_in_executor(
@@ -399,40 +393,6 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                 cancel_token.cancel("ws_send_failed")
                                                 break
 
-                                            # ── Peça 2.4a.2: detecção de auto-sinal mid-stream ──
-                                            # Só roda se: (1) chunk termina frase (. ! ?),
-                                            # (2) acumulado >= 100 chars, (3) cresceu desde
-                                            # última verificação. Detecção em frase COMPLETA
-                                            # evita regex em fragmento.
-                                            if chunk and chunk.rstrip().endswith((".", "!", "?")):
-                                                texto_acumulado = "".join(chunks)
-                                                if (len(texto_acumulado) >= autosinal_min_chars
-                                                        and len(texto_acumulado) > autosinal_last_check_len):
-                                                    autosinal_last_check_len = len(texto_acumulado)
-                                                    try:
-                                                        auto_sinal = detectar_auto_sinal_de_limite(
-                                                            texto_acumulado
-                                                        )
-                                                    except Exception as e:
-                                                        logger.debug(
-                                                            "[WS] auto-sinal check falhou: %s", e
-                                                        )
-                                                        auto_sinal = {"detectado": False}
-                                                    if (auto_sinal.get("detectado")
-                                                            and auto_sinal.get("confianca") == "alta"):
-                                                        # Frase-padrão completa detectada
-                                                        # → cancela stream para 2.4a.3 ativar câmara
-                                                        logger.info(
-                                                            "[WS] auto-sinal mid-stream | confianca=alta "
-                                                            "trecho='%s' chars_acumulados=%d",
-                                                            auto_sinal["trecho"][:80],
-                                                            len(texto_acumulado),
-                                                        )
-                                                        cancel_token.cancel(
-                                                            "camara_ativada_por_auto_sinal"
-                                                        )
-                                                        break
-
                                     await asyncio.wait_for(
                                         _stream_with_timeout(),
                                         timeout=LLM_TOTAL_TIMEOUT_S,
@@ -441,27 +401,50 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                     # ── Write-after-confirm: só conta como "usado"
                                     #    se completou sem cancelamento
                                     if cancel_token.is_cancelled:
+                                        # Cancel genuíno (timeout, ws_send_failed, etc.) — NÃO é câmara.
+                                        # Ajuste 1 (2.4a.6): a câmara não é mais ativada por cancel
+                                        # mid-stream. O stream completa inteiro e a detecção roda no
+                                        # texto final consolidado (on_llm_end) — ver abaixo.
                                         llm_used = False
                                         logger.info(
-                                            "[WS] LLM aborted (cancelled) | tokens parciais=%d descartados",
+                                            "[WS] LLM aborted (cancelled) | reason=%s tokens=%d",
+                                            cancel_token.cancel_reason,
                                             len(full_text.split()),
                                         )
-                                        # ── Peça 2.4a.3a: ativar câmara se cancel foi por auto-sinal ──
-                                        # Quando o modelo A admitiu limite mid-stream (peça 2.4a.2c
-                                        # detectou frase-padrão), aqui ativamos a câmara: B refuta/refina
-                                        # o que A tentou, A avalia, texto final substitui resposta parcial.
-                                        # Esqueleto: por enquanto só evento camara_resultado (sem eventos
-                                        # detalhados — esses ficam para 2.4a.3b).
-                                        if cancel_token.cancel_reason == "camara_ativada_por_auto_sinal":
+                                    else:
+                                        # ── Ajuste 1 (2.4a.6): detecção de auto-sinal no texto FINAL ──
+                                        # A terminou de gerar. Varremos o texto completo consolidado
+                                        # uma única vez. Se A admitiu limite com frase-padrão de alta
+                                        # confiança, ativamos a câmara — B recebe a PREMISSA INTEIRA,
+                                        # não um fragmento cortado. Sem desperdício de tokens, sem ruído
+                                        # de cancelamento. B julga o raciocínio completo de A.
+                                        from edp.echo_chamber import detectar_auto_sinal_de_limite
+                                        try:
+                                            auto_sinal = detectar_auto_sinal_de_limite(full_text)
+                                        except Exception as e:
+                                            logger.debug("[WS] auto-sinal check (final) falhou: %s", e)
+                                            auto_sinal = {"detectado": False}
+
+                                        ativa_camara = (
+                                            auto_sinal.get("detectado")
+                                            and auto_sinal.get("confianca") == "alta"
+                                        )
+
+                                        if ativa_camara:
+                                            logger.info(
+                                                "[WS] auto-sinal no texto final | confianca=alta "
+                                                "trecho='%s' texto_A=%d chars",
+                                                auto_sinal["trecho"][:80],
+                                                len(full_text),
+                                            )
                                             chamber_result = None
                                             try:
                                                 chamber = runtime.get_echo_chamber()
                                                 if chamber is None:
                                                     logger.warning(
-                                                        "[WS] camara indisponível — runtime.get_echo_chamber() retornou None"
+                                                        "[WS] camara indisponível — get_echo_chamber() retornou None"
                                                     )
                                                 else:
-                                                    # Modelo A é o atual do runtime; B vem do escolher_modelos_B
                                                     from edp.model_router import escolher_modelos_B
                                                     modelo_A = runtime._client._cfg.model if runtime._client else "claude-haiku-4-5"
                                                     modelos_B = escolher_modelos_B(modelo_A)
@@ -471,30 +454,23 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                             modelo_A,
                                                         )
                                                     else:
-                                                        modelo_B = modelos_B[0]  # mais próximo na hierarquia
-                                                        # edp_session_id vital para auditoria do registro
+                                                        modelo_B = modelos_B[0]
                                                         from edp.memory import _get_edp_lifetime
                                                         edp_lifetime = _get_edp_lifetime()
                                                         edp_sid = edp_lifetime.get("edp_session_id", "unknown")
                                                         logger.info(
-                                                            "[WS] camara executar | A=%s B=%s edp_sid=%s "
-                                                            "texto_A_parcial=%d chars",
+                                                            "[WS] camara executar | A=%s B=%s edp_sid=%s texto_A=%d chars",
                                                             modelo_A, modelo_B, edp_sid[:8] if edp_sid else "?",
                                                             len(full_text),
                                                         )
-                                                        # Câmara é síncrona — roda em executor para não bloquear loop
                                                         loop = asyncio.get_event_loop()
 
-                                                        # ── Peça 2.4a.3b: ponte thread→async para eventos ──
-                                                        # Callbacks rodam na thread do executor, mas send_json
-                                                        # é async no loop principal. run_coroutine_threadsafe
-                                                        # agenda o envio no loop a partir da thread.
+                                                        # ── Ponte thread→async para eventos (2.4a.3b) ──
                                                         def _emit_threadsafe(payload: dict):
                                                             try:
                                                                 fut = asyncio.run_coroutine_threadsafe(
                                                                     websocket.send_json(payload), loop
                                                                 )
-                                                                # timeout curto — não queremos travar a câmara
                                                                 fut.result(timeout=2.0)
                                                             except Exception as e:
                                                                 logger.debug("[WS] emit camara event falhou: %s", e)
@@ -533,7 +509,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                             None,
                                                             lambda: chamber.executar(
                                                                 user_message=message,
-                                                                contexto_completo="",  # contexto já está embutido no que A gerou
+                                                                contexto_completo="",
                                                                 modelo_A=modelo_A,
                                                                 modelo_B=modelo_B,
                                                                 edp_session_id=edp_sid,
@@ -546,19 +522,17 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                             except Exception as e:
                                                 logger.warning(
                                                     "[WS] camara falhou: %s: %s",
-                                                    type(e).__name__, e,
-                                                    exc_info=True,
+                                                    type(e).__name__, e, exc_info=True,
                                                 )
                                                 chamber_result = None
 
-                                            # Se câmara retornou texto final, envia ao frontend e
-                                            # marca llm_used=True para suprimir fallback "modo analise"
                                             if chamber_result and chamber_result.get("sucesso") and chamber_result.get("texto_final"):
                                                 texto_final = chamber_result["texto_final"]
                                                 camara_id = chamber_result.get("camara_id")
+                                                vencedor = chamber_result.get("vencedor")
                                                 logger.info(
                                                     "[WS] camara done | vencedor=%s concordancia=%d%% texto_final=%d chars camara_id=%s",
-                                                    chamber_result.get("vencedor"),
+                                                    vencedor,
                                                     chamber_result.get("concordancia", 0),
                                                     len(texto_final),
                                                     camara_id,
@@ -569,33 +543,44 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                         "texto_final":   texto_final,
                                                         "modelo_A":      modelo_A,
                                                         "modelo_B":      modelo_B,
-                                                        "vencedor":      chamber_result.get("vencedor"),
+                                                        "vencedor":      vencedor,
                                                         "concordancia":  chamber_result.get("concordancia"),
                                                         "camara_id":     camara_id,
                                                     })
                                                 except Exception as e:
                                                     logger.warning("[WS] camara send falhou: %s", e)
-                                                # Substitui full_text pelo texto final da câmara
-                                                # (será gravado mais adiante como entry normal, com camara_id no metadata na 2.4a.4)
                                                 full_text = texto_final
                                                 llm_used = True
+                                                # ── Peça 2.4a.7: proveniência conforme vencedor ──
+                                                # B venceu (refinou, dano factual corrigido) → camara:<B>.
+                                                # A venceu (veto de topo agiu, ou A prevaleceu) → texto
+                                                # é o original honesto de A, marca como fallback_solo
+                                                # (não foi refinamento aceito de B).
+                                                if vencedor == "B":
+                                                    camara_source = f"camara:{modelo_B}"
+                                                else:
+                                                    camara_source = "llm:fallback_solo"
+                                                logger.info(
+                                                    "[WS] proveniência | source=%s (vencedor=%s)",
+                                                    camara_source, vencedor,
+                                                )
                                             else:
-                                                # Câmara não retornou resultado válido → fallback (a):
-                                                # mantém resposta parcial de A com nota técnica.
-                                                # NOTA (Dívida #12): isso é fallback TEMPORÁRIO. Câmara não
-                                                # pode falhar — diferencial do EDP. Endereçar após estabilizar.
+                                                # Fallback (a) TEMPORÁRIO (Dívida #12): câmara não pode
+                                                # falhar — diferencial do EDP. Mantém texto completo de A.
                                                 nota_falha = (
-                                                    "\n\n_[câmara indisponível — resposta parcial de A mantida]_"
+                                                    "\n\n_[câmara indisponível — resposta de A mantida]_"
                                                 )
                                                 full_text = full_text + nota_falha
                                                 llm_used = bool(full_text.strip())
+                                                camara_source = "llm:fallback_solo"  # 2.4a.7
                                                 logger.info(
-                                                    "[WS] camara fallback (a) ativado | full_text=%d chars",
+                                                    "[WS] camara fallback (a) ativado | full_text=%d chars source=llm:fallback_solo",
                                                     len(full_text),
                                                 )
-                                    else:
-                                        llm_used = bool(full_text)
-                                        logger.info("[WS] LLM done | tokens~%d", len(full_text.split()))
+                                        else:
+                                            # Sem auto-sinal — resposta normal de A, sem câmara
+                                            llm_used = bool(full_text)
+                                            logger.info("[WS] LLM done | tokens~%d", len(full_text.split()))
                                 except asyncio.TimeoutError:
                                     logger.warning("[WS] LLM TIMEOUT TOTAL (%.0fs)", LLM_TOTAL_TIMEOUT_S)
                                     try:
@@ -669,9 +654,15 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         combined = f"Q: {msg_capped}\nA: {resp_capped}"
                         # Provenance: vem de LLM, é hipótese (não verificada)
                         # Confidence base 0.65 = score histórico do EDP
-                        source = "user"
-                        if runtime_ok and runtime._llm_config:
-                            source = f"llm:{runtime._llm_config.model}"
+                        # ── Peça 2.4a.7: se a câmara rodou, camara_source carrega
+                        # a linhagem real (camara:<B> ou llm:fallback_solo). Senão,
+                        # source padrão llm:<model> de uma resposta normal de A.
+                        if camara_source:
+                            source = camara_source
+                        else:
+                            source = "user"
+                            if runtime_ok and runtime._llm_config:
+                                source = f"llm:{runtime._llm_config.model}"
                         memory.add(
                             combined,
                             score=0.65,
