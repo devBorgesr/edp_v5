@@ -142,11 +142,19 @@ def classify_memory(text: str, source: str = "") -> str:
 SOURCE_TYPE_WEIGHTS = {
     "external":          1.20,  # boost: conteúdo curado externo
     "session_summary":   1.15,  # boost leve: resumos ajudam continuidade
-    "camara_response":   1.00,  # Peça 2.4a.7: texto refinado pela câmara.
-                                # Peso NEUTRO por ora — proveniência registrada,
-                                # calibração de peso fica para depois (estabilizar
-                                # antes de otimizar). Marca a linhagem sem ainda
-                                # decidir se refinado vale mais/menos no retrieval.
+    "camara_response":   1.15,  # Peça 2.5c.1 (Buraco 3, parte 1):
+                                # texto refinado pela câmara é uma ÂNCORA
+                                # epistêmica formal — passou por dois modelos
+                                # (A + Opus-B refutador), audoria mútua, veto
+                                # assimétrico no topo. Esse trabalho não pode
+                                # ser desperdiçado no retrieval seguinte.
+                                # Subido de 1.00 → 1.15 (empata com
+                                # session_summary). Conceito: refinamento
+                                # da câmara vale como destilado curado da
+                                # sessão. Caso real motivador: 16c659ea
+                                # (confabulação dos "17 minutos" corrigida
+                                # pela câmara — texto refinado merece tração
+                                # se o tópico voltar).
     "user_input":        1.00,
     "llm_response":      0.90,  # leve desconto: resposta gerada
     "meta_conversation": 0.55,  # desconto forte: anti-dominância
