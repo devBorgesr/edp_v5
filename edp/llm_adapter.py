@@ -1005,7 +1005,7 @@ REGRAS ABSOLUTAS:
         """
         Recupera contexto da memória EDP enriquecido com metadado temporal.
 
-        Pipeline (v3.15 + peça 2.5a):
+        Pipeline (v3.15 + peças 2.5a + 2.5b):
           1. SEMPRE inclui últimos 6 turnos da sessão (janela imediata expandida)
              com cap de chars VARIÁVEL — turnos mais recentes ganham mais espaço.
              Garante presença contínua da thread cognitiva atual, evitando o
@@ -1019,8 +1019,19 @@ REGRAS ABSOLUTAS:
 
              Total máximo: ~16500 chars na janela imediata.
 
-          2. Retrieval normal por similaridade (top_k=5, deduplicando os
-             já incluídos na janela imediata).
+          2. Bloco ativo (peça 2.5b): injeta os 3 entries MAIS ANTIGOS do
+             bloco aberto que ainda não estão na janela imediata. Cobre a
+             "zona morta" do meio da conversa — turnos da mesma linha de
+             investigação que escaparam da janela imediata mas pertencem
+             ao bloco vivo. Cap 1500 chars por entry. Label: [bloco atual].
+
+          3. Retrieval normal por similaridade (top_k=5, deduplicando os
+             já incluídos nas camadas 1 e 2).
+
+        Três camadas claras no payload:
+          [janela imediata] → últimos 6 turnos (cronológico, sempre)
+          [bloco atual]     → início da linha de investigação atual
+          [retrieval]       → associações semânticas históricas
 
         Tags:
           [turno anterior]  → último Q/A
@@ -1110,6 +1121,97 @@ REGRAS ABSOLUTAS:
                         })
             except Exception as e:
                 logger.debug("[retrieve_context] janela imediata falhou: %s", e)
+
+            # ── Bloco ativo: espinha narrativa da linha de investigação ──────
+            # Peça 2.5b (2026-05-28): Buraco 2 — ressuscitar block_id no retrieval.
+            #
+            # Diagnóstico: a infraestrutura de blocks (peça 2.0) gravava o
+            # block_id em cada entry mas o retrieval IGNORAVA completamente
+            # essa estrutura. Resultado: entries do MESMO bloco aberto (a
+            # conversa viva atual), que escapavam da janela imediata por
+            # estarem 7+ turnos atrás, caíam numa zona morta — recentes demais
+            # para o retrieval semântico priorizar (peso temporal decai),
+            # antigos demais para a janela imediata (que pega só 6).
+            #
+            # Solução: depois da janela imediata, busca o bloco ativo da
+            # sessão e injeta os 3 entries MAIS ANTIGOS dele que ainda não
+            # estão em seen_ids. Isso preserva o início da linha de
+            # investigação atual sem reembedding e sem inflar contexto.
+            #
+            # Cap por entry: 1500 chars (compatível com turnos -4 a -6 da
+            # janela imediata; bloco é "continuação cronológica" dela).
+            #
+            # Resiliência: tudo dentro de try/except. Bloco vazio, sem
+            # session_id, ou erro em get_active_block → segue sem entries
+            # do bloco (não quebra retrieval).
+            BLOCO_ENTRIES_N = 3
+            BLOCO_CAP_CHARS = 1500
+            _debug_bloco: list[dict] = []
+            try:
+                if hasattr(self._memory, "blocks") and hasattr(self._memory, "episodic"):
+                    # (P3) Estratégia (a) com fallback (b):
+                    # 1º) tenta pegar edp_session_id do último entry da
+                    #     janela imediata (já está em RAM)
+                    # 2º) fallback: lê do lifetime via _get_edp_lifetime
+                    edp_sid = None
+                    if recent_entries:
+                        edp_sid = recent_entries[-1].get("edp_session_id")
+                    if not edp_sid:
+                        try:
+                            lifetime = self._memory._get_edp_lifetime()
+                            edp_sid = lifetime.get("edp_session_id")
+                        except Exception:
+                            edp_sid = None
+
+                    if edp_sid:
+                        # Busca bloco ativo. get_active_block CRIA se não existir,
+                        # mas isso é benigno: novo bloco vazio, lista vazia, segue.
+                        active_block = self._memory.blocks.get_active_block(edp_sid)
+                        entry_ids_no_bloco = list(active_block.entry_ids or [])
+
+                        # Filtra os que JÁ estão na janela imediata (seen_ids).
+                        # Sobram os entries do bloco ainda não cobertos.
+                        ids_nao_vistos = [
+                            eid for eid in entry_ids_no_bloco
+                            if eid not in seen_ids
+                        ]
+
+                        if ids_nao_vistos:
+                            # Mapeia id → entry para resolver rapidamente
+                            mapa_entries = {
+                                e.get("id"): e
+                                for e in self._memory.episodic.entries
+                                if e.get("id") in ids_nao_vistos
+                            }
+                            # Ordena por timestamp (mais antigo primeiro) e
+                            # pega os N primeiros — os turnos do INÍCIO da
+                            # linha de investigação, que a janela imediata
+                            # (que pega o fim) não cobre.
+                            entries_do_bloco = sorted(
+                                [e for e in mapa_entries.values() if e],
+                                key=lambda e: e.get("timestamp", 0),
+                            )[:BLOCO_ENTRIES_N]
+
+                            for entry in entries_do_bloco:
+                                txt = (entry.get("text") or "")[:BLOCO_CAP_CHARS]
+                                if not txt:
+                                    continue
+                                eid = entry.get("id")
+                                if eid:
+                                    seen_ids.add(eid)
+                                blocks.append(f"[bloco atual] {txt}")
+                                _debug_bloco.append({
+                                    "id":          eid,
+                                    "text":        txt,
+                                    "source_type": entry.get("source_type"),
+                                    "timestamp":   entry.get("timestamp"),
+                                })
+                            logger.debug(
+                                "[retrieve_context] bloco ativo | %d entries injetados (de %d não vistos)",
+                                len(entries_do_bloco), len(ids_nao_vistos),
+                            )
+            except Exception as e:
+                logger.debug("[retrieve_context] bloco ativo falhou: %s", e)
 
             # ── Retrieval por similaridade ──────────────────────────────────
             results = self._memory.retrieve(query, top_k=5, min_score=0.20)
