@@ -330,6 +330,14 @@ def _new_entry(
         _schema.FIELD_INTERNAL_TEMPORAL_CLAIMS:  None,   # só p/ ORIGIN_REFERENCE
         # Confiabilidade temporal: True se clock estava em fallback
         _schema.FIELD_TEMPORAL_UNRELIABLE:       (not _clock_verified()),
+        # ── Peça 2.5c.2 (Buraco 3, parte 2): âncora epistêmica ─────────────
+        # True quando o texto contém admissão de limite em prosa natural
+        # ("Não tenho base sólida", "Não encontro referência clara", etc).
+        # Preenchido em MemoryStore.add via epistemic_classifier.
+        # Retrieval aplica anchor_boost=1.20 (empata com source_type "external"
+        # — admissão de ignorância vale como autoridade externa não-inflada).
+        # Backward-compatible: entries antigos sem o campo → False → mult=1.0.
+        "is_epistemic_anchor":                   False,
         # Versão do schema (sempre presente em novos entries)
         _schema.FIELD_SCHEMA_VERSION:            _schema.SCHEMA_VERSION,
     }
@@ -495,12 +503,20 @@ class EpisodicMemory:
             # Memória hiperdominante leva multiplicador 0.7 (não bloqueio)
             dom_penalty = 0.70 if e.get("id") in dominant_ids else 1.0
 
+            # ── Peça 2.5c.2 (Buraco 3, parte 2): anchor_boost ─────────────────
+            # Entries marcados como âncora epistêmica (admissão de limite em
+            # prosa natural detectada na gravação) ganham boost 1.20 — empata
+            # com source_type "external". Conceito: admissão de ignorância do
+            # próprio modelo vale como autoridade externa não-inflada.
+            # Backward-compat: campo ausente → False → multiplicador 1.0.
+            anchor_boost = 1.20 if e.get("is_epistemic_anchor") else 1.0
+
             d    = decay(e["ultimo_acesso"])
             prio = PRIORIDADE_PESO.get(e["prioridade"], 1.0)
             ab   = access_boost(e["acessos"])
             rank_score = round(
                 float(sim) * d * prio * ab
-                * epi_multiplier * src_weight * dom_penalty,
+                * epi_multiplier * src_weight * dom_penalty * anchor_boost,
                 4,
             )
             if rank_score >= min_score:
@@ -508,6 +524,7 @@ class EpisodicMemory:
                     "sim": float(sim), "decay": d, "prio": prio,
                     "access_boost": ab, "epi_mult": epi_multiplier,
                     "src_weight": src_weight, "dom_penalty": dom_penalty,
+                    "anchor_boost": anchor_boost,
                 }))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -983,6 +1000,23 @@ class MemoryStore:
                     entry[_schema.FIELD_BLOCK_ID] = block_id
         except Exception:
             # Tolerância: falha de bloco não bloqueia gravação
+            pass
+
+        # ── Peça 2.5c.2 (Buraco 3, parte 2): detecta âncora epistêmica ─────
+        # Analisa o texto para detectar admissão de limite em prosa natural
+        # ("Não tenho base sólida", "Não encontro referência clara", etc).
+        # Caso real motivador: Bayes/Turing (modelo disse "não tenho base
+        # sólida" em prosa natural, sem disparar auto-sinal da câmara, e dois
+        # turnos depois cedeu à pressão porque a admissão não viajou no
+        # retrieval). Marcar agora permite que esses turnos ganhem boost no
+        # retrieval futuro (anchor_boost=1.20 em EpisodicMemory.retrieve).
+        # Política: NÃO bloqueia, NÃO altera texto. Só marca metadado.
+        # Tolerância: falha do classificador não bloqueia gravação.
+        try:
+            from .epistemic_classifier import detectar_admissao_em_prosa
+            if detectar_admissao_em_prosa(text):
+                entry["is_epistemic_anchor"] = True
+        except Exception:
             pass
 
         if to_working:
