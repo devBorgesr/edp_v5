@@ -176,6 +176,7 @@ try:
     # ── Registra routers modulares ────────────────────────────────────────────
     from .routes import (
         health, memory, metrics, llm, websocket, dashboard_state, providers, flags,
+        mode,  # Peça 2.6a (2026-05-30): endpoint /mode para modo bimodal
     )
 
     app.include_router(health.router)
@@ -186,6 +187,7 @@ try:
     app.include_router(dashboard_state.router)
     app.include_router(providers.router)
     app.include_router(flags.router)
+    app.include_router(mode.router)  # Peça 2.6a
 
     # ── Dashboard estático ────────────────────────────────────────────────────
     _DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"

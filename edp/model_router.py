@@ -142,6 +142,7 @@ def route_model(
     user_message: str,
     previous_model: Optional[str] = None,
     available_models: Optional[List[str]] = None,
+    task_context: Optional[dict] = None,
 ) -> dict:
     """
     Escolhe o modelo ideal para a próxima resposta.
@@ -150,6 +151,15 @@ def route_model(
         user_message: texto da pergunta atual
         previous_model: modelo usado no turno anterior (None = primeira mensagem)
         available_models: lista de modelos disponíveis (default: todos do MODELS)
+        task_context: dict opcional com sinais de tarefa em curso. Aceita:
+            - sectioned_active (bool): se modo sectioned está ativo
+            - task_anchor_active (bool): se há tarefa multi-seção em andamento
+          Peça 2.6d (M2): quando ambos True e mensagem é curta (ex: "continue"),
+          o router preserva o modelo do turno anterior em vez de rebaixar para
+          Haiku por "mensagem muito curta". Razão empírica (sábado 30/05/2026):
+          tarefa de 10 seções foi rebaixada Sonnet→Haiku no turno 2 porque
+          "continue" tem 1 palavra. Resultado: queda de coesão arquitetural
+          medida por avaliador externo (5.5/10 em consistência de tecnologia).
 
     Returns:
         dict com:
@@ -167,6 +177,30 @@ def route_model(
     text_lower = text.lower()
     n_chars = len(text)
     n_words = len(text.split())
+
+    # ── Peça 2.6d M2 (2026-05-30): preservação em tarefa sectioned ────
+    # Se sectioned ativo + tarefa em andamento + mensagem curta (típica
+    # de continuação: "continue", "/next", "siga"), preserva modelo do
+    # turno anterior. Nunca rebaixa em contexto de tarefa técnica em curso.
+    _ctx = task_context or {}
+    _in_sectioned_task = bool(
+        _ctx.get("sectioned_active") and _ctx.get("task_anchor_active")
+    )
+    if _in_sectioned_task and previous_model and n_words < 10:
+        prev_tier = MODELS.get(previous_model, {}).get("tier", 1)
+        # Só preserva se previous era Sonnet/Opus (não desce de Haiku)
+        if prev_tier >= 2 and previous_model in available:
+            return _response(
+                model=previous_model,
+                reason=f"sectioned ativo: preserva {previous_model} (continuação de tarefa)",
+                signals={
+                    "sectioned_preserve": True,
+                    "prev_tier":          prev_tier,
+                    "words":              n_words,
+                },
+                available=available,
+            )
+    # ── fim da preservação sectioned ──────────────────────────────────
 
     # ── Detectores de simplicidade (forçam Haiku) ──────────────────────
     if SIMPLE_CONFIRM_REGEX.match(text):

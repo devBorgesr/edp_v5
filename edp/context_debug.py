@@ -118,7 +118,11 @@ def log_context(
                     f.write("  (nenhum bloco)\n")
                 else:
                     for i, block in enumerate(final_blocks, 1):
-                        f.write(f"  [{i}] ({len(block)} chars): {block[:600]!r}\n")
+                        # Peça 2.6e: aumentado de 600→6000 chars para capturar
+                        # bloco completo da âncora de tarefa (que cresce com
+                        # decisões consolidadas até ~3-6k chars).
+                        # Auditoria de M1 exige ver o bloco completo.
+                        f.write(f"  [{i}] ({len(block)} chars): {block[:6000]!r}\n")
 
                 f.write("\n")  # linha em branco no final
 

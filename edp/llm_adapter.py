@@ -102,7 +102,18 @@ class LLMConfig:
     timeout_s:   float       = 300.0
     max_retries: int         = 3
     temperature: float       = 0.7
-    max_tokens:  int         = 2048
+    max_tokens:  int         = 4096  # Peça 2.5e (2026-05-29): subido de 2048
+                                     # para 4096. Diagnóstico: desafios técnicos
+                                     # legítimos (arquitetura, design review)
+                                     # eram cortados no meio da palavra final.
+                                     # Caso real: resposta sobre microsserviços
+                                     # Java+SpringBoot terminou em "preserv" (sic)
+                                     # ao bater no teto de 2048. 4096 (~3000
+                                     # palavras) cobre desafio técnico longo
+                                     # sem abrir porta para inflação infinita
+                                     # (8192 seria absurdo). Demais defesas
+                                     # contra completude_forcada continuam
+                                     # ativas via CETICISMO_DEFAULT + câmara.
     stream:      bool        = False
 
 
@@ -551,7 +562,406 @@ REGRAS ABSOLUTAS:
         # custo de inicialização quando câmara não é usada (a maioria dos turnos).
         self._echo_chamber = None
 
+        # Peça 2.6a (2026-05-30): modo operacional bimodal.
+        # "cognitive" (default) — janela enxuta, cap turno-1 = 4000, EDP em
+        #   identidade original. Retrieval só vê blocos cognitivos.
+        # "sprint" — janela expandida, cap turno-1 = 12000, suporta auto-
+        #   referência sobre código longo. Retrieval vê ambos os tipos.
+        # Estado SEMPRE inicia em cognitive ao boot (não persiste entre
+        # sessões). Trocado via comando /mode sprint|cognitive no chat ou
+        # via endpoint HTTP POST /mode/{name}. Categorização de blocos
+        # (campo mode no entry) fica para próxima sprint — versão mínima
+        # aqui altera apenas caps de retrieval.
+        self._operational_mode: str = "cognitive"
+        logger.info("[boot] modo operacional inicial = cognitive")
+
+        # Peça 2.6b (2026-05-30): modo sectioned — entrega-por-seção.
+        # Quando ativo, o LLM recebe system prompt extra instruindo a
+        # entregar UMA seção por turno, terminando com indicação clara
+        # de "Aguardo /next para continuar". Restrito a sprint mode
+        # (decisão de design: seções acumulam contexto, cognitive cap=4000
+        # estouraria rápido). Auto-desativa se usuário voltar para cognitive.
+        # Estado inicia sempre False ao boot.
+        self._sectioned_active: bool = False
+
+        # Peça 2.6c (2026-05-30): bloco de âncora de tarefa em curso.
+        # Resolve limite descoberto em uso real da 2.6b: janela imediata
+        # é cega para "tarefa em curso" — mistura turnos não relacionados
+        # da sessão inteira. Em tarefa de 10 seções, conforme avança, a
+        # janela imediata perde as Seções antigas porque outros turnos
+        # competem por slots. Modelo regenera Seção 2 três vezes.
+        #
+        # Solução: estado dedicado que persiste durante a tarefa, injetado
+        # como Camada 0.5 do payload (após âncora temporal, antes da
+        # janela imediata). Contém:
+        #   - challenge: texto original do desafio (truncado)
+        #   - sections_delivered: lista de {n, total, title, summary}
+        #   - expected_total: int (extraído da primeira seção)
+        #
+        # Parser determinístico: o system prompt do sectioned obriga
+        # formato "## Seção N/M — Título". Sem heurística, parser trivial.
+        #
+        # Estado em memória apenas (reinicia perde tarefa — aceito).
+        # Auto-cria na primeira mensagem em sectioned mode que não é /next.
+        # Auto-limpa ao desativar sectioned ou completar M de M seções.
+        self._task_anchor: dict | None = None
+
         self._init_edp_subsystems()
+
+    # ── Modo operacional bimodal (peça 2.6a) ──────────────────────────────────
+
+    def get_operational_mode(self) -> str:
+        """Retorna o modo operacional atual ('cognitive' ou 'sprint')."""
+        return self._operational_mode
+
+    def set_operational_mode(self, mode: str) -> dict:
+        """
+        Troca o modo operacional. Validação estrita: aceita apenas
+        'cognitive' ou 'sprint'. Loga a transição.
+
+        Peça 2.6b: ao voltar para cognitive, auto-desativa sectioned
+        (sectioned é restrito a sprint).
+
+        Returns:
+            dict com 'ok' (bool), 'mode' (str), 'message' (str)
+        """
+        mode_lower = mode.strip().lower()
+        if mode_lower not in ("cognitive", "sprint"):
+            return {
+                "ok": False,
+                "mode": self._operational_mode,
+                "message": f"modo inválido: '{mode}' (use 'cognitive' ou 'sprint')",
+            }
+        previous = self._operational_mode
+        if mode_lower == previous:
+            return {
+                "ok": True,
+                "mode": mode_lower,
+                "message": f"já está em modo {mode_lower}",
+            }
+        self._operational_mode = mode_lower
+        logger.info("[mode] transição: %s → %s", previous, mode_lower)
+        # Peça 2.6b: auto-desativa sectioned ao sair de sprint
+        sectioned_msg = ""
+        if mode_lower == "cognitive" and self._sectioned_active:
+            self._sectioned_active = False
+            logger.info("[sectioned] auto-desativado (saiu de sprint)")
+            sectioned_msg = " (sectioned desativado automaticamente)"
+        # Mensagem com aviso de custo se entrando em sprint
+        if mode_lower == "sprint":
+            msg = ("modo SPRINT ativado — janela imediata expandida para "
+                   "12000 chars no turno anterior. ATENÇÃO: custo por "
+                   "resposta pode aumentar 2-5× em conversas técnicas "
+                   "longas. Use /mode cognitive para voltar.")
+        else:
+            msg = ("modo COGNITIVE ativado — janela imediata enxuta (cap "
+                   "4000 chars). Identidade padrão do EDP restaurada.")
+        return {
+            "ok": True, "mode": mode_lower,
+            "message": msg + sectioned_msg, "previous": previous,
+        }
+
+    # ── Modo sectioned — entrega-por-seção (peça 2.6b) ───────────────────────
+
+    def is_sectioned_active(self) -> bool:
+        """Retorna True se o modo entrega-por-seção está ativo."""
+        return self._sectioned_active
+
+    def set_sectioned(self, active: bool) -> dict:
+        """
+        Ativa ou desativa modo sectioned (entrega-por-seção).
+
+        Restrição: só pode ser ativado quando o modo operacional é 'sprint'.
+        Razão: seções acumulam no contexto; o cap turno-1=4000 do modo
+        cognitive estouraria com 3-4 seções de código denso. Sprint tem
+        cap=12000, suporta o acúmulo.
+
+        Returns:
+            dict com 'ok' (bool), 'active' (bool), 'message' (str)
+        """
+        if active:
+            if self._operational_mode != "sprint":
+                return {
+                    "ok": False,
+                    "active": self._sectioned_active,
+                    "message": ("modo sectioned exige sprint ativo. "
+                                "Use '/mode sprint' primeiro, depois '/sectioned'."),
+                }
+            if self._sectioned_active:
+                return {
+                    "ok": True,
+                    "active": True,
+                    "message": "sectioned já está ativo",
+                }
+            self._sectioned_active = True
+            logger.info("[sectioned] ativado")
+            return {
+                "ok": True,
+                "active": True,
+                "message": ("modo SECTIONED ativado — o LLM entregará UMA "
+                            "seção por turno. Use '/next' (ou 'continue', "
+                            "'próxima') para avançar. Use '/sectioned off' "
+                            "para desativar."),
+            }
+        else:
+            if not self._sectioned_active:
+                return {
+                    "ok": True,
+                    "active": False,
+                    "message": "sectioned já está inativo",
+                }
+            self._sectioned_active = False
+            logger.info("[sectioned] desativado")
+            # Peça 2.6c: ao desativar sectioned, limpa âncora de tarefa
+            if self._task_anchor is not None:
+                logger.info("[task] âncora limpa (sectioned desativado)")
+                self._task_anchor = None
+            return {
+                "ok": True,
+                "active": False,
+                "message": "modo SECTIONED desativado. Resposta volta ao formato único.",
+            }
+
+    # ── Âncora de tarefa em curso (peça 2.6c) ────────────────────────────────
+
+    def get_task_anchor(self) -> dict | None:
+        """Retorna o estado atual da tarefa em curso, ou None se inativa."""
+        return self._task_anchor
+
+    def start_task(self, challenge: str) -> dict:
+        """
+        Inicia rastreamento de tarefa multi-seção. Chamado automaticamente
+        quando: sectioned ativo + mensagem do usuário NÃO é /next/continue.
+
+        Trunca challenge a 2000 chars para caber na âncora.
+        Limpa estado anterior se houver.
+        """
+        previous = self._task_anchor
+        self._task_anchor = {
+            "challenge": (challenge or "")[:2000],
+            "sections_delivered": [],
+            "expected_total": None,
+            "started_at_turn": None,  # opcional, debug
+        }
+        if previous is not None:
+            logger.info("[task] estado anterior substituído")
+        logger.info("[task] iniciada (challenge=%d chars)", len(challenge or ""))
+        return {"ok": True, "task": self._task_anchor}
+
+    def clear_task(self) -> dict:
+        """Limpa estado da tarefa. Chamado quando completa todas as seções
+        ou quando o usuário emite /task clear."""
+        had = self._task_anchor is not None
+        self._task_anchor = None
+        if had:
+            logger.info("[task] limpa explicitamente")
+        return {"ok": True, "cleared": had}
+
+    def register_section_delivered(self, llm_response: str) -> dict:
+        """
+        Parser determinístico de saída do LLM.
+
+        Formato CONTRATADO via system prompt do sectioned:
+            ## Seção N/M — Título
+
+        Extração: regex sobre `## Seção (\\d+)/(\\d+) — (.+?)$` na primeira
+        linha que casar. Sem heurística: ou casa exato, ou ignora silenciosamente.
+
+        Se casar:
+          - Atualiza expected_total se ainda None
+          - Adiciona {n, total, title, summary} a sections_delivered
+          - Se n >= total, marca tarefa como completa (limpa anchor)
+
+        Returns:
+            dict com {parsed: bool, n?: int, total?: int, complete?: bool}
+        """
+        import re
+        if self._task_anchor is None:
+            return {"parsed": False, "reason": "task_inactive"}
+        if not llm_response or not isinstance(llm_response, str):
+            return {"parsed": False, "reason": "empty_response"}
+
+        # Formato contratado — busca a primeira ocorrência
+        # Aceita variações leves: travessão, hífen, en-dash; espaços flexíveis
+        # Mas o número e o "Seção" são literais.
+        pattern = re.compile(
+            r"##\s*Se[çc][ãa]o\s+(\d+)\s*/\s*(\d+)\s*[—\-–:]\s*(.+?)$",
+            re.IGNORECASE | re.MULTILINE,
+        )
+        match = pattern.search(llm_response)
+        if not match:
+            logger.debug("[task] parser: formato não detectado na resposta")
+            return {"parsed": False, "reason": "format_not_found"}
+
+        n = int(match.group(1))
+        total = int(match.group(2))
+        title = match.group(3).strip()[:120]
+
+        # Resumo: primeiras 200 chars de texto após o cabeçalho
+        # 2.6e M1: remove blocos HTML invisíveis do summary para não duplicar
+        head_end = match.end()
+        raw_after_head = llm_response[head_end:head_end + 600].strip()
+        # Remove o bloco <!-- decisions: ... --> do summary (será extraído separadamente)
+        cleaned = re.sub(
+            r"<!--\s*decisions\s*:.*?-->",
+            "",
+            raw_after_head,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        summary = re.sub(r"\s+", " ", cleaned).strip()[:200]
+
+        # ── Peça 2.6e M1 (2026-05-30): extrair decisões técnicas ──────
+        # Formato contratado via system prompt:
+        #   <!-- decisions: {"messaging":"...","language":"...",...} -->
+        # Parser determinístico — JSON dentro do comentário HTML.
+        # Modelo declara explicitamente; sistema só extrai e propaga.
+        # Se JSON falhar, registra warning mas não impede registro da seção.
+        decisions = None
+        decisions_pattern = re.compile(
+            r"<!--\s*decisions\s*:\s*(\{.*?\})\s*-->",
+            re.DOTALL | re.IGNORECASE,
+        )
+        dmatch = decisions_pattern.search(llm_response)
+        if dmatch:
+            import json
+            raw_json = dmatch.group(1)
+            try:
+                decisions = json.loads(raw_json)
+                if not isinstance(decisions, dict):
+                    logger.warning(
+                        "[task] decisions parsed mas não é dict: %s",
+                        type(decisions).__name__,
+                    )
+                    decisions = None
+                else:
+                    logger.info(
+                        "[task] decisões extraídas: %d chaves (%s)",
+                        len(decisions),
+                        ", ".join(list(decisions.keys())[:5]),
+                    )
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "[task] JSON de decisions inválido (seção %d): %s",
+                    n, str(e)[:100],
+                )
+                decisions = None
+        else:
+            logger.debug("[task] bloco <!-- decisions --> não encontrado na seção %d", n)
+        # ── fim da extração de decisões ───────────────────────────────
+
+        # Atualiza expected_total se ainda não fixado
+        if self._task_anchor["expected_total"] is None:
+            self._task_anchor["expected_total"] = total
+            logger.info("[task] total de seções definido: %d", total)
+        elif self._task_anchor["expected_total"] != total:
+            # Modelo mudou o total — anota mas não rejeita
+            logger.warning(
+                "[task] total inconsistente: anchor=%d, resposta=%d",
+                self._task_anchor["expected_total"], total,
+            )
+
+        # Adiciona à lista (evita duplicata se mesma seção for re-entregue)
+        existing_ns = {s["n"] for s in self._task_anchor["sections_delivered"]}
+        if n in existing_ns:
+            logger.warning("[task] Seção %d re-entregue (substituindo)", n)
+            self._task_anchor["sections_delivered"] = [
+                s for s in self._task_anchor["sections_delivered"] if s["n"] != n
+            ]
+        self._task_anchor["sections_delivered"].append({
+            "n": n, "total": total, "title": title, "summary": summary,
+            "decisions": decisions,  # Peça 2.6e M1: pode ser None se não veio
+        })
+        # Ordena para apresentação consistente
+        self._task_anchor["sections_delivered"].sort(key=lambda s: s["n"])
+
+        logger.info(
+            "[task] seção registrada: %d/%d — %s%s",
+            n, total, title[:40],
+            f" (decisions: {len(decisions)} chaves)" if decisions else "",
+        )
+
+        # Tarefa completa?
+        delivered_ns = {s["n"] for s in self._task_anchor["sections_delivered"]}
+        complete = len(delivered_ns) >= total and max(delivered_ns) >= total
+        if complete:
+            logger.info("[task] COMPLETA (%d/%d entregues)", len(delivered_ns), total)
+            # Limpa estado — tarefa finalizada
+            self._task_anchor = None
+            return {"parsed": True, "n": n, "total": total, "complete": True}
+
+        return {"parsed": True, "n": n, "total": total, "complete": False}
+
+    def format_task_anchor(self) -> str | None:
+        """
+        Formata o estado da âncora como bloco texto para injetar no payload.
+        Retorna None se não há tarefa ativa.
+        """
+        if self._task_anchor is None:
+            return None
+
+        ta = self._task_anchor
+        delivered = ta["sections_delivered"]
+        total = ta["expected_total"] or "?"
+
+        lines = ["[ÂNCORA DE TAREFA EM CURSO]"]
+        lines.append(f"Desafio: {ta['challenge'][:800]}")
+        if len(ta['challenge']) > 800:
+            lines.append("[...desafio truncado...]")
+        lines.append("")
+
+        if delivered:
+            lines.append(f"Seções já entregues ({len(delivered)} de {total}):")
+            for s in delivered:
+                lines.append(f"  • Seção {s['n']}/{s['total']} — {s['title']}")
+                if s.get("summary"):
+                    lines.append(f"    Resumo: {s['summary']}")
+                # Peça 2.6e M1: incluir decisões da seção (se houver)
+                if s.get("decisions"):
+                    dec_summary = []
+                    for k, v in list(s["decisions"].items())[:6]:
+                        v_short = str(v)[:120]
+                        dec_summary.append(f"{k}={v_short}")
+                    lines.append(f"    Decisões: {' | '.join(dec_summary)}")
+
+            # ── Peça 2.6e M1: bloco consolidado de decisões arquiteturais ──
+            # Agrega todas as decisões já tomadas em todas as seções.
+            # Modelo deve respeitar estas decisões nas seções seguintes.
+            consolidated = {}
+            for s in delivered:
+                if s.get("decisions"):
+                    for k, v in s["decisions"].items():
+                        # Última decisão sobre a chave prevalece (registra apenas
+                        # se ainda não estiver no consolidado, para preservar a
+                        # decisão original feita na Seção mais antiga)
+                        if k not in consolidated:
+                            consolidated[k] = {"value": v, "from_section": s["n"]}
+            if consolidated:
+                lines.append("")
+                lines.append("DECISÕES ARQUITETURAIS JÁ ESTABELECIDAS:")
+                lines.append("(Mantenha estas decisões nas próximas seções. "
+                             "Mudar requer justificativa explícita.)")
+                for k, info in consolidated.items():
+                    v_str = str(info["value"])[:200]
+                    lines.append(
+                        f"  • {k} (def. Seção {info['from_section']}): {v_str}"
+                    )
+
+            # Próxima esperada
+            delivered_ns = {s["n"] for s in delivered}
+            if isinstance(total, int):
+                next_n = next(
+                    (i for i in range(1, total + 1) if i not in delivered_ns),
+                    None,
+                )
+                if next_n:
+                    lines.append("")
+                    lines.append(f"PRÓXIMA SEÇÃO ESPERADA: Seção {next_n}/{total}")
+                    lines.append("NÃO regenere seções já entregues acima. "
+                                 "Avance para a próxima usando as decisões já estabelecidas.")
+        else:
+            lines.append("Nenhuma seção entregue ainda. Comece pela Seção 1.")
+
+        return "\n".join(lines)
 
     # ── Conexão com LLM ───────────────────────────────────────────────────────
 
@@ -776,6 +1186,74 @@ REGRAS ABSOLUTAS:
                 sys_prompt = f"{sys_prompt}\n\n---\n\n{CETICISMO_DEFAULT}"
         except Exception as e:
             logger.debug("[stream_chat] CETICISMO_DEFAULT indisponível: %s", e)
+
+        # ── Peça 2.6b (2026-05-30): injetar SECTIONED_INSTRUCTION se ativo ───
+        # Quando o usuário ativa /sectioned, o modelo recebe instrução
+        # explícita para entregar UMA seção por turno e aguardar comando
+        # de continuação. Coesão entre seções é preservada pela janela
+        # imediata da peça 2.5a — modelo vê o desafio original + seções
+        # já entregues em até 6 turnos anteriores.
+        #
+        # 2.6c (2026-05-30): formato contratado para parser determinístico.
+        # Modelo OBRIGADO a abrir cada seção com "## Seção N/M — Título".
+        # Isso permite parser sem heurística + injeção de âncora de tarefa.
+        try:
+            if getattr(self, "_sectioned_active", False):
+                SECTIONED_INSTRUCTION = (
+                    "\n\n---\n\n"
+                    "INSTRUÇÃO DE FORMATO — MODO SECTIONED ATIVO:\n"
+                    "Se a pergunta do usuário envolve tarefa com MÚLTIPLAS partes "
+                    "claramente delimitadas (seções numeradas, etapas, capítulos), "
+                    "siga esta política:\n"
+                    "\n"
+                    "1. Entregue APENAS UMA seção/parte por turno. Não tente "
+                    "comprimir várias.\n"
+                    "\n"
+                    "2. FORMATO OBRIGATÓRIO de cabeçalho — abra cada seção com "
+                    "exatamente esta linha (preserve o '/' entre números e o "
+                    "travessão '—' antes do título):\n"
+                    "   `## Seção N/M — Título da Seção`\n"
+                    "   Onde N é o número da seção atual e M é o total de seções "
+                    "da tarefa. Exemplo: `## Seção 3/10 — API Gateway`\n"
+                    "   Este formato é parseado mecanicamente pelo sistema. "
+                    "Variações quebram o rastreamento.\n"
+                    "\n"
+                    "3. FORMATO OBRIGATÓRIO de fim de seção — ANTES de 'Aguardando "
+                    "comando', inclua um bloco HTML invisível registrando as "
+                    "decisões técnicas tomadas nesta seção:\n"
+                    "   `<!-- decisions: {\"chave1\":\"valor1\",\"chave2\":\"valor2\"} -->`\n"
+                    "   O JSON deve ser válido. Chaves típicas: messaging, language, "
+                    "database, patterns, contracts, framework, cache, resilience, "
+                    "auth, observability — adapte ao domínio. Valores devem ser "
+                    "descritivos e específicos (ex: 'Apache Kafka 3.7 com particionamento "
+                    "por payment_id', não apenas 'Kafka'). Este bloco é parseado "
+                    "mecanicamente e propagado para as próximas seções.\n"
+                    "\n"
+                    "4. Termine a resposta com a linha:\n"
+                    "   'Aguardando comando para continuar (/next ou \"continue\").'\n"
+                    "\n"
+                    "5. Mantenha decisões arquiteturais consistentes entre seções "
+                    "— você verá um bloco [ÂNCORA DE TAREFA EM CURSO] no contexto "
+                    "listando o desafio, seções já entregues E as DECISÕES "
+                    "ARQUITETURAIS JÁ ESTABELECIDAS. Use esse bloco como verdade "
+                    "absoluta. Se precisar mudar uma decisão estabelecida, "
+                    "JUSTIFIQUE EXPLICITAMENTE por que a mudança é necessária.\n"
+                    "\n"
+                    "6. Se a pergunta atual já é uma resposta completa em si "
+                    "(não é multi-parte), responda normalmente e ignore esta "
+                    "política.\n"
+                    "\n"
+                    "7. Se o usuário enviar '/next', 'continue', 'próxima', "
+                    "'vai' ou variantes equivalentes (incluindo typos como "
+                    "'contenue', 'continuir'), retome de onde parou e entregue "
+                    "a PRÓXIMA SEÇÃO NÃO ENTREGUE conforme indicado no bloco de "
+                    "âncora de tarefa. NÃO regenere seções já listadas."
+                )
+                if SECTIONED_INSTRUCTION not in sys_prompt:
+                    sys_prompt = sys_prompt + SECTIONED_INSTRUCTION
+                    logger.debug("[sectioned] system prompt extra injetado")
+        except Exception as e:
+            logger.debug("[stream_chat] SECTIONED_INSTRUCTION falhou: %s", e)
 
         full_response: list = []
         try:
@@ -1013,11 +1491,14 @@ REGRAS ABSOLUTAS:
              perdia o próprio "Não tenho base sólida" de 3 turnos atrás).
 
              Caps (decrescentes pela ordem cronológica reversa):
-               turno-1 (mais recente): 4000 chars
+               turno-1 (mais recente): 12000 chars (peça 2.5a.refact)
                turnos -2, -3:          3000 chars
                turnos -4, -5, -6:      1500 chars
 
-             Total máximo: ~16500 chars na janela imediata.
+             Total máximo: ~22500 chars na janela imediata (capacidade
+             aumentada para suportar auto-referência em respostas técnicas
+             longas — caso real onde o modelo precisava refletir sobre
+             própria resposta de ~10000 chars).
 
           2. Bloco ativo (peça 2.5b): injeta os 3 entries MAIS ANTIGOS do
              bloco aberto que ainda não estão na janela imediata. Cobre a
@@ -1051,6 +1532,102 @@ REGRAS ABSOLUTAS:
             _debug_immediate: list[dict] = []
             _debug_similarity: list[dict] = []
 
+            # ── Camada 0: ÂNCORA TEMPORAL ABSOLUTA (peça 2.5d) ───────────────
+            # Peça 2.5d (2026-05-29): quarto buraco da "alma" — cegueira temporal.
+            #
+            # Diagnóstico (caso real desta sprint): durante a discussão sobre
+            # qualidade vs urgência da apresentação para o tech lead, o LLM
+            # interlocutor (Claude) confabulou que "a apresentação é amanhã"
+            # quando na verdade era na segunda-feira seguinte. Sem âncora
+            # temporal no payload, o modelo "preenche" tempo a partir de pistas
+            # contextuais — exatamente o mesmo padrão do caso 16c659ea ("17
+            # minutos"), só que aqui foi o próprio Claude da apresentação
+            # cometendo a falha em tempo real.
+            #
+            # Solução: injetar timestamp absoluto no TOPO do payload (antes da
+            # janela imediata), em formato híbrido ISO 8601 + texto humano em
+            # pt-BR. Usa edp.clock (não datetime.now() cru) para herdar:
+            #   - Sincronização HTTP/NTP nativa
+            #   - Marca temporal_unverified quando clock está em fallback
+            #
+            # Se is_verified() == False (clock em fallback offline), a âncora
+            # avisa explicitamente — honestidade temporal nativa, conforme o
+            # padrão do EDP de marcar incerteza em vez de esconder.
+            try:
+                from . import clock as _clock_mod
+                t_now_epoch = _clock_mod.now()
+                clock_verified = _clock_mod.is_verified()
+
+                from datetime import datetime, timezone, timedelta
+                # UTC -03:00 (Brasília sem horário de verão atualmente)
+                # Decisão: fixar -03:00 evita dependência de tzdata no Windows
+                tz_brt = timezone(timedelta(hours=-3))
+                dt_local = datetime.fromtimestamp(t_now_epoch, tz=tz_brt)
+
+                # ISO 8601 inequívoco
+                iso = dt_local.strftime("%Y-%m-%d %H:%M:%S %z")
+                # Forma humana pt-BR
+                dias_semana_pt = [
+                    "segunda-feira", "terça-feira", "quarta-feira",
+                    "quinta-feira", "sexta-feira", "sábado", "domingo",
+                ]
+                meses_pt = [
+                    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+                    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+                ]
+                dia_semana = dias_semana_pt[dt_local.weekday()]
+                mes_nome = meses_pt[dt_local.month - 1]
+                humano = (
+                    f"{dia_semana}, {dt_local.day} de {mes_nome} de {dt_local.year}, "
+                    f"{dt_local.hour:02d}h{dt_local.minute:02d}"
+                )
+
+                if clock_verified:
+                    ancora_txt = (
+                        "[ÂNCORA TEMPORAL]\n"
+                        f"Momento atual: {iso} ({humano}).\n"
+                        "Use esta informação se a conversa exigir referência ao "
+                        "tempo presente. NÃO confabule datas, durações ou dias "
+                        "da semana — você tem o tempo absoluto aqui."
+                    )
+                else:
+                    # Clock em fallback (sem rede / NTP/HTTP indisponíveis)
+                    ancora_txt = (
+                        "[ÂNCORA TEMPORAL — modo fallback]\n"
+                        f"Momento estimado: {iso} ({humano}). "
+                        "ATENÇÃO: clock do EDP está em fallback (sem sincronização "
+                        "online verificada). Pode haver desvio. Trate como "
+                        "estimativa, não como verdade absoluta."
+                    )
+                blocks.append(ancora_txt)
+            except Exception as e:
+                logger.debug("[retrieve_context] âncora temporal falhou: %s", e)
+
+            # ── Camada 0.5: ÂNCORA DE TAREFA EM CURSO (peça 2.6c) ────────────
+            # Resolve limite descoberto em 2.6b: janela imediata é cega para
+            # "tarefa em curso", mistura turnos não relacionados. Em tarefa
+            # multi-seção (10 seções), modelo perdia visibilidade das Seções
+            # já entregues quando outros turnos competiam por slots.
+            #
+            # Solução: estado dedicado por sessão, injetado antes da janela
+            # imediata. Lista o desafio + seções já entregues (com título e
+            # resumo) + próxima esperada. Modelo trata como verdade absoluta
+            # de "o que já foi feito".
+            #
+            # Só ativo quando _task_anchor está populado (modo sectioned +
+            # tarefa em andamento). Em outros casos, bloco é omitido.
+            try:
+                if hasattr(self, "format_task_anchor"):
+                    task_block = self.format_task_anchor()
+                    if task_block:
+                        blocks.append(task_block)
+                        logger.debug(
+                            "[task_anchor] injetada (%d seções entregues)",
+                            len(self._task_anchor.get("sections_delivered", [])),
+                        )
+            except Exception as e:
+                logger.debug("[retrieve_context] task_anchor falhou: %s", e)
+
             # ── Janela imediata: últimos N turnos da sessão atual ───────────
             # Peça 2.5a (2026-05-28): expandida de 2 → 6 turnos com cap variável.
             # Diagnóstico: o EDP estava resetando o modelo no meio de conversas
@@ -1070,8 +1647,24 @@ REGRAS ABSOLUTAS:
             # Peça 1 (v3.13.9) mantido: ordena por timestamp antes de [-N:].
             # Janela imediata mantém precedência sobre retrieval por similaridade.
             JANELA_IMEDIATA_N = 6
-            # Caps por posição (mais recente primeiro: index 0 = turno-1)
-            CAPS_POR_POSICAO = [4000, 3000, 3000, 1500, 1500, 1500]
+            # Caps por posição (mais recente primeiro: index 0 = turno-1).
+            # Peça 2.6a (2026-05-30): caps adaptativos por modo operacional.
+            # Modo cognitive (default): turno-1 = 4000 (estado pré-2.5a.refact,
+            #   identidade enxuta do EDP, retrieval semântico tem espaço,
+            #   custo controlado). Diagnóstico em produção: cap 12000 fixo
+            #   produzia inflação crônica em conversas técnicas contínuas
+            #   (cada turno gera código long → janela sempre cheia → retrieval
+            #   vira ruído → custo sobe consistentemente).
+            # Modo sprint: turno-1 = 12000 (peça 2.5a.refact preservada para
+            #   auto-referência em código longo). Trade-off pago consciente-
+            #   mente quando usuário ativa /mode sprint.
+            # Demais caps (-2 a -6) inalterados em ambos modos: validação da
+            # peça 2.5a original preservada.
+            current_mode = getattr(self, "_operational_mode", "cognitive")
+            if current_mode == "sprint":
+                CAPS_POR_POSICAO = [12000, 3000, 3000, 1500, 1500, 1500]
+            else:  # cognitive (default)
+                CAPS_POR_POSICAO = [4000, 3000, 3000, 1500, 1500, 1500]
             # Labels pela ordem cronológica (mais antigo primeiro → mais novo por último)
             LABELS_POR_DISTANCIA = [
                 "6 turnos atrás",

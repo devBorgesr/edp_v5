@@ -36,6 +36,118 @@ from ...clock import now as _now  # Peça 0.2b — relógio interno robusto
 
 logger = logging.getLogger("edp.ws")
 
+
+# ── Helpers da peça 2.6e (Bug B fix — 2026-05-30) ───────────────────────────
+# Detecção robusta de mensagens de "continuação" em modo sectioned.
+# Necessário porque match exato falhou em produção: "contenue" (typo) não
+# foi reconhecido, destruindo tarefa de 10 seções.
+
+_CONTINUATION_BASE = {
+    # palavra-alvo: distância máxima de edição tolerada
+    "continue":    2,   # contenue, continui, contunue
+    "continuar":   2,   # continuir, continaur
+    "continua":    2,
+    "proxima":     2,   # próxima (sem acento já vem normalizado)
+    "próxima":     2,
+    "prossegue":   2,
+    "prossegui":   2,   # variante imperativa
+    "prosseguir":  2,
+    "seguir":      1,
+    "siga":        1,
+    "vai":         0,   # palavras de 3 letras: zero tolerância
+    "vamos":       1,
+    "ok":          0,
+    "next":        1,
+    "go":          0,
+    "avance":      1,
+    "avancar":     1,
+    "avançar":     1,
+    "dale":        0,   # gíria comum BR
+    "manda":       1,
+    "bora":        0,
+}
+
+# Regex de padrões que cobrem variações gramaticais
+import re as _re_continuation
+_CONTINUATION_REGEX = _re_continuation.compile(
+    r"^("
+    r"continu[ae]?r?|cont[ie]nu[ae]?|"
+    r"pross?eg[uia]+r?|pross?ig[ae]?|"
+    r"pr[oóø]xim[ao]|"
+    r"si[gj]a|seguir?|"
+    r"vai|vamos|"
+    r"ok|next|go|"
+    r"avan[çc]a[rs]?|"
+    r"dale|manda|bora"
+    r")$",
+    _re_continuation.IGNORECASE,
+)
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Distância de edição entre duas strings (algoritmo clássico DP).
+    Pequeno o suficiente para palavras de até ~20 chars."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev_row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr_row = [i]
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            curr_row.append(min(
+                curr_row[j - 1] + 1,        # insertion
+                prev_row[j] + 1,            # deletion
+                prev_row[j - 1] + cost,     # substitution
+            ))
+        prev_row = curr_row
+    return prev_row[-1]
+
+
+def _detect_continuation(msg_normalized: str) -> bool:
+    """Detecta mensagens de continuação em sectioned com 3 camadas:
+    1. Match exato no conjunto base (rápido)
+    2. Regex de padrões comuns (cobre variações gramaticais)
+    3. Levenshtein ≤ tolerância por palavra-alvo (typos)
+
+    Mensagens > 5 palavras nunca são tratadas como continuação para evitar
+    falso positivo em desafios reais. Mensagens com "?" também não (perguntas
+    novas, não continuação).
+    """
+    if not msg_normalized:
+        return False
+    if "?" in msg_normalized:
+        return False
+    words = msg_normalized.split()
+    if len(words) > 5:
+        return False
+
+    # Camada 1: match exato
+    if msg_normalized in _CONTINUATION_BASE:
+        return True
+
+    # Camada 2: regex
+    if _CONTINUATION_REGEX.match(msg_normalized):
+        return True
+
+    # Camada 3: Levenshtein contra palavras-alvo (typos)
+    # Só vale para mensagens de 1-2 palavras (typos típicos)
+    if len(words) <= 2:
+        for target, max_dist in _CONTINUATION_BASE.items():
+            if max_dist == 0:
+                continue  # exatas já testadas na camada 1
+            # Compara com a primeira palavra (typos curtos)
+            if abs(len(words[0]) - len(target)) <= max_dist:
+                if _levenshtein(words[0], target) <= max_dist:
+                    return True
+    return False
+
+
+# ── fim dos helpers da peça 2.6e ────────────────────────────────────────────
+
 router = APIRouter(tags=["websocket"])
 
 
@@ -126,11 +238,260 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 break
 
             message = (data.get("message") or "").strip()
-            logger.info("[WS] msg recebida session=%s len=%d", session_id, len(message))
+            # Peça 2.6a (2026-05-30): log do modo a cada turno (auditoria visual)
+            _current_mode = "cognitive"
+            _sectioned = False
+            try:
+                if hasattr(runtime, "get_operational_mode"):
+                    _current_mode = runtime.get_operational_mode()
+                if hasattr(runtime, "is_sectioned_active"):
+                    _sectioned = runtime.is_sectioned_active()
+            except Exception:
+                pass
+            logger.info(
+                "[WS] msg recebida session=%s len=%d mode=%s sectioned=%s",
+                session_id, len(message), _current_mode,
+                "on" if _sectioned else "off",
+            )
 
             if not message:
                 await websocket.send_json({"type": "error", "error": "mensagem vazia"})
                 continue
+
+            # ── Interceptação de comando /mode (peça 2.6a) ─────────────────
+            # Sintaxe aceita:
+            #   /mode sprint       → ativa modo sprint
+            #   /mode cognitive    → ativa modo cognitive
+            #   /mode status       → mostra modo atual
+            #   /mode              → idem status
+            # Comandos NÃO são enviados ao LLM. Custo: zero tokens.
+            #
+            # 2.6a.fix (2026-05-30): aceitar /mode case-insensitive E enviar
+            # respostas no formato que o frontend já trata (start/chunk/done)
+            # em vez de tipos novos (mode_status/mode_change). Diagnóstico:
+            # frontend ignorava tipos desconhecidos, deixando chat em
+            # "Enviando..." infinito. Solução: reusar canal normal de chat.
+            if message.lower().startswith("/mode"):
+                parts = message.lower().split()
+                target = parts[1] if len(parts) >= 2 else "status"
+
+                if not hasattr(runtime, "set_operational_mode"):
+                    await websocket.send_json({
+                        "type":  "error",
+                        "error": "comando /mode indisponível (runtime sem suporte)",
+                    })
+                    continue
+
+                # Sinaliza start para o frontend sair do estado "Enviando..."
+                await websocket.send_json({
+                    "type":       "start",
+                    "session_id": session_id,
+                    "stage":      "command",
+                })
+
+                if target == "status":
+                    current = runtime.get_operational_mode()
+                    response_text = f"[modo atual: {current}]"
+                else:
+                    result = runtime.set_operational_mode(target)
+                    if result.get("ok"):
+                        response_text = f"[{result.get('message', '')}]"
+                    else:
+                        response_text = f"[erro: {result.get('message', 'modo inválido')}]"
+
+                # Envia como chunk normal (frontend exibe no chat)
+                await websocket.send_json({
+                    "type": "chunk",
+                    "text": response_text,
+                })
+                # Encerra ciclo (frontend libera input)
+                await websocket.send_json({
+                    "type":     "done",
+                    "session_id": session_id,
+                    "llm_used": False,
+                })
+                logger.info("[mode] comando processado: target=%s", target)
+                continue
+            # ── fim da interceptação /mode ─────────────────────────────────
+
+            # ── Interceptação de /sectioned (peça 2.6b) ─────────────────────
+            # Sintaxe:
+            #   /sectioned        → ativa (exige sprint mode)
+            #   /sectioned on     → idem
+            #   /sectioned off    → desativa
+            #   /sectioned status → mostra estado
+            if message.lower().startswith("/sectioned"):
+                if not hasattr(runtime, "set_sectioned"):
+                    await websocket.send_json({
+                        "type":  "error",
+                        "error": "comando /sectioned indisponível (runtime sem suporte)",
+                    })
+                    continue
+
+                parts = message.lower().split()
+                target = parts[1] if len(parts) >= 2 else "on"
+
+                await websocket.send_json({
+                    "type":       "start",
+                    "session_id": session_id,
+                    "stage":      "command",
+                })
+
+                if target == "status":
+                    active = runtime.is_sectioned_active()
+                    response_text = (
+                        f"[sectioned: {'ativo' if active else 'inativo'}]"
+                    )
+                elif target in ("off", "false", "0", "no"):
+                    result = runtime.set_sectioned(False)
+                    response_text = f"[{result.get('message', '')}]"
+                else:  # on, true, 1, yes, ou vazio
+                    result = runtime.set_sectioned(True)
+                    if result.get("ok"):
+                        response_text = f"[{result.get('message', '')}]"
+                    else:
+                        response_text = f"[erro: {result.get('message', '')}]"
+
+                await websocket.send_json({"type": "chunk", "text": response_text})
+                await websocket.send_json({
+                    "type":      "done",
+                    "session_id": session_id,
+                    "llm_used":  False,
+                })
+                logger.info("[sectioned] comando processado: target=%s", target)
+                continue
+            # ── fim da interceptação /sectioned ─────────────────────────────
+
+            # ── Interceptação /task (peça 2.6c) ─────────────────────────────
+            # Sintaxe:
+            #   /task            → status (idem /task status)
+            #   /task status     → mostra estado da âncora atual
+            #   /task clear      → limpa âncora (encerra tarefa em curso)
+            if message.lower().startswith("/task"):
+                if not hasattr(runtime, "get_task_anchor"):
+                    await websocket.send_json({
+                        "type":  "error",
+                        "error": "comando /task indisponível",
+                    })
+                    continue
+
+                parts = message.lower().split()
+                target = parts[1] if len(parts) >= 2 else "status"
+
+                await websocket.send_json({
+                    "type":       "start",
+                    "session_id": session_id,
+                    "stage":      "command",
+                })
+
+                if target == "clear":
+                    result = runtime.clear_task()
+                    response_text = (
+                        "[tarefa limpa]" if result.get("cleared")
+                        else "[nenhuma tarefa ativa]"
+                    )
+                else:  # status (default)
+                    task = runtime.get_task_anchor()
+                    if task is None:
+                        response_text = "[nenhuma tarefa em curso]"
+                    else:
+                        delivered = task.get("sections_delivered", [])
+                        total = task.get("expected_total") or "?"
+                        lines = [
+                            f"[tarefa em curso: {len(delivered)}/{total} seções]",
+                            f"Desafio: {task['challenge'][:200]}...",
+                        ]
+                        if delivered:
+                            lines.append("Entregues:")
+                            for s in delivered:
+                                lines.append(f"  • {s['n']}/{s['total']} — {s['title']}")
+                        response_text = "\n".join(lines)
+
+                await websocket.send_json({"type": "chunk", "text": response_text})
+                await websocket.send_json({
+                    "type":      "done",
+                    "session_id": session_id,
+                    "llm_used":  False,
+                })
+                logger.info("[task] comando processado: target=%s", target)
+                continue
+            # ── fim da interceptação /task ──────────────────────────────────
+
+            # ── Atalho /next (peça 2.6b) ────────────────────────────────────
+            # Comando /next vira "continue" antes de seguir para o LLM.
+            # Funciona em qualquer modo, mas só faz sentido com sectioned
+            # ativo. Se sectioned inativo, vira mensagem normal "continue".
+            # Variantes ativadas: /next, /n, /siga
+            _msg_normalized = message.lower().strip()
+            if _msg_normalized in ("/next", "/n", "/siga", "/proxima", "/próxima"):
+                if hasattr(runtime, "is_sectioned_active") and runtime.is_sectioned_active():
+                    message = "continue"
+                    logger.info("[sectioned] /next → 'continue' (sectioned ativo)")
+                else:
+                    # Avisa que /next só faz sentido com sectioned
+                    await websocket.send_json({
+                        "type":       "start",
+                        "session_id": session_id,
+                        "stage":      "command",
+                    })
+                    await websocket.send_json({
+                        "type": "chunk",
+                        "text": ("[/next só funciona com modo sectioned ativo. "
+                                 "Use '/mode sprint' + '/sectioned' primeiro.]"),
+                    })
+                    await websocket.send_json({
+                        "type":      "done",
+                        "session_id": session_id,
+                        "llm_used":  False,
+                    })
+                    logger.info("[sectioned] /next ignorado (sectioned inativo)")
+                    continue
+            # ── fim do atalho /next ─────────────────────────────────────────
+
+            # ── Peça 2.6c: detectar início de tarefa multi-seção ──────────
+            # Quando sectioned está ativo e a mensagem do usuário NÃO é
+            # comando de continuação, considera que é uma nova tarefa.
+            # Inicia rastreamento via _task_anchor. Se já havia tarefa,
+            # start_task substitui (usuário pode estar mudando de desafio).
+            #
+            # Detecção: é "continue" se for /next-variante OU palavras
+            # típicas. Senão, é início de nova tarefa.
+            #
+            # 2.6e Bug B fix (2026-05-30): detecção robusta a typos.
+            # Caso real validado: "contenue" (typo de continue) substituiu
+            # tarefa de 10 seções com challenge inválido. Solução de 3 camadas:
+            #   1. Regex com tolerância a variações ortográficas comuns
+            #   2. Distância de edição (Levenshtein) ≤2 para palavras alvo
+            #   3. Princípio "na dúvida, preserve estado": se há tarefa ativa
+            #      E mensagem é curta (<5 palavras) E não contém "?", trata
+            #      como continuation por padrão (evita destruir progresso).
+            _is_continuation = _detect_continuation(_msg_normalized)
+            # Heurística de proteção de estado: se anchor ativa + msg curta
+            # + sem "?", presume continuation mesmo sem match exato. Razão:
+            # custo de destruir tarefa em curso é muito maior que custo de
+            # tratar mensagem ambígua como continuação (modelo pede clarificação).
+            if (_sectioned and not _is_continuation
+                and hasattr(runtime, "get_task_anchor")):
+                try:
+                    _task_active = runtime.get_task_anchor() is not None
+                    _is_short = len(_msg_normalized.split()) < 5
+                    _no_question = "?" not in _msg_normalized
+                    if _task_active and _is_short and _no_question:
+                        _is_continuation = True
+                        logger.info(
+                            "[task] heurística: preservando tarefa (msg curta sem '?')"
+                        )
+                except Exception:
+                    pass
+            if (
+                _sectioned and not _is_continuation
+                and hasattr(runtime, "start_task")
+            ):
+                try:
+                    runtime.start_task(message)
+                except Exception as e:
+                    logger.debug("[task] start_task falhou: %s", e)
+            # ── fim da detecção de início de tarefa ───────────────────────
 
             # ── Estado do turno ─────────────────────────────────────────────
             full_text       = ""
@@ -275,9 +636,22 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                 from ...model_router import route_model, format_router_badge
                                 # Pega modelo do turno anterior (continuidade)
                                 prev_model = getattr(runtime, "_last_routed_model", None)
+                                # Peça 2.6d M2: contexto de tarefa em curso
+                                _task_ctx = {
+                                    "sectioned_active": False,
+                                    "task_anchor_active": False,
+                                }
+                                try:
+                                    if hasattr(runtime, "is_sectioned_active"):
+                                        _task_ctx["sectioned_active"] = runtime.is_sectioned_active()
+                                    if hasattr(runtime, "get_task_anchor"):
+                                        _task_ctx["task_anchor_active"] = runtime.get_task_anchor() is not None
+                                except Exception:
+                                    pass
                                 routing = route_model(
                                     user_message=message,
                                     previous_model=prev_model,
+                                    task_context=_task_ctx,
                                 )
                                 chosen_model = routing["model"]
                                 # Troca o modelo no config (provider lê de config.model)
@@ -683,6 +1057,34 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             logger.debug("[WS] memory.add fallback falhou: %s", e)
                     except Exception as e:
                         logger.debug("[WS] memory.add falhou: %s", e)
+
+                # ── Peça 2.6c: parsear saída e atualizar âncora de tarefa ──
+                # Só ativo quando há tarefa em curso (modo sectioned ativo +
+                # _task_anchor populado). Parser determinístico de formato
+                # contratado: "## Seção N/M — Título". Se modelo seguiu o
+                # formato (system prompt obriga), registra a seção entregue.
+                # Se completar M de M, anchor é auto-limpa.
+                if (
+                    llm_used and full_text and runtime_ok
+                    and hasattr(runtime, "register_section_delivered")
+                    and runtime.get_task_anchor() is not None
+                ):
+                    try:
+                        parse_result = runtime.register_section_delivered(full_text)
+                        if parse_result.get("parsed"):
+                            logger.info(
+                                "[task] parser ok: seção %d/%d entregue%s",
+                                parse_result.get("n"),
+                                parse_result.get("total"),
+                                " (COMPLETA)" if parse_result.get("complete") else "",
+                            )
+                        else:
+                            logger.debug(
+                                "[task] parser não detectou seção: %s",
+                                parse_result.get("reason"),
+                            )
+                    except Exception as e:
+                        logger.debug("[task] parser falhou: %s", e)
 
                 if runtime_ok:
                     try:
