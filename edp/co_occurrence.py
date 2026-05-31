@@ -45,10 +45,20 @@ class CoOccurrenceTracker:
     Isso permite get_top_co_occurred(X) sem precisar buscar duas vezes.
     """
 
-    def __init__(self, session_id: str = "default") -> None:
+    def __init__(self, session_id: str = "default", scope: str = "cognitive") -> None:
+        """
+        Args:
+            session_id: ID da sessão
+            scope: 'cognitive' (default) ou 'sprint'. Commit 1 dos Dois Exocórtices.
+                   Co-occurrence é primariamente do cognitive — sprint pode ter
+                   instância separada se desejar rastrear co-ocorrência intra-sprint.
+        """
         self.session_id = session_id
-        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        self.path: Path = MEMORY_DIR / f"{session_id}_co_occurrence.json"
+        self.scope      = scope
+        # Commit 1: caminhos isolados por scope
+        scope_dir = MEMORY_DIR / f"{session_id}_{scope}"
+        scope_dir.mkdir(parents=True, exist_ok=True)
+        self.path: Path = scope_dir / "co_occurrence.json"
         self.pairs: dict[str, dict[str, dict]] = {}
         self._lock = threading.Lock()
         self._dirty = False

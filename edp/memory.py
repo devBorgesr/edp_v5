@@ -19,10 +19,13 @@ PATCHES APLICADOS:
 import json
 import math
 import os
+import logging
 import threading
 import time
 import uuid
 from pathlib import Path
+
+logger = logging.getLogger("edp.memory")
 from typing import List, Optional
 
 import numpy as np
@@ -382,12 +385,24 @@ class EpisodicMemory:
     [P8] Threading lock para proteger save() de race conditions.
     """
 
-    def __init__(self, session_id: str, max_size: int = EPISODIC_MEM_SIZE):
+    def __init__(self, session_id: str, max_size: int = EPISODIC_MEM_SIZE,
+                 scope: str = "cognitive"):
+        """
+        Args:
+            session_id: ID da sessão (ex: 'default')
+            max_size: tamanho máximo de entradas
+            scope: 'cognitive' (default) ou 'sprint'. Define sub-diretório
+                   de persistência. Peça Commit 1 dos Dois Exocórtices.
+        """
         self.session_id = session_id
+        self.scope      = scope
         self.max_size   = max_size
         self._lock      = threading.Lock()  # [P8] proteção de escrita em disco
-        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        self.path    = MEMORY_DIR / f"{session_id}_episodic.json"
+        # Commit 1: caminhos isolados por scope
+        #   <MEMORY_DIR>/<session>_<scope>/episodic.json
+        scope_dir = MEMORY_DIR / f"{session_id}_{scope}"
+        scope_dir.mkdir(parents=True, exist_ok=True)
+        self.path    = scope_dir / "episodic.json"
         self.entries: list[dict] = []
         self._dirty:          bool = False   # [WAL-FIX] batch persistence
         self._pending_writes: int  = 0
@@ -787,13 +802,21 @@ class SemanticMemory:
     [P7] _emb_matrix cacheada — reconstruída apenas quando entries muda.
     """
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, scope: str = "cognitive"):
+        """
+        Args:
+            session_id: ID da sessão
+            scope: 'cognitive' (default) ou 'sprint'. Commit 1 dos Dois Exocórtices.
+        """
         self.session_id  = session_id
+        self.scope       = scope
         self._lock       = threading.Lock()
         self._emb_cache: np.ndarray | None = None  # [P7] cache de matrix
         self._cache_dirty = True
-        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        self.path    = MEMORY_DIR / f"{session_id}_semantic.json"
+        # Commit 1: caminhos isolados por scope
+        scope_dir = MEMORY_DIR / f"{session_id}_{scope}"
+        scope_dir.mkdir(parents=True, exist_ok=True)
+        self.path    = scope_dir / "semantic.json"
         self.entries: list[dict] = []
         self._load()
 
@@ -892,11 +915,113 @@ class SemanticMemory:
 
 
 # ── MemoryStore — interface unificada (compatível com v2) ─────────────────────
+# Commit 1 dos Dois Exocórtices (2026-05-31):
+#   MemoryStore agora segura DUAS instâncias internamente — uma para o exocórtex
+#   cognitivo (memória longitudinal, conhecimento, contexto) e outra para o
+#   exocórtex de trabalho (sprint). O scope ativo determina qual instância
+#   responde às chamadas de leitura/escrita.
+#
+#   API externa preservada: código antigo que faz `mem.episodic.entries` continua
+#   funcionando — properties dinâmicos delegam para o scope ativo.
+#
+#   Default: scope = "cognitive" (compatível com comportamento pré-refator).
+
+
+_LEGACY_SUFFIX_MAP = {
+    "_episodic.json":      ("cognitive", "episodic.json"),
+    "_semantic.json":      ("cognitive", "semantic.json"),
+    "_co_occurrence.json": ("cognitive", "co_occurrence.json"),
+    "_blocks.json":        ("cognitive", "blocks.json"),
+}
+
+
+def _migrate_legacy_session_files(session_id: str) -> int:
+    """
+    Migra arquivos do formato legacy (pré-Commit 1) para o formato isolado:
+        <MEMORY_DIR>/{session_id}_episodic.json
+            → <MEMORY_DIR>/{session_id}_cognitive/episodic.json
+        <MEMORY_DIR>/{session_id}_semantic.json
+            → <MEMORY_DIR>/{session_id}_cognitive/semantic.json
+        <MEMORY_DIR>/{session_id}_co_occurrence.json
+            → <MEMORY_DIR>/{session_id}_cognitive/co_occurrence.json
+        <MEMORY_DIR>/{session_id}_blocks.json
+            → <MEMORY_DIR>/{session_id}_cognitive/blocks.json
+
+    Razão (decidida em conversa): todos os dados acumulados antes do Commit 1
+    pertencem ao cognitive (única biblioteca que existia). Sprint começa zerado.
+
+    Idempotente: roda 2x sem efeito na segunda. Se destino já existe E source
+    também, source é deixado em paz (não sobrescreve). Falha SEM exception.
+
+    Returns:
+        Número de arquivos migrados nesta chamada.
+    """
+    import shutil
+    migrated = 0
+    cog_dir = MEMORY_DIR / f"{session_id}_cognitive"
+
+    for suffix, (scope, new_name) in _LEGACY_SUFFIX_MAP.items():
+        legacy_path = MEMORY_DIR / f"{session_id}{suffix}"
+        if not legacy_path.exists():
+            continue
+
+        target_dir = MEMORY_DIR / f"{session_id}_{scope}"
+        target_path = target_dir / new_name
+
+        if target_path.exists():
+            # Já migrou antes. Não sobrescreve. Log pra auditoria.
+            logger.info(
+                "[migration] skip %s — destino já existe (%s)",
+                legacy_path.name, target_path
+            )
+            continue
+
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy_path), str(target_path))
+            migrated += 1
+            logger.info(
+                "[migration] %s → %s",
+                legacy_path.name, target_path.relative_to(MEMORY_DIR)
+            )
+        except Exception as e:
+            logger.warning(
+                "[migration] FALHA mover %s → %s: %s",
+                legacy_path.name, target_path, e
+            )
+
+    if migrated > 0:
+        logger.info(
+            "[migration] sessão '%s': %d arquivo(s) migrados para cognitive/",
+            session_id, migrated
+        )
+    return migrated
+
+
+class _ScopedView:
+    """
+    Agrupa episodic + semantic + blocks de um único scope.
+    Usado internamente pelo MemoryStore para segurar as duas bibliotecas.
+    """
+    def __init__(self, session_id: str, scope: str):
+        self.session_id = session_id
+        self.scope      = scope
+        self.episodic   = EpisodicMemory(session_id, scope=scope)
+        self.semantic   = SemanticMemory(session_id,  scope=scope)
+        from .blocks import BlockManager
+        self.blocks     = BlockManager(session_id, MEMORY_DIR, scope=scope)
+
 
 class MemoryStore:
     """
-    Interface unificada de memória.
-    Compatível com v2 e expõe as três camadas.
+    Interface unificada de memória — agora com dois scopes (Commit 1).
+
+    Mantém duas instâncias internas:
+      - self._cognitive_view: memória longitudinal (hipocampo)
+      - self._sprint_view:    memória de trabalho (gânglios da base)
+
+    A property `episodic`, `semantic`, `blocks` delegam para o scope ativo
+    (`self._active_scope`, default 'cognitive').
 
     [P5] reinforce_memory, decay_memory, update_usage_stats
          movidas para cá como métodos de instância.
@@ -905,18 +1030,90 @@ class MemoryStore:
     def __init__(self, session_id: str):
         self.session_id  = session_id
         self.working     = WorkingMemory()
-        self.episodic    = EpisodicMemory(session_id)
-        self.semantic    = SemanticMemory(session_id)
 
-        # Peça 2.0: BlockManager — gerencia blocos da sessão
-        from .blocks import BlockManager
-        self.blocks      = BlockManager(session_id, MEMORY_DIR)
+        # Commit 1: migração automática de arquivos legacy ANTES de instanciar
+        _migrate_legacy_session_files(session_id)
 
+        # Duas bibliotecas — ambas em RAM (decisão D2-B).
+        self._cognitive_view = _ScopedView(session_id, scope="cognitive")
+        self._sprint_view    = _ScopedView(session_id, scope="sprint")
+
+        # Scope ativo — default cognitive (compatível com comportamento legacy).
+        # EDPRuntime chama set_scope() quando modo muda.
+        self._active_scope: str = "cognitive"
+
+        # Log de inicialização com ambos os scopes
+        cog_e = len(self._cognitive_view.episodic)
+        cog_s = len(self._cognitive_view.semantic)
+        cog_b = len(self._cognitive_view.blocks.blocks)
+        spr_e = len(self._sprint_view.episodic)
+        spr_s = len(self._sprint_view.semantic)
+        spr_b = len(self._sprint_view.blocks.blocks)
         print(
-            f"[Memory] Sessão '{session_id}' carregada "
-            f"(episódica={len(self.episodic)} | semântica={len(self.semantic)} "
-            f"| blocos={len(self.blocks.blocks)})"
+            f"[Memory] Sessão '{session_id}' carregada — DOIS EXOCÓRTICES\n"
+            f"         cognitive: episódica={cog_e} | semântica={cog_s} | blocos={cog_b}\n"
+            f"         sprint:    episódica={spr_e} | semântica={spr_s} | blocos={spr_b}\n"
+            f"         scope ativo: {self._active_scope}"
         )
+
+    # ── Scope management (Commit 1) ───────────────────────────────────────────
+
+    def set_scope(self, scope: str) -> None:
+        """
+        Troca o scope ativo. Chamado pelo EDPRuntime ao mudar de modo.
+
+        Args:
+            scope: 'cognitive' ou 'sprint'
+
+        Raises:
+            ValueError: se scope inválido
+        """
+        if scope not in ("cognitive", "sprint"):
+            raise ValueError(f"scope deve ser 'cognitive' ou 'sprint', recebido: {scope!r}")
+        if scope == self._active_scope:
+            logger.debug("[memory] set_scope: já estava em %s, sem mudança", scope)
+            return
+        old_scope = self._active_scope
+        self._active_scope = scope
+        logger.info(
+            "[memory] scope ativo: %s → %s (cognitive=%d episódicas, sprint=%d episódicas)",
+            old_scope, scope,
+            len(self._cognitive_view.episodic),
+            len(self._sprint_view.episodic),
+        )
+
+    @property
+    def active_scope(self) -> str:
+        """Scope ativo no momento ('cognitive' ou 'sprint')."""
+        return self._active_scope
+
+    def _active_view(self) -> "_ScopedView":
+        """Retorna a _ScopedView correspondente ao scope ativo."""
+        return self._cognitive_view if self._active_scope == "cognitive" else self._sprint_view
+
+    # Acesso direto às views (para casos que precisam ler/escrever scope específico
+    # independente do scope ativo — ex: cross-scope retrieval futuro).
+    @property
+    def cognitive(self) -> "_ScopedView":
+        return self._cognitive_view
+
+    @property
+    def sprint(self) -> "_ScopedView":
+        return self._sprint_view
+
+    # ── Properties delegadas ao scope ativo (compat com código pré-refator) ──
+
+    @property
+    def episodic(self) -> "EpisodicMemory":
+        return self._active_view().episodic
+
+    @property
+    def semantic(self) -> "SemanticMemory":
+        return self._active_view().semantic
+
+    @property
+    def blocks(self):  # BlockManager (import tardio)
+        return self._active_view().blocks
 
     # ── v2-compat ──────────────────────────────────────────────────────────────
 
@@ -929,8 +1126,15 @@ class MemoryStore:
         self.episodic.entries = value
 
     def save(self) -> None:
-        self.episodic.save()
-        self.semantic.save()
+        """
+        Persiste AMBOS os scopes (cognitive + sprint).
+        Commit 1: garante que mudanças no scope inativo não sejam perdidas
+        se save() for chamado durante o outro scope ativo.
+        """
+        self._cognitive_view.episodic.save()
+        self._cognitive_view.semantic.save()
+        self._sprint_view.episodic.save()
+        self._sprint_view.semantic.save()
 
     def all_embeddings(self) -> np.ndarray:
         return self.episodic.all_embeddings()

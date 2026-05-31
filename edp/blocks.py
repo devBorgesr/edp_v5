@@ -214,9 +214,19 @@ class BlockManager:
         - UI de comentários (peça 2.10)
     """
 
-    def __init__(self, session_id: str, base_dir: Path):
+    def __init__(self, session_id: str, base_dir: Path, scope: str = "cognitive"):
+        """
+        Args:
+            session_id: ID da sessão
+            base_dir: MEMORY_DIR (raiz de sessions)
+            scope: 'cognitive' (default) ou 'sprint'. Commit 1 dos Dois Exocórtices.
+        """
         self.session_id = session_id
-        self.path = base_dir / f"{session_id}_blocks.json"
+        self.scope      = scope
+        # Commit 1: caminhos isolados por scope
+        scope_dir = base_dir / f"{session_id}_{scope}"
+        scope_dir.mkdir(parents=True, exist_ok=True)
+        self.path = scope_dir / "blocks.json"
         self._lock = threading.RLock()
         self.blocks: list[Block] = []
         self._load()

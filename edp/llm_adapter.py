@@ -641,6 +641,55 @@ REGRAS ABSOLUTAS:
             }
         self._operational_mode = mode_lower
         logger.info("[mode] transição: %s → %s", previous, mode_lower)
+        # Commit 1 dos Dois Exocórtices (2026-05-31): troca scope da memória
+        # ao mudar de modo. cognitive → biblioteca longitudinal (hipocampo).
+        # sprint → biblioteca de trabalho (gânglios da base). Isolamento
+        # arquitetural que resolve P1 (memória residual entre sessões).
+        #
+        # BUG FIX (2026-05-31 11:35): sincronizar scope em AMBAS as instâncias
+        # de MemoryStore (self._memory do EDPRuntime + a do registry). Eram
+        # instâncias diferentes — antes só registry trocava de scope, mas
+        # retrieval usa self._memory. Vazamento cognitive↔sprint detectado
+        # em produção (modelo em sprint encontrava memórias do cognitive).
+        #
+        # Estratégia: tenta primeiro self._memory (que é usado por retrieval).
+        # Em paralelo, atualiza a instância do registry para coerência cross-
+        # endpoint. Dívida #24 (eliminar duplicação) fica para revisão futura.
+        _scopes_synced = 0
+        try:
+            if self._memory is not None and hasattr(self._memory, "set_scope"):
+                self._memory.set_scope(mode_lower)
+                _scopes_synced += 1
+                logger.info(
+                    "[mode] scope sincronizado em self._memory (retrieval ativo): %s",
+                    mode_lower,
+                )
+        except Exception as e:
+            logger.warning(
+                "[mode] falha ao sincronizar scope em self._memory: %s", e
+            )
+        try:
+            from .runtime.registry import get_memory, is_valid
+            _registry_mem = get_memory(self.session_id)
+            # Só atualiza se for instância DIFERENTE de self._memory
+            if (is_valid(_registry_mem)
+                and hasattr(_registry_mem, "set_scope")
+                and _registry_mem is not self._memory):
+                _registry_mem.set_scope(mode_lower)
+                _scopes_synced += 1
+                logger.info(
+                    "[mode] scope sincronizado em registry.memory (endpoints): %s",
+                    mode_lower,
+                )
+        except Exception as e:
+            logger.warning(
+                "[mode] falha ao sincronizar scope em registry.memory: %s", e
+            )
+        if _scopes_synced == 0:
+            logger.warning(
+                "[mode] NENHUMA instância de memory sincronizada — "
+                "isolamento pode estar quebrado"
+            )
         # Peça 2.6b: auto-desativa sectioned ao sair de sprint
         sectioned_msg = ""
         if mode_lower == "cognitive" and self._sectioned_active:
@@ -1851,7 +1900,20 @@ REGRAS ABSOLUTAS:
             # Decisão D1: top-5 (mantém comportamento atual do EDP)
             # Decisão D2: já excluiu janela imediata via seen_ids acima
             # Decisão D4: save atômico ocorre dentro do tracker
-            if self._co_occurrence and len(co_occurrence_ids) >= 2:
+            #
+            # Commit 1 dos Dois Exocórtices (2026-05-31), decisão α:
+            # CoOccurrenceTracker é primariamente cognitivo (hipocampo).
+            # Em modo sprint (gânglios da base), retrieval ocorre em memória
+            # de trabalho — registrar essas co-ocorrências contaminaria o
+            # perfil acumulado do exocórtex cognitivo. Skip se modo != cognitive.
+            _allow_co_occurrence = (self._operational_mode == "cognitive")
+            if not _allow_co_occurrence:
+                logger.debug(
+                    "[co_occurrence] skip — modo=%s (tracker ativo apenas em cognitive)",
+                    self._operational_mode,
+                )
+            if (self._co_occurrence and len(co_occurrence_ids) >= 2
+                    and _allow_co_occurrence):
                 try:
                     n_pairs = self._co_occurrence.record_co_occurrence(co_occurrence_ids)
                     self._co_occurrence.save()
