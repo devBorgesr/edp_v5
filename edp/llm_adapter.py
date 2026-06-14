@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 import os
@@ -81,6 +82,275 @@ def _format_relative_time(ts: float, now: float) -> str:
         return ""
 
 
+def _format_gap(seconds: float) -> str:
+    """
+    Formata duração em string compacta para janela imediata cognitive.
+
+    Faixas:
+      < 60s            → "Xs"
+      < 60min          → "Xmin"
+      < 24h            → "XhYYmin" ou "Xh"
+      >= 24h           → "X dias"
+
+    Robusto: valores inválidos/negativos retornam "0s".
+    Internamente o EDP preserva timestamp com microssegundos (para
+    calibradores Pareto/Gauss/Bayes); aqui só humanizamos para o LLM.
+    """
+    try:
+        s = float(seconds)
+        if s < 0:
+            return "0s"
+        if s < 60:
+            return f"{int(s)}s"
+        minutes = s / 60.0
+        if minutes < 60:
+            return f"{int(minutes)}min"
+        hours = minutes / 60.0
+        if hours < 24:
+            h = int(hours)
+            m = int((hours - h) * 60)
+            if m > 0:
+                return f"{h}h{m:02d}min"
+            return f"{h}h"
+        days = hours / 24.0
+        d = int(days)
+        return f"{d} dia" if d == 1 else f"{d} dias"
+    except Exception:
+        return "0s"
+
+
+def _format_temporal_label_cognitive(
+    label: str,
+    entry_ts: float,
+    is_most_recent: bool,
+    gap_seconds: float,
+) -> str:
+    """
+    Renderização temporal híbrida para janela imediata em modo cognitive.
+
+    Formato (Commit 3 — decisão Renato 02/06/2026):
+      [turno anterior · 02/06/2026 17:48 · há 12min]      ← mais recente: gap até NOW
+      [2 turnos atrás · 02/06/2026 17:45 · +3min até próx] ← gap até o próximo turno
+
+    Componentes:
+      - label original (preservado): "turno anterior", "N turnos atrás"
+      - data DD/MM/YYYY HH:MM (segundo omitido para LLM; preservado interno)
+      - gap formatado contextualmente:
+        * "há X" para o turno mais recente (gap até NOW)
+        * "+X até próx" para turnos anteriores (gap até próximo)
+
+    Aplicação:
+      - Apenas modo cognitive (decisão D2=α)
+      - Sprint mantém label simples (sem data/gap)
+
+    Robustez: timestamp inválido → retorna label original sem decoração.
+    """
+    try:
+        ts = float(entry_ts)
+        if ts <= 0:
+            return label
+        dt = time.localtime(ts)
+        date_str = (
+            f"{dt.tm_mday:02d}/{dt.tm_mon:02d}/{dt.tm_year} "
+            f"{dt.tm_hour:02d}:{dt.tm_min:02d}"
+        )
+        gap_str = _format_gap(gap_seconds)
+        if is_most_recent:
+            return f"{label} · {date_str} · há {gap_str}"
+        return f"{label} · {date_str} · +{gap_str} até próx"
+    except Exception:
+        return label
+
+
+# ── Commit 3c.α (Renato, 04/06/2026) ─────────────────────────────────────────
+# Bloco histórico cronológico compacto para janela imediata cognitive.
+#
+# Motivação: cognitive tem JANELA_IMEDIATA_N=6 turnos + cap=4000 no turno
+# mais recente. Em sessões longas (10+ turnos no dia), turnos antigos
+# saem da janela e retrieval semântico falha em perguntas meta-conver-
+# sacionais ("o que conversamos hoje?", "quais foram as perguntas anterio-
+# res?"). Similaridade cosseno entre meta-pergunta e tópicos diversos
+# (saudação, técnica, civilidade) é baixa → retrieval ignora.
+#
+# Solução: bloco histórico SEMPRE presente em cognitive listando até
+# 12 perguntas (Q only, não Q+A) da SESSÃO ATUAL, em ordem cronológica
+# reversa (mais recente primeiro). Custo: ~300-500 tokens fixos.
+#
+# Detecção de sessão atual: gap temporal > 4h entre turnos cronológicos
+# = fronteira de sessão. Algoritmo puro sobre timestamps existentes
+# (sem schema novo). Commit 3c.β no futuro adiciona `session_marker`
+# persistente para boost no retrieval semântico.
+#
+# Aplicação: APENAS cognitive (decisão Renato). Sprint preserva
+# comportamento atual (janela imediata já generosa em sprint).
+SESSION_GAP_THRESHOLD_SEC = 4 * 3600   # 4h sem atividade = fim de sessão
+HISTORICO_MAX_TURNS = 12               # cap de turnos no bloco histórico
+HISTORICO_TRUNCATE_CHARS = 80          # cap de chars por linha (pergunta)
+
+
+def _detect_sessao_atual(entries_sorted_asc: list, now_ts: float) -> list:
+    """
+    Identifica as entries que pertencem à SESSÃO ATUAL via gap temporal.
+
+    Entrada: lista de entries ORDENADA por timestamp ascendente (mais antigo
+    primeiro). now_ts é o instante atual.
+
+    Algoritmo:
+      - Percorre entries do FINAL (mais recente) para o INÍCIO
+      - Inclui na sessão atual enquanto gap entre entries consecutivos
+        for <= SESSION_GAP_THRESHOLD_SEC
+      - Para no primeiro gap > threshold (fronteira de sessão anterior)
+
+    Retorna: sublista cronológica ascendente das entries da sessão atual.
+
+    Robustez: timestamps inválidos (None, 0) tratam como gap infinito
+    (não pertencem à sessão atual).
+    """
+    if not entries_sorted_asc:
+        return []
+    try:
+        # Percorre do mais recente para o mais antigo coletando sessão atual
+        sessao_atual_reverse = []
+        for i in range(len(entries_sorted_asc) - 1, -1, -1):
+            e_atual = entries_sorted_asc[i]
+            ts_atual = e_atual.get("timestamp")
+            if ts_atual is None or float(ts_atual) <= 0:
+                # timestamp inválido: encerra sessão aqui
+                break
+            ts_atual_f = float(ts_atual)
+            if i == len(entries_sorted_asc) - 1:
+                # Mais recente: gap até NOW deve ser razoável; se > threshold,
+                # mesmo assim incluímos (é o turno atual ou imediatamente anterior)
+                sessao_atual_reverse.append(e_atual)
+                continue
+            # Para entries anteriores ao mais recente: verifica gap até PRÓXIMO
+            e_proximo = entries_sorted_asc[i + 1]
+            ts_proximo = e_proximo.get("timestamp")
+            if ts_proximo is None or float(ts_proximo) <= 0:
+                break
+            gap = float(ts_proximo) - ts_atual_f
+            if gap > SESSION_GAP_THRESHOLD_SEC:
+                # Fronteira de sessão: e_atual pertence à sessão ANTERIOR
+                break
+            sessao_atual_reverse.append(e_atual)
+        # Reverte para ordem cronológica ascendente
+        return list(reversed(sessao_atual_reverse))
+    except Exception:
+        return []
+
+
+def _build_historico_cronologico_compacto(
+    entries_sorted_asc: list,
+    current_mode: str,
+    now_ts: float,
+) -> Optional[str]:
+    """
+    Constrói o bloco histórico cronológico compacto para janela imediata.
+
+    APENAS em modo cognitive (decisão Renato 04/06/2026).
+    Sprint retorna None (preserva comportamento atual).
+
+    Formato emitido:
+        [histórico cronológico — últimos N turnos da sessão atual]
+        07:02 Q: "ok obrigado"
+        07:01 Q: "voce nao lembra de nada..."
+        06:59 Q: "o que elas podem fazer no mundo real"
+        ...
+
+    Estrutura:
+      - Apenas Q (pergunta do usuário), sem A (resposta do modelo)
+      - Truncado em 80 chars por linha
+      - Mais recente primeiro (ordem cronológica reversa)
+      - Cap de 12 turnos máximo
+      - Apenas turnos da SESSÃO ATUAL (gap < 4h entre eles)
+
+    Robustez: lista vazia, mode != cognitive, ou exceção → retorna None
+    (caller deve verificar e não inserir bloco no contexto).
+    """
+    if current_mode != "cognitive":
+        return None
+    if not entries_sorted_asc:
+        return None
+    try:
+        # 1. Filtra apenas entries da sessão atual
+        sessao = _detect_sessao_atual(entries_sorted_asc, now_ts)
+        if not sessao:
+            return None
+
+        # 2. Filtra entries válidas para o histórico cronológico.
+        #
+        # CORREÇÃO (Commit 3c.α-fix2, Renato 04/06/2026):
+        # A arquitetura do EDP grava Q+A em UM ÚNICO entry com
+        # source_type=llm_response (formato: "Q: <pergunta>\nA: <resposta>",
+        # ver websocket.py:482 e llm_adapter.py:2446). Filtro anterior
+        # exigia source_type=user_input, o que excluía TODAS as conversas
+        # reais. Resultado: bloco histórico sempre retornava None.
+        #
+        # Decisão arquitetural confirmada (llm_adapter.py:1601-1606):
+        # NÃO existe entry separado de user_input — gravar separado causaria
+        # duplicação e envenenamento do retrieval por similaridade.
+        #
+        # Filtro novo: aceita todos source_types EXCETO os que não são
+        # conversas reais (session_summary = resumo automático;
+        # meta_conversation = governança anti-loop interna).
+        entries_validas = [
+            e for e in sessao
+            if e.get("source_type") not in ("session_summary", "meta_conversation")
+        ]
+        if not entries_validas:
+            return None
+
+        # 3. Pega as últimas N (mais recentes)
+        ultimas = entries_validas[-HISTORICO_MAX_TURNS:]
+
+        # 4. Constrói as linhas em ordem cronológica REVERSA (mais recente primeiro)
+        #    Extrai APENAS a parte Q: do texto combinado Q+A.
+        linhas = []
+        # Regex confiável: padrão arquitetural fixo "Q: ... \nA: ..."
+        # (confirmado em llm_adapter.py:2446 e websocket.py linha equivalente).
+        # re.DOTALL permite que . case com \n dentro da pergunta multi-linha.
+        Q_EXTRACTOR = re.compile(r"^Q:\s*(.+?)\s*\nA:\s*", re.DOTALL)
+        for entry in reversed(ultimas):
+            ts = entry.get("timestamp")
+            if ts is None or float(ts) <= 0:
+                continue
+            dt = time.localtime(float(ts))
+            hora_str = f"{dt.tm_hour:02d}:{dt.tm_min:02d}"
+            texto = (entry.get("text") or "").strip()
+            if not texto:
+                continue
+            # Extrai APENAS a pergunta Q (não a resposta A) do texto combinado
+            match = Q_EXTRACTOR.match(texto)
+            if match:
+                texto_limpo = match.group(1).strip()
+            else:
+                # Fallback: entry sem padrão Q+A (raro, possivelmente legado).
+                # Usa texto inteiro, com remoção defensiva de prefixos.
+                texto_limpo = texto.lstrip("Q:").lstrip(":").strip()
+            # Trunca em 80 chars, adicionando ... se cortou
+            if len(texto_limpo) > HISTORICO_TRUNCATE_CHARS:
+                texto_limpo = texto_limpo[:HISTORICO_TRUNCATE_CHARS - 3] + "..."
+            # Escapa aspas duplas para não quebrar formato
+            texto_limpo = texto_limpo.replace('"', "'")
+            # Normaliza quebras de linha internas (perguntas multi-linha viram 1 linha)
+            texto_limpo = texto_limpo.replace("\n", " ").replace("\r", " ")
+            texto_limpo = re.sub(r"\s+", " ", texto_limpo)
+            linhas.append(f'{hora_str} Q: "{texto_limpo}"')
+
+        if not linhas:
+            return None
+
+        # 5. Monta bloco final
+        n_turnos = len(linhas)
+        cabecalho = (
+            f"[histórico cronológico — últimos {n_turnos} turno"
+            f"{'s' if n_turnos != 1 else ''} da sessão atual]"
+        )
+        return cabecalho + "\n" + "\n".join(linhas)
+    except Exception:
+        return None
+
+
 # ── Enums ──────────────────────────────────────────────────────────────────────
 
 class LLMProvider(str, Enum):
@@ -102,7 +372,22 @@ class LLMConfig:
     timeout_s:   float       = 300.0
     max_retries: int         = 3
     temperature: float       = 0.7
-    max_tokens:  int         = 4096  # Peça 2.5e (2026-05-29): subido de 2048
+    max_tokens:  int         = 8192  # 2026-05-31 (diagnóstico α): subido de
+                                     # 4096 para 8192. Investigação revelou
+                                     # via stop_reason=max_tokens que cortes em
+                                     # Java 21 sectioned (Opus + Sonnet) eram
+                                     # causados pelo próprio EDP, não pela API.
+                                     # Headers da Anthropic mostraram
+                                     # out_remaining=10000/10000 no momento do
+                                     # corte — não era rate limit, era teto
+                                     # interno. 8192 cobre seções técnicas
+                                     # densas (Resilience4j YAML + sealed
+                                     # interfaces + orchestrator: ~5500 toks
+                                     # observados). Limite por requisição da
+                                     # API: 64K Sonnet, 32K Opus — 8192 é
+                                     # seguro. Custo: só conta tokens gerados,
+                                     # não o teto. Comentário original abaixo:
+                                     # Peça 2.5e (2026-05-29): subido de 2048
                                      # para 4096. Diagnóstico: desafios técnicos
                                      # legítimos (arquitetura, design review)
                                      # eram cortados no meio da palavra final.
@@ -221,6 +506,10 @@ class LLMClient:
                 system=system,
                 temperature=self._cfg.temperature,
                 max_tokens=self._cfg.max_tokens,
+                # Dívida #47 (12/06/2026): modelo lido NA HORA da chamada,
+                # não no init do provider. Faz o override temporário da
+                # câmara (_llm_call_for_chamber) finalmente ter efeito.
+                model=self._cfg.model,
             )
             resp = self._anthropic_provider.complete(req)
             return resp.text
@@ -239,6 +528,25 @@ class LLMClient:
                     f"LLM indisponível após {self._cfg.max_retries} tentativas: {e}"
                 )
         return ""
+
+    def complete_ex(self, prompt: str, system: str = ""):
+        """
+        Fase 1 — Câmara Adaptativa (12/06/2026): como complete(), mas
+        retorna o CompletionResponse COMPLETO (text + metrics.cost_usd
+        real + modelo efetivo). Disponível só na rota Anthropic; outras
+        rotas retornam None e o caller usa complete() como fallback.
+        """
+        if self._cfg.provider == LLMProvider.ANTHROPIC:
+            from .llm.providers import CompletionRequest, Message, Role
+            req = CompletionRequest(
+                messages=[Message(Role.USER, prompt)],
+                system=system,
+                temperature=self._cfg.temperature,
+                max_tokens=self._cfg.max_tokens,
+                model=self._cfg.model,  # #47: lido na hora da chamada
+            )
+            return self._anthropic_provider.complete(req)
+        return None
 
     def stream(self, prompt: str, system: str = "") -> Generator[str, None, None]:
         """Streaming via generator. Yield de chunks de texto."""
@@ -705,6 +1013,21 @@ REGRAS ABSOLUTAS:
         else:
             msg = ("modo COGNITIVE ativado — janela imediata enxuta (cap "
                    "4000 chars). Identidade padrão do EDP restaurada.")
+
+        # ── Commit 3b (Renato, 04/06/2026) ────────────────────────────────────
+        # Pareto event logger: emite mode_switched para telemetria. Permite
+        # análise de Bayes (qual modo é dominante? quando troca?) e correlação
+        # com qualidade de retrieval.
+        try:
+            from .runtime.pareto_store import emit_mode_switched
+            emit_mode_switched(
+                session_id=str(self.session_id),
+                from_mode=previous,
+                to_mode=mode_lower,
+            )
+        except Exception as e:
+            logger.debug("[mode] pareto emit falhou: %s", e)
+
         return {
             "ok": True, "mode": mode_lower,
             "message": msg + sectioned_msg, "previous": previous,
@@ -784,6 +1107,9 @@ REGRAS ABSOLUTAS:
 
         Trunca challenge a 2000 chars para caber na âncora.
         Limpa estado anterior se houver.
+
+        Commit 3b-task (Renato, 04/06/2026): adiciona started_at (epoch float)
+        para cálculo de duration_sec quando task_completed é emitido.
         """
         previous = self._task_anchor
         self._task_anchor = {
@@ -791,6 +1117,7 @@ REGRAS ABSOLUTAS:
             "sections_delivered": [],
             "expected_total": None,
             "started_at_turn": None,  # opcional, debug
+            "started_at": _now(),     # Commit 3b-task: timestamp para duration_sec
         }
         if previous is not None:
             logger.info("[task] estado anterior substituído")
@@ -902,6 +1229,20 @@ REGRAS ABSOLUTAS:
         if self._task_anchor["expected_total"] is None:
             self._task_anchor["expected_total"] = total
             logger.info("[task] total de seções definido: %d", total)
+
+            # ── Commit 3b-task (Renato, 04/06/2026) ──────────────────────────
+            # Pareto event logger: task_started disparado APÓS primeira seção
+            # entregue (que revela expected_total). Antes desse momento
+            # expected_total=None e evento perderia informação. Marca a
+            # entry inicial efetiva da tarefa.
+            try:
+                from .runtime.pareto_store import emit_task_started
+                emit_task_started(
+                    session_id=str(self.session_id),
+                    expected_total=int(total),
+                )
+            except Exception as e:
+                logger.debug("[task] pareto emit_task_started falhou: %s", e)
         elif self._task_anchor["expected_total"] != total:
             # Modelo mudou o total — anota mas não rejeita
             logger.warning(
@@ -934,6 +1275,23 @@ REGRAS ABSOLUTAS:
         complete = len(delivered_ns) >= total and max(delivered_ns) >= total
         if complete:
             logger.info("[task] COMPLETA (%d/%d entregues)", len(delivered_ns), total)
+
+            # ── Commit 3b-task (Renato, 04/06/2026) ──────────────────────────
+            # Pareto event logger: task_completed com duração total. Calculada
+            # via started_at (set em start_task). Lê ANTES de _task_anchor=None
+            # para não perder informação.
+            try:
+                from .runtime.pareto_store import emit_task_completed
+                started_at = self._task_anchor.get("started_at") or _now()
+                duration = _now() - float(started_at)
+                emit_task_completed(
+                    session_id=str(self.session_id),
+                    n_secoes=int(len(delivered_ns)),
+                    duration_sec=float(duration),
+                )
+            except Exception as e:
+                logger.debug("[task] pareto emit_task_completed falhou: %s", e)
+
             # Limpa estado — tarefa finalizada
             self._task_anchor = None
             return {"parsed": True, "n": n, "total": total, "complete": True}
@@ -1128,6 +1486,20 @@ REGRAS ABSOLUTAS:
                 model="none", session_id=self.session_id,
             )
 
+        # ── Commit 3b (Renato, 04/06/2026) ────────────────────────────────────
+        # Pareto event logger: correlation_id por turno (mesmo padrão do
+        # stream_chat). Necessário no caminho non-streaming também porque
+        # session_summary, validações internas e chamadas externas via API
+        # podem usar chat() em vez de stream_chat().
+        try:
+            from .runtime.pareto_store import (
+                new_correlation_id, set_current_correlation_id,
+            )
+            _cid = new_correlation_id()
+            set_current_correlation_id(_cid)
+        except Exception as e:
+            logger.debug("[chat] pareto correlation_id falhou: %s", e)
+
         # 1. Comprime input via pipeline EDP
         compressed_input, compression_pct, n_blocks = self._compress_input(user_message)
 
@@ -1191,6 +1563,22 @@ REGRAS ABSOLUTAS:
         if self._client is None:
             yield "[EDP] Nenhum LLM conectado."
             return
+
+        # ── Commit 3b (Renato, 04/06/2026) ────────────────────────────────────
+        # Pareto event logger: gera correlation_id único para este turno.
+        # Eventos emitidos pelos hooks (memory_added, memory_accessed) ao
+        # longo do turno serão correlacionados via este ID — preparação para
+        # Bayes condicional (P(memory_accessed | mode_switched) etc).
+        # thread-local: cada chamada a stream_chat (executado em thread
+        # separada pelo FastAPI) tem seu próprio correlation_id.
+        try:
+            from .runtime.pareto_store import (
+                new_correlation_id, set_current_correlation_id,
+            )
+            _cid = new_correlation_id()
+            set_current_correlation_id(_cid)
+        except Exception as e:
+            logger.debug("[stream_chat] pareto correlation_id falhou: %s", e)
 
         # ── Instrumentação ────────────────────────────────────────────────────
         t_start          = time.perf_counter()
@@ -1467,13 +1855,25 @@ REGRAS ABSOLUTAS:
             original_model = self._client._cfg.model
             self._client._cfg.model = modelo
             try:
-                text = self._client.complete(user, system=system)
+                # Fase 1 (12/06/2026): rota com métricas — custo REAL do
+                # juiz entra no camara_outcome. Fallback: complete normal.
+                resp_ex = None
+                try:
+                    resp_ex = self._client.complete_ex(user, system=system)
+                except Exception:
+                    resp_ex = None
+                if resp_ex is not None:
+                    text = resp_ex.text or ""
+                    cost = float(getattr(resp_ex.metrics, "cost_usd", 0.0) or 0.0)
+                else:
+                    text = self._client.complete(user, system=system)
+                    cost = 0.0
             finally:
                 self._client._cfg.model = original_model
             latency_ms = (_time.perf_counter() - t0) * 1000.0
             return {
                 "text": text or "",
-                "cost_usd": 0.0,  # custo real é registrado pelo provider
+                "cost_usd": cost,
                 "latency_ms": latency_ms,
             }
         except Exception as e:
@@ -1732,6 +2132,33 @@ REGRAS ABSOLUTAS:
                         ],
                         key=lambda e: e.get("timestamp", 0),
                     )
+
+                    # ── Commit 3c.α (Renato, 04/06/2026) ───────────────────────
+                    # Bloco histórico cronológico compacto: lista até 12 turnos
+                    # da SESSÃO ATUAL (gap < 4h entre eles), apenas perguntas
+                    # do usuário, truncadas em 80 chars, mais recente primeiro.
+                    # APENAS em cognitive (sprint não recebe).
+                    # Resolve UX: meta-pergunta ("o que conversamos hoje?") que
+                    # não casa semanticamente via retrieval cosseno e perde
+                    # turnos fora da janela imediata (N=6).
+                    try:
+                        historico_block = _build_historico_cronologico_compacto(
+                            real_entries,
+                            current_mode,
+                            time.time(),
+                        )
+                        if historico_block:
+                            blocks.append(historico_block)
+                            _debug_immediate.append({
+                                "tipo":         "historico_cronologico",
+                                "n_linhas":     historico_block.count("\n"),
+                                "tamanho_chars": len(historico_block),
+                            })
+                    except Exception as e:
+                        logger.debug(
+                            "[retrieve_context] historico cronologico falhou: %s", e
+                        )
+
                     recent_entries = real_entries[-JANELA_IMEDIATA_N:]
                     # Pega os labels finais (alinhados à direita) caso haja menos que N
                     n_recent = len(recent_entries)
@@ -1745,21 +2172,50 @@ REGRAS ABSOLUTAS:
                     caps_reverse = list(reversed(CAPS_POR_POSICAO[:n_recent]))
                     # caps_reverse[i] é o cap para recent_entries[i] (i=0 mais antigo)
 
-                    for entry, label, cap in zip(recent_entries, labels_used, caps_reverse):
+                    # ── Commit 3 (renderização temporal cognitive) ────────────
+                    # Decisão Renato 02/06/2026: em modo cognitive, label
+                    # ganha data+hora+gap formatado (Opção 1 inline, formato
+                    # híbrido α). Sprint preserva label simples (decisão D2=α).
+                    # Internamente o timestamp microssegundos é preservado
+                    # nas memórias para uso futuro pelos calibradores
+                    # (Pareto/Gauss/Bayes — Commits 3-5).
+                    _now_for_gap = time.time()
+                    for i, (entry, label, cap) in enumerate(
+                        zip(recent_entries, labels_used, caps_reverse)
+                    ):
                         txt = (entry.get("text") or "")[:cap]
                         if not txt:
                             continue
                         eid = entry.get("id")
                         if eid:
                             seen_ids.add(eid)
-                        blocks.append(f"[{label}] {txt}")
+
+                        # Label final depende do modo:
+                        if current_mode == "cognitive":
+                            entry_ts = float(entry.get("timestamp") or 0.0)
+                            is_most_recent = (i == n_recent - 1)
+                            if is_most_recent:
+                                gap = max(0.0, _now_for_gap - entry_ts) if entry_ts > 0 else 0.0
+                            else:
+                                next_ts = float(
+                                    recent_entries[i + 1].get("timestamp") or 0.0
+                                )
+                                gap = max(0.0, next_ts - entry_ts) if (entry_ts > 0 and next_ts > 0) else 0.0
+                            final_label = _format_temporal_label_cognitive(
+                                label, entry_ts, is_most_recent, gap
+                            )
+                        else:  # sprint: comportamento legado preservado
+                            final_label = label
+
+                        blocks.append(f"[{final_label}] {txt}")
                         # Debug: registra o que entrou na janela imediata
                         _debug_immediate.append({
-                            "id":          eid,
-                            "label":       label,
-                            "text":        txt,
+                            "id":           eid,
+                            "label":        label,          # label original (sem data)
+                            "label_final":  final_label,    # label efetivo (com data se cognitive)
+                            "text":         txt,
                             "cap_aplicado": cap,
-                            "source_type": entry.get("source_type"),
+                            "source_type":  entry.get("source_type"),
                         })
             except Exception as e:
                 logger.debug("[retrieve_context] janela imediata falhou: %s", e)
@@ -2010,7 +2466,7 @@ REGRAS ABSOLUTAS:
             model_name=model_name,
             reserve_response=512,
             max_anchors=2,
-            max_recent=3,
+            max_recent=5,
             max_retrieval=5,
         )
 
@@ -2029,15 +2485,59 @@ REGRAS ABSOLUTAS:
                     list(self._memory.episodic.entries),
                     key=lambda e: e.get("timestamp", 0),
                 )
-                # Últimos 5 turnos (recent): mais úteis quando datados
-                for e in entries[-5:]:
-                    txt = (e.get("text", "") or "")[:300]
+                # ── Dívida #46 (14/06/2026): JANELA IMEDIATA ÍNTEGRA ──────────
+                # Os N=4 turnos CONVERSACIONAIS mais recentes entram COMPLETOS
+                # (Q+A), sem truncar. Pula entries não-conversacionais
+                # (session_summary, decisões cognitivas, meta) que roubavam
+                # slots e empurravam os turnos reais para fora da janela.
+                # Orçamento folga (~28k tokens livres): cabem inteiros — o
+                # resumo semântico no teto fica para quando o budget apertar.
+                # O filtro por source_type é validado em produção pelo log
+                # abaixo (source_types vistos) — ajustar se aparecer tipo novo.
+                _NAO_CONVERSA = {
+                    "session_summary", "meta_conversation",
+                    "cognitive_decision", "cognitive_decisions",
+                    "decision", "summary",
+                }
+                _CONVERSA = {"llm_response", "camara_response"}
+                _src_vistos: dict = {}
+                turnos_conv: list = []
+                for e in entries:
+                    st = (e.get("source_type") or "").lower()
+                    _src_vistos[st] = _src_vistos.get(st, 0) + 1
+                    if st in _CONVERSA:
+                        turnos_conv.append(e)
+                    elif st in _NAO_CONVERSA:
+                        continue
+                    else:
+                        # source_type inesperado: aceita só se parecer turno Q/A
+                        _t = (e.get("text", "") or "").lstrip()
+                        if _t[:2] == "Q:" or _t[:3] == "Q :":
+                            turnos_conv.append(e)
+                # Fallback defensivo: se o filtro zerou (source_types fora do
+                # previsto), relaxa para "tudo que não é summary/meta explícito"
+                # — evita janela vazia por engano de classificação.
+                if not turnos_conv:
+                    turnos_conv = [
+                        e for e in entries
+                        if (e.get("source_type") or "").lower() not in _NAO_CONVERSA
+                    ]
+
+                N_RECENT_INTEGRO = 4
+                for e in turnos_conv[-N_RECENT_INTEGRO:]:
+                    txt = (e.get("text", "") or "")   # ÍNTEGRO — sem [:300]
                     if not txt:
                         continue
                     ts  = e.get("timestamp")
                     rel = _format_relative_time(ts, now_ts) if ts else ""
                     prefix = f"[{rel}] " if rel else ""
                     recent_turns.append(prefix + txt)
+
+                logger.info(
+                    "[ctx] janela imediata INTEGRA #46 | turnos=%d (N=%d) | "
+                    "source_types=%s",
+                    len(recent_turns), N_RECENT_INTEGRO, dict(_src_vistos),
+                )
                 # Primeiros 2 (anchors): contexto inicial
                 for e in entries[:5]:
                     txt = (e.get("text", "") or "")[:300]
@@ -2047,8 +2547,66 @@ REGRAS ABSOLUTAS:
                     rel = _format_relative_time(ts, now_ts) if ts else ""
                     prefix = f"[{rel}] " if rel else ""
                     all_history.append(prefix + txt)
+
+                # ── Commit 3c.α-fix (Renato, 04/06/2026) ──────────────────────
+                # CORREÇÃO: o caminho REAL de produção é _build_enriched_context,
+                # NÃO _retrieve_context (que é apenas fallback). Implementação
+                # inicial do 3c.α em _retrieve_context não tinha efeito visível
+                # porque ContextWindowManager constrói recent_turns separadamente
+                # neste bloco e bypassa o retrieval do fallback.
+                #
+                # Solução: insere o bloco histórico cronológico como ÚLTIMO
+                # item de recent_turns. ContextWindowManager faz
+                # recent_turns[-max_recent:] (max_recent=3 default), então
+                # APPEND no final garante que entra no slice. Apenas em
+                # cognitive — função retorna None em sprint (decisão D2=α).
+                # Bloco contém até 12 perguntas da sessão atual (gap <4h),
+                # truncadas em 80 chars, ordem reversa cronológica.
+                try:
+                    current_mode = getattr(self, "_operational_mode", "cognitive")
+                    historico_block = _build_historico_cronologico_compacto(
+                        entries,
+                        current_mode,
+                        now_ts,
+                    )
+                    if historico_block:
+                        recent_turns.append(historico_block)
+                        logger.info(
+                            "[ctx] historico_cronologico injetado | mode=%s | "
+                            "linhas=%d | chars=%d",
+                            current_mode,
+                            historico_block.count("\n"),
+                            len(historico_block),
+                        )
+                except Exception as e:
+                    logger.debug(
+                        "[ctx] historico_cronologico falhou: %s", e
+                    )
+                # ── fim Commit 3c.α-fix ───────────────────────────────────────
+
         except Exception:
             pass
+
+        # ── Dívida #46 (opção b, 14/06/2026): a janela imediata agora vem
+        # ÍNTEGRA via recent_turns (acima). Remove de `blocks` os itens de
+        # janela imediata do _retrieve_context ("[turno anterior", "[N turnos
+        # atrás") para NÃO duplicar (lá vinham truncados pelo max_retrieval=5)
+        # nem gastar os slots de retrieval. Mantém âncora temporal, histórico
+        # cronológico, bloco atual, retrieval por similaridade e summaries.
+        try:
+            import re as _re46
+            _JANELA_RE = _re46.compile(r"^\s*\[(?:turno anterior|\d+\s+turnos?)\b")
+            _antes = len(blocks)
+            blocks = [b for b in blocks if not _JANELA_RE.match(b or "")]
+            _removidos = _antes - len(blocks)
+            if _removidos:
+                logger.info(
+                    "[ctx] #46 filtro duplicata | janela_imediata removida de "
+                    "blocks=%d | retrieval restante=%d",
+                    _removidos, len(blocks),
+                )
+        except Exception as _e46b:
+            logger.debug("[ctx] #46 filtro blocks falhou: %s", _e46b)
 
         # Constrói contexto otimizado
         ctx = mgr.build(
@@ -2072,6 +2630,32 @@ REGRAS ABSOLUTAS:
             ctx.budget.used if ctx.budget else "?",
             hits, len(ctx.anchors), len(ctx.recent)
         )
+
+        # ── INSTRUMENTAÇÃO TEMPORÁRIA — Dívida #46 (continuidade conversacional) ──
+        # REMOVER após o diagnóstico.
+        try:
+            _blocks = blocks or []
+            logger.warning(
+                "[ctx-DEBUG #46] rendered_len=%d | recent=%d anchors=%d | blocks_total=%d",
+                len(rendered), len(ctx.recent), len(ctx.anchors), len(_blocks),
+            )
+            logger.warning(
+                "[ctx-DEBUG #46] recent_lens=%s | retrieval_kept=%s",
+                [len(r) for r in ctx.recent],
+                [len(b) for b in getattr(ctx, "retrieval", [])],
+            )
+            logger.warning(
+                "[ctx-DEBUG #46] blocks_preview(ordem cronologica?)=%s",
+                [b[:60].replace(chr(10), " ") for b in _blocks],
+            )
+            logger.warning(
+                "[ctx-DEBUG #46] === PROMPT REAL (ate 6000 chars) ===\n%s",
+                rendered[:6000],
+            )
+        except Exception as _e46:
+            logger.warning("[ctx-DEBUG #46] instrumentacao falhou: %s", _e46)
+        # ── FIM INSTRUMENTAÇÃO TEMPORÁRIA #46 ──
+
         return rendered, meta
 
     def _store_to_memory(self, user_msg: str, response: str) -> None:
