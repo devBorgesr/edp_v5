@@ -98,6 +98,38 @@ def _build_conversation_text(entries: List[dict], max_chars: int = 3000) -> str:
     return "\n---\n".join(lines)
 
 
+def _clean_summary(raw: str, max_chars: int = 500) -> str:
+    """Limpa o resumo do LLM preservando o CORPO coeso.
+
+    Dívida #50 (13/06/2026): antes, o código pegava só a 1ª linha não-header
+    e descartava o resto — gravando fragmentos inúteis ('**Redis:**',
+    '| Tópico | Resumo |') como resumo de sessão de prioridade alta, que
+    poluíam o retrieval (o item mais recuperado da base era um header puro).
+    Agora descarta apenas markdown ESTRUTURAL (tabelas, separadores, headers)
+    e mantém o conteúdo real, unido num texto contínuo até max_chars.
+    """
+    import re as _re2
+    uteis = []
+    for ln in (raw or "").split("\n"):
+        s = ln.strip()
+        if not s:
+            continue
+        # linha de tabela markdown: |...|
+        if s.startswith("|") and s.endswith("|"):
+            continue
+        # separadores / linhas só de pontuação estrutural (---, ===, |, :)
+        if _re2.fullmatch(r"[\-\=\*\|\s:]+", s):
+            continue
+        # header markdown (# ...)
+        if s.startswith("#"):
+            continue
+        uteis.append(s)
+    texto = " ".join(uteis)
+    texto = _re2.sub(r"[*_`]+", "", texto)       # remove ênfase inline
+    texto = _re2.sub(r"\s+", " ", texto).strip()  # normaliza espaços
+    return texto[:max_chars]
+
+
 def generate_session_summary(
     memory_store,
     llm_runtime,
@@ -150,12 +182,10 @@ def generate_session_summary(
             store_to_memory=False,
         )
         summary_text = (response.text or "").strip()
-        # Pega só primeira linha não-vazia
-        for line in summary_text.split("\n"):
-            line = line.strip()
-            if line and not line.startswith("#"):
-                summary_text = line[:300]
-                break
+        # Dívida #50 (13/06/2026): preserva o corpo do resumo, limpando só
+        # markdown estrutural — em vez de capturar a 1ª linha (frequentemente
+        # um header/tabela) e descartar o resto.
+        summary_text = _clean_summary(summary_text, max_chars=500)
         if not summary_text or len(summary_text) < 10:
             logger.debug("[summary] resumo vazio/curto, pulando")
             return None

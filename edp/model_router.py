@@ -24,9 +24,20 @@ logger = logging.getLogger("edp.model_router")
 
 # ── Catálogo de modelos disponíveis ──────────────────────────────────────────
 MODELS = {
-    "claude-haiku-4-5":  {"price_in": 0.80,  "price_out": 4.00,  "tier": 1},
+    # Preços atualizados 12/06/2026 conforme docs oficiais Anthropic.
+    # Correções: haiku era 0.80/4.00 (preço haiku-3.5); opus-4-7 era
+    # 15/75 (preço Opus 4.1/4 antigos). Fable 5 custa 2× Opus, não 3×.
+    "claude-haiku-4-5":  {"price_in": 1.00,  "price_out": 5.00,  "tier": 1},
     "claude-sonnet-4-6": {"price_in": 3.00,  "price_out": 15.00, "tier": 2},
-    "claude-opus-4-7":   {"price_in": 15.00, "price_out": 75.00, "tier": 3},
+    "claude-opus-4-7":   {"price_in": 5.00,  "price_out": 25.00, "tier": 3},
+    # ── Tiers superiores p/ câmara de eco (11/06/2026) ──────────────
+    # Visíveis APENAS para escolher_modelos_B (que escolhe por tier).
+    # O router de turnos nomeia modelos explicitamente (linhas ~304+),
+    # então o roteamento diário NÃO muda com estas entradas.
+    # Efeito na câmara: A=opus-4-7 → B=opus-4-8 (antes: auto-refutação);
+    # A=opus-4-8 → B=fable-5; A=fable-5 → auto-refutação c/ veto.
+    "claude-opus-4-8":   {"price_in": 5.00,  "price_out": 25.00, "tier": 4},
+    "claude-fable-5":    {"price_in": 10.00, "price_out": 50.00, "tier": 5},
 }
 DEFAULT_MODEL = "claude-haiku-4-5"
 

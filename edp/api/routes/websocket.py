@@ -28,6 +28,41 @@ import traceback
 import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
+
+
+def _ws_alive(ws) -> bool:
+    """Dívida #45 (10/06/2026): conexão ainda viva nos dois sentidos?"""
+    try:
+        return (
+            ws.client_state == WebSocketState.CONNECTED
+            and ws.application_state == WebSocketState.CONNECTED
+        )
+    except Exception:
+        return False
+
+
+async def _safe_send(ws, payload: dict) -> bool:
+    """
+    Dívida #45 (10/06/2026): send que NUNCA explode o turno.
+
+    Bug original: cliente recarregava a página no meio do turno → conexão
+    fechava → próximo send levantava RuntimeError("Cannot call send once a
+    close message has been sent") → turno zumbi morria com traceback cru e
+    a pergunta do usuário era perdida ANTES do LLM responder.
+
+    Com _safe_send: conexão morta → False silencioso. O turno segue,
+    a resposta (se gerada) é salva na memória, zero traceback.
+    """
+    if not _ws_alive(ws):
+        return False
+    try:
+        await ws.send_json(payload)
+        return True
+    except Exception as e:
+        logger.debug("[WS] send descartado (conexão morta): %s", e)
+        return False
+
 
 from ...runtime import get_runtime, get_memory, is_valid, get_error
 from ...runtime.pressure_governor import get_governor, PressureLevel
@@ -107,46 +142,92 @@ def _levenshtein(a: str, b: str) -> int:
     return prev_row[-1]
 
 
-def _detect_continuation(msg_normalized: str) -> bool:
-    """Detecta mensagens de continuação em sectioned com 3 camadas:
-    1. Match exato no conjunto base (rápido)
-    2. Regex de padrões comuns (cobre variações gramaticais)
-    3. Levenshtein ≤ tolerância por palavra-alvo (typos)
+# Commit 2 dos Dois Exocórtices (2026-05-31): Camada 4 — referência
+# contextual a seção/parte/etapa. Caso real validado em produção (P3):
+# "preciso da Seção 3/3. voce nao gerou." (6 palavras) destruía âncora
+# porque excedia limite de 5 palavras das camadas 1-3. Solução: quando
+# há tarefa ativa, mensagens até 20 palavras com referência explícita a
+# estrutura de seções são tratadas como continuação contextual.
+_SECTION_REFERENCE_REGEX = _re_continuation.compile(
+    r"(?:"
+    r"se[çc][ãa]o\s*\d+|"                 # "seção 3", "secao 3"
+    r"\d+\s*/\s*\d+|"                     # "3/3", "2 / 5"
+    r"parte\s*\d+|"                       # "parte 2"
+    r"etapa\s*\d+|"                       # "etapa 3"
+    r"cap[íi]tulo\s*\d+|"                 # "capítulo 4"
+    r"passo\s*\d+|"                       # "passo 1"
+    r"pr[oóø]xim[ao]\s+(?:se[çc][ãa]o|parte|etapa|cap[íi]tulo|passo)|"
+    r"(?:falt[ao]u?|gera[rs]?|mostr[ae]r?|entreg[aue]+|fa[çc]a)\s+"
+    r"(?:a\s+|essa\s+|esta\s+|aquela\s+)?(?:se[çc][ãa]o|parte|etapa|cap[íi]tulo|passo)|"
+    r"n[aã]o\s+(?:gerou|entregou|fez|mostrou)|"
+    r"(?:continu[ae]?|prossegu[ie])\s+(?:a\s+|com\s+(?:a\s+)?|de\s+(?:a\s+)?)?(?:se[çc][ãa]o|parte|etapa|tarefa)|"
+    r"da\s+se[çc][ãa]o\s+\d"              # "da seção 3"
+    r")",
+    _re_continuation.IGNORECASE,
+)
 
-    Mensagens > 5 palavras nunca são tratadas como continuação para evitar
-    falso positivo em desafios reais. Mensagens com "?" também não (perguntas
-    novas, não continuação).
+
+def _detect_continuation(msg_normalized: str, task_active: bool = False) -> bool:
+    """Detecta mensagens de continuação em sectioned com 4 camadas:
+    1. Match exato no conjunto base (rápido, palavras curtas)
+    2. Regex de padrões comuns (variações gramaticais)
+    3. Levenshtein ≤ tolerância por palavra-alvo (typos curtos)
+    4. Referência contextual a seção/parte (Commit 2 — só se task_active)
+
+    Limites:
+      - Mensagens > 5 palavras: precisam camada 4 + task_active para passar
+      - Mensagens > 20 palavras: nunca passam pela camada 4 (provavel desafio)
+      - Mensagens > 60 palavras: nunca tratadas como continuação
+        (guarda absoluta — texto longo = nova tarefa)
+      - "?" bloqueia camadas 1-3, mas NÃO bloqueia camada 4 quando
+        task_active=True (perguntas contextuais sobre tarefa em curso)
+
+    Args:
+        msg_normalized: mensagem normalizada (lowercase, strip)
+        task_active: True se há tarefa em curso (anchor não vazio)
+
+    Returns:
+        True se deve ser tratada como continuação
     """
     if not msg_normalized:
         return False
-    if "?" in msg_normalized:
-        return False
     words = msg_normalized.split()
-    if len(words) > 5:
+    n_words = len(words)
+
+    # Guarda absoluta: textos muito longos NUNCA são continuação
+    # (provavel novo desafio, mesmo com palavras-chave dentro)
+    if n_words > 60:
         return False
 
-    # Camada 1: match exato
-    if msg_normalized in _CONTINUATION_BASE:
-        return True
+    # Camadas 1-3 (comportamento legado): mensagens curtas sem "?"
+    if n_words <= 5 and "?" not in msg_normalized:
+        # Camada 1: match exato
+        if msg_normalized in _CONTINUATION_BASE:
+            return True
+        # Camada 2: regex
+        if _CONTINUATION_REGEX.match(msg_normalized):
+            return True
+        # Camada 3: Levenshtein (typos)
+        if n_words <= 2:
+            for target, max_dist in _CONTINUATION_BASE.items():
+                if max_dist == 0:
+                    continue
+                if abs(len(words[0]) - len(target)) <= max_dist:
+                    if _levenshtein(words[0], target) <= max_dist:
+                        return True
 
-    # Camada 2: regex
-    if _CONTINUATION_REGEX.match(msg_normalized):
-        return True
+    # Camada 4 (Commit 2): referência contextual.
+    # Ativa apenas se há tarefa em curso E mensagem cabe em 20 palavras.
+    # Sobrescreve regra do "?" — perguntas contextuais sobre tarefa ativa
+    # ("você pode gerar a seção 3?") são tratadas como continuação.
+    if task_active and n_words <= 20:
+        if _SECTION_REFERENCE_REGEX.search(msg_normalized):
+            return True
 
-    # Camada 3: Levenshtein contra palavras-alvo (typos)
-    # Só vale para mensagens de 1-2 palavras (typos típicos)
-    if len(words) <= 2:
-        for target, max_dist in _CONTINUATION_BASE.items():
-            if max_dist == 0:
-                continue  # exatas já testadas na camada 1
-            # Compara com a primeira palavra (typos curtos)
-            if abs(len(words[0]) - len(target)) <= max_dist:
-                if _levenshtein(words[0], target) <= max_dist:
-                    return True
     return False
 
 
-# ── fim dos helpers da peça 2.6e ────────────────────────────────────────────
+# ── fim dos helpers da peça 2.6e + Commit 2 ─────────────────────────────────
 
 router = APIRouter(tags=["websocket"])
 
@@ -181,7 +262,7 @@ async def _heartbeat_loop(websocket: WebSocket, session_id: str, stop_event: asy
 
             seq += 1
             try:
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type": "heartbeat",
                     "seq":  seq,
                     "ts":   _now(),
@@ -210,7 +291,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
     if not runtime_ok:
         err = get_error(runtime) or "runtime None"
         logger.warning("[WS] runtime inválido: %s", err)
-        await websocket.send_json({"type": "warn", "error": f"runtime degradado: {err}"})
+        await _safe_send(websocket, {"type": "warn", "error": f"runtime degradado: {err}"})
 
     if not memory_ok:
         err = get_error(memory) or "memory None"
@@ -255,7 +336,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             )
 
             if not message:
-                await websocket.send_json({"type": "error", "error": "mensagem vazia"})
+                await _safe_send(websocket, {"type": "error", "error": "mensagem vazia"})
                 continue
 
             # ── Interceptação de comando /mode (peça 2.6a) ─────────────────
@@ -276,14 +357,14 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 target = parts[1] if len(parts) >= 2 else "status"
 
                 if not hasattr(runtime, "set_operational_mode"):
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type":  "error",
                         "error": "comando /mode indisponível (runtime sem suporte)",
                     })
                     continue
 
                 # Sinaliza start para o frontend sair do estado "Enviando..."
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type":       "start",
                     "session_id": session_id,
                     "stage":      "command",
@@ -300,12 +381,12 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         response_text = f"[erro: {result.get('message', 'modo inválido')}]"
 
                 # Envia como chunk normal (frontend exibe no chat)
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type": "chunk",
                     "text": response_text,
                 })
                 # Encerra ciclo (frontend libera input)
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type":     "done",
                     "session_id": session_id,
                     "llm_used": False,
@@ -322,7 +403,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             #   /sectioned status → mostra estado
             if message.lower().startswith("/sectioned"):
                 if not hasattr(runtime, "set_sectioned"):
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type":  "error",
                         "error": "comando /sectioned indisponível (runtime sem suporte)",
                     })
@@ -331,7 +412,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 parts = message.lower().split()
                 target = parts[1] if len(parts) >= 2 else "on"
 
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type":       "start",
                     "session_id": session_id,
                     "stage":      "command",
@@ -352,8 +433,8 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                     else:
                         response_text = f"[erro: {result.get('message', '')}]"
 
-                await websocket.send_json({"type": "chunk", "text": response_text})
-                await websocket.send_json({
+                await _safe_send(websocket, {"type": "chunk", "text": response_text})
+                await _safe_send(websocket, {
                     "type":      "done",
                     "session_id": session_id,
                     "llm_used":  False,
@@ -369,7 +450,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             #   /task clear      → limpa âncora (encerra tarefa em curso)
             if message.lower().startswith("/task"):
                 if not hasattr(runtime, "get_task_anchor"):
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type":  "error",
                         "error": "comando /task indisponível",
                     })
@@ -378,7 +459,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 parts = message.lower().split()
                 target = parts[1] if len(parts) >= 2 else "status"
 
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type":       "start",
                     "session_id": session_id,
                     "stage":      "command",
@@ -407,8 +488,8 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                 lines.append(f"  • {s['n']}/{s['total']} — {s['title']}")
                         response_text = "\n".join(lines)
 
-                await websocket.send_json({"type": "chunk", "text": response_text})
-                await websocket.send_json({
+                await _safe_send(websocket, {"type": "chunk", "text": response_text})
+                await _safe_send(websocket, {
                     "type":      "done",
                     "session_id": session_id,
                     "llm_used":  False,
@@ -429,17 +510,17 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                     logger.info("[sectioned] /next → 'continue' (sectioned ativo)")
                 else:
                     # Avisa que /next só faz sentido com sectioned
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type":       "start",
                         "session_id": session_id,
                         "stage":      "command",
                     })
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type": "chunk",
                         "text": ("[/next só funciona com modo sectioned ativo. "
                                  "Use '/mode sprint' + '/sectioned' primeiro.]"),
                     })
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type":      "done",
                         "session_id": session_id,
                         "llm_used":  False,
@@ -458,28 +539,50 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             # típicas. Senão, é início de nova tarefa.
             #
             # 2.6e Bug B fix (2026-05-30): detecção robusta a typos.
-            # Caso real validado: "contenue" (typo de continue) substituiu
-            # tarefa de 10 seções com challenge inválido. Solução de 3 camadas:
-            #   1. Regex com tolerância a variações ortográficas comuns
-            #   2. Distância de edição (Levenshtein) ≤2 para palavras alvo
-            #   3. Princípio "na dúvida, preserve estado": se há tarefa ativa
-            #      E mensagem é curta (<5 palavras) E não contém "?", trata
-            #      como continuation por padrão (evita destruir progresso).
-            _is_continuation = _detect_continuation(_msg_normalized)
-            # Heurística de proteção de estado: se anchor ativa + msg curta
-            # + sem "?", presume continuation mesmo sem match exato. Razão:
-            # custo de destruir tarefa em curso é muito maior que custo de
-            # tratar mensagem ambígua como continuação (modelo pede clarificação).
-            if (_sectioned and not _is_continuation
-                and hasattr(runtime, "get_task_anchor")):
+            # Commit 2 (2026-05-31): adiciona Camada 4 — referência contextual.
+            # Caso real P3: "preciso da Seção 3/3. voce nao gerou." (6 palavras)
+            # destruía âncora porque excedia limite das camadas 1-3.
+            #
+            # Estratégia: detecta task_active ANTES de chamar _detect_continuation
+            # e passa como sinal. A função decide camada apropriada baseada nisso.
+            _task_active_now = False
+            if _sectioned and hasattr(runtime, "get_task_anchor"):
                 try:
-                    _task_active = runtime.get_task_anchor() is not None
+                    _task_active_now = runtime.get_task_anchor() is not None
+                except Exception:
+                    pass
+            _is_continuation = _detect_continuation(
+                _msg_normalized, task_active=_task_active_now
+            )
+            # Log estruturado para auditoria da decisão (instrumentação obrigatória
+            # do plano de 5 commits — cada decisão de cada princípio loga).
+            if _sectioned:
+                _n_words = len(_msg_normalized.split())
+                _layer_hit = "none"
+                if _is_continuation:
+                    if _n_words <= 5 and "?" not in _msg_normalized:
+                        _layer_hit = "1-3 (exata/regex/typo)"
+                    elif _task_active_now and _n_words <= 20:
+                        if _SECTION_REFERENCE_REGEX.search(_msg_normalized):
+                            _layer_hit = "4 (ref contextual)"
+                logger.info(
+                    "[continuation] detect=%s | layer=%s | words=%d | task_active=%s | has_q=%s",
+                    _is_continuation, _layer_hit, _n_words,
+                    _task_active_now, "?" in _msg_normalized,
+                )
+
+            # Heurística de proteção de estado herdada de 2.6e: se camada 4 não
+            # bateu mas anchor ativa + msg curta sem "?", ainda preserva por
+            # default (princípio "na dúvida, preserva estado").
+            if _sectioned and not _is_continuation and _task_active_now:
+                try:
                     _is_short = len(_msg_normalized.split()) < 5
                     _no_question = "?" not in _msg_normalized
-                    if _task_active and _is_short and _no_question:
+                    if _is_short and _no_question:
                         _is_continuation = True
                         logger.info(
-                            "[task] heurística: preservando tarefa (msg curta sem '?')"
+                            "[task] heurística fallback: preservando tarefa "
+                            "(msg curta sem '?', task ativa)"
                         )
                 except Exception:
                     pass
@@ -489,6 +592,10 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             ):
                 try:
                     runtime.start_task(message)
+                    logger.info(
+                        "[task] iniciando nova tarefa (continuation=False) | "
+                        "challenge_len=%d", len(message),
+                    )
                 except Exception as e:
                     logger.debug("[task] start_task falhou: %s", e)
             # ── fim da detecção de início de tarefa ───────────────────────
@@ -501,9 +608,12 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             compression_pct = 0.0
             retrieved_blocks: list = []
             metrics: dict = {}
+            # Commit B (10/06/2026): estado do lineage por turno
+            lineage_retrieved: list = []
+            lineage_quality:   dict = {}
 
             try:
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type":       "start",
                     "session_id": session_id,
                     "stage":      "pipeline",
@@ -523,6 +633,41 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                     compression_pct = pres.reduction_pct
                     pipeline_ok = True
                     logger.info("[WS] pipeline ok | reduction=%.1f%%", compression_pct)
+
+                    # ── Commit A (Sessão 2, 08/06/2026): Quality Score ──────────
+                    # Envia score composto + verdict ao cliente quando
+                    # aggregate_score disponível e feature flag ativa.
+                    # NÃO derruba turno se falhar — falha silenciosa OK aqui.
+                    try:
+                        from ...runtime.quality_score import (
+                            get_quality_exposer, is_quality_score_enabled,
+                        )
+                        if is_quality_score_enabled() and pres.aggregate_score is not None:
+                            qresult = get_quality_exposer().from_score_vector(
+                                pres.aggregate_score
+                            )
+                            if qresult is not None:
+                                # Commit B: guarda p/ lineage no fim do turno
+                                lineage_quality = {
+                                    "score":   qresult.score,
+                                    "verdict": qresult.verdict,
+                                }
+                                await _safe_send(websocket, {
+                                    "type":       "quality",
+                                    "score":      qresult.score,
+                                    "verdict":    qresult.verdict,
+                                    "components": qresult.components,
+                                    "source":     qresult.source,
+                                })
+                                logger.info(
+                                    "[WS] quality enviado | score=%.3f verdict=%s",
+                                    qresult.score, qresult.verdict,
+                                )
+                    except Exception as qerr:
+                        logger.warning(
+                            "[WS] quality_score falhou (não-fatal): %s: %s",
+                            type(qerr).__name__, str(qerr)[:120],
+                        )
                 except asyncio.TimeoutError:
                     logger.warning("[WS] pipeline TIMEOUT (%.0fs) — pulando", PIPELINE_TIMEOUT_S)
                 except Exception as e:
@@ -569,6 +714,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
 
                         # ── Retrieval por similaridade (dedupe) ───────────
                         retrieved = memory.retrieve(message, top_k=5, min_score=0.20)
+                        lineage_retrieved = retrieved  # Commit B: captura p/ lineage
                         for r in retrieved:
                             rid = r.get("id")
                             if rid and rid in seen_ids:
@@ -591,7 +737,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                     except Exception as e:
                         logger.warning("[WS] memory.retrieve falhou: %s", e)
 
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type":            "pipeline_done",
                     "compression_pct": round(compression_pct, 1),
                     "memory_hits":     memory_hits,
@@ -618,7 +764,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             "[WS] LLM LOCAL recusado por pressão de RAM | available=%.2fGB",
                             pressure.available_gb,
                         )
-                        await websocket.send_json({
+                        await _safe_send(websocket, {
                             "type":  "warn",
                             "error": (
                                 f"Sistema sob pressão de memória "
@@ -680,7 +826,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                 runtime._last_routed_model = chosen_model
                                 routing_info = routing
                                 # Notifica frontend antes do llm_start
-                                await websocket.send_json({
+                                await _safe_send(websocket, {
                                     "type":     "router_decision",
                                     "model":    chosen_model,
                                     "tier":     routing["tier"],
@@ -691,11 +837,21 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             except Exception as e:
                                 logger.debug("[WS] router falhou: %s", e)
 
+                        # ── Dívida #45 (10/06/2026): gate pré-LLM ──────────
+                        # Cliente recarregou/caiu durante o pipeline?
+                        # Abortar AQUI economiza a chamada de API inteira
+                        # e mata o turno zumbi na origem.
+                        if not _ws_alive(websocket):
+                            logger.info(
+                                "[WS] conexão morta — turno abortado antes do LLM"
+                            )
+                            raise WebSocketDisconnect(code=1006)
+
                         logger.info(
                             "[WS] LLM stream iniciando | pressure=%s ram=%.2fGB cloud=%s",
                             pressure.level.value, pressure.available_gb, model_is_cloud,
                         )
-                        await websocket.send_json({
+                        await _safe_send(websocket, {
                             "type":  "llm_start",
                             "model": runtime._llm_config.model,
                         })
@@ -756,7 +912,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                 first_chunk = False
                                             chunks.append(chunk)
                                             try:
-                                                await websocket.send_json({
+                                                await _safe_send(websocket, {
                                                     "type": "chunk", "text": chunk
                                                 })
                                             except Exception as e:
@@ -840,10 +996,12 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                         loop = asyncio.get_event_loop()
 
                                                         # ── Ponte thread→async para eventos (2.4a.3b) ──
+                                                        # Dívida #45: usa _safe_send — conexão morta
+                                                        # não explode a thread do stream.
                                                         def _emit_threadsafe(payload: dict):
                                                             try:
                                                                 fut = asyncio.run_coroutine_threadsafe(
-                                                                    websocket.send_json(payload), loop
+                                                                    _safe_send(websocket, payload), loop
                                                                 )
                                                                 fut.result(timeout=2.0)
                                                             except Exception as e:
@@ -883,12 +1041,24 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                             None,
                                                             lambda: chamber.executar(
                                                                 user_message=message,
-                                                                contexto_completo="",
+                                                                # Dívida #52 (13/06/2026): a câmara avaliava com
+                                                                # contexto_completo="" — B julgava A num vácuo e
+                                                                # acusava de "confabulação" o uso legítimo de memória
+                                                                # que B não via. Verificado em 2 disparos (267bb6ad:
+                                                                # A citou GOFAI/EDP reais → −3/13; b94e85b5: referente
+                                                                # no turno anterior → 9/13). Passa o MESMO material
+                                                                # factual que A viu (janela imediata + memórias por
+                                                                # similaridade) para o passo 2 (B) e o passo 3 (A reavalia).
+                                                                contexto_completo=(
+                                                                    "\n".join(retrieved_blocks)
+                                                                    if retrieved_blocks else ""
+                                                                ),
                                                                 modelo_A=modelo_A,
                                                                 modelo_B=modelo_B,
                                                                 edp_session_id=edp_sid,
                                                                 block_id=None,
                                                                 texto_A_ja_gerado=full_text,
+                                                                auto_sinal_confianca=auto_sinal.get("confianca"),
                                                                 on_camara_iniciada=_on_camara_iniciada,
                                                                 on_fase_b_completa=_on_fase_b_completa,
                                                             ),
@@ -912,7 +1082,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                     camara_id,
                                                 )
                                                 try:
-                                                    await websocket.send_json({
+                                                    await _safe_send(websocket, {
                                                         "type":          "camara_resultado",
                                                         "texto_final":   texto_final,
                                                         "modelo_A":      modelo_A,
@@ -958,7 +1128,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                 except asyncio.TimeoutError:
                                     logger.warning("[WS] LLM TIMEOUT TOTAL (%.0fs)", LLM_TOTAL_TIMEOUT_S)
                                     try:
-                                        await websocket.send_json({
+                                        await _safe_send(websocket, {
                                             "type":  "warn",
                                             "error": f"LLM timeout ({LLM_TOTAL_TIMEOUT_S:.0f}s)",
                                         })
@@ -967,7 +1137,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                 except Exception as e:
                                     logger.warning("[WS] LLM falhou: %s: %s", type(e).__name__, e)
                                     try:
-                                        await websocket.send_json({
+                                        await _safe_send(websocket, {
                                             "type":  "warn",
                                             "error": f"LLM indisponivel: {e}",
                                         })
@@ -975,13 +1145,13 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                         pass
                         except QueueFull as e:
                             logger.warning("[WS] queue cheia session=%s: %s", session_id, e)
-                            await websocket.send_json({
+                            await _safe_send(websocket, {
                                 "type":  "warn",
                                 "error": "Sistema ocupado (fila cheia). Aguarde.",
                             })
                         except QueueTimeout as e:
                             logger.warning("[WS] queue timeout session=%s: %s", session_id, e)
-                            await websocket.send_json({
+                            await _safe_send(websocket, {
                                 "type":  "warn",
                                 "error": "Timeout esperando slot de inferência.",
                             })
@@ -1007,7 +1177,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                     full_text = "".join(parts)
 
                     for line in full_text.split("\n"):
-                        await websocket.send_json({
+                        await _safe_send(websocket, {
                             "type": "chunk", "text": line + "\n"
                         })
 
@@ -1096,7 +1266,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 traceback.print_exc()
                 logger.error("[WS] erro no turno: %s", e)
                 try:
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type":  "error",
                         "error": f"{type(e).__name__}: {e}",
                     })
@@ -1104,9 +1274,63 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                     pass
 
             finally:
+                # ── Commit B (10/06/2026): Lineage Tracking ──────────────
+                # Grava origem da resposta (source_entries + modelo +
+                # quality + marker). Só para turnos reais (llm_used).
+                # NUNCA derruba o turno — try/except total.
+                try:
+                    from ...runtime.lineage import (
+                        get_lineage_tracker, is_lineage_enabled,
+                    )
+                    if is_lineage_enabled() and llm_used and full_text:
+                        _marker = None
+                        try:
+                            _epi = getattr(
+                                getattr(memory, "_cognitive_view", None),
+                                "episodic", None,
+                            )
+                            _marker = getattr(
+                                _epi, "_current_session_marker", None,
+                            )
+                        except Exception:
+                            pass
+                        _model = None
+                        try:
+                            _model = getattr(
+                                getattr(runtime, "_llm_config", None),
+                                "model", None,
+                            )
+                        except Exception:
+                            pass
+                        _rec = get_lineage_tracker().build(
+                            session_id=session_id,
+                            retrieved=lineage_retrieved,
+                            model_used=_model,
+                            quality_score=lineage_quality.get("score"),
+                            quality_verdict=lineage_quality.get("verdict"),
+                            session_marker=_marker,
+                        )
+                        get_lineage_tracker().persist(_rec)
+                        await _safe_send(websocket, {
+                            "type":        "lineage",
+                            "response_id": _rec.response_id,
+                            "n_sources":   _rec.n_sources,
+                            "sources":     _rec.source_entries[:5],
+                            "model_used":  _rec.model_used,
+                        })
+                        logger.info(
+                            "[WS] lineage gravado | response_id=%s n_sources=%d model=%s",
+                            _rec.response_id[:8], _rec.n_sources, _model,
+                        )
+                except Exception as lerr:
+                    logger.warning(
+                        "[WS] lineage falhou (não-fatal): %s: %s",
+                        type(lerr).__name__, str(lerr)[:120],
+                    )
+
                 # GARANTE 'done' SEMPRE
                 try:
-                    await websocket.send_json({
+                    await _safe_send(websocket, {
                         "type":            "done",
                         "text":            full_text,
                         "llm_used":        llm_used,

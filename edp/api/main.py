@@ -52,9 +52,14 @@ async def lifespan(app):
 
         def _preload():
             try:
-                embeddings.embed_one("warmup")
-                logger.info("[startup] modelo de embedding pré-carregado")
-                return True
+                # Dívida #42 (10/06/2026): warmup REAL. O antigo
+                # embed_one("warmup") dava cache hit em disco e nunca
+                # carregava o modelo — "pré-carregado" era falso.
+                if embeddings.warmup_model():
+                    logger.info("[startup] modelo de embedding pré-carregado (warmup real)")
+                    return True
+                logger.warning("[startup] warmup_model retornou False")
+                return False
             except Exception as e:
                 logger.warning("[startup] preload de embeddings falhou: %s", e)
                 return False
@@ -145,8 +150,91 @@ async def lifespan(app):
 
     logger.info("[startup] EDP v3.5 pronto | state=%s",
                 boot.state.value if boot else "unknown")
+
+    # ── Commit 6 (Renato, 06/06/2026): Background Loop ─────────────────────
+    # Inicia scheduler async de jobs periódicos no lifespan. Jobs são
+    # registrados modularmente por consumidores (Commits futuros: 3d, 8,
+    # Memory Palace, sumarização autônoma). Loop respeita pressure_governor.
+    # Sem jobs registrados ainda no Commit 6 — apenas a fundação está pronta.
+    bgloop = None
+    try:
+        from ..runtime import get_background_loop
+        bgloop = get_background_loop()
+        await bgloop.start()
+        logger.info("[startup] background_loop iniciado")
+    except Exception as e:
+        logger.warning("[startup] background_loop falhou ao iniciar: %s", e)
+
+    # ── Commit 3d (Renato, 06/06/2026): Cognitive Decisions Job ───────────
+    # Registra job que extrai decisions estruturadas para entries cognitive
+    # em background. Roda 60s após entry ser gravada. Não afeta hot path.
+    # Env var EDP_COGNITIVE_DECISIONS_ENABLED=false desliga sem precisar
+    # mudar código.
+    if bgloop is not None and session_ok:
+        try:
+            from ..runtime import get_runtime, make_extraction_job
+            runtime = get_runtime("default")
+            job = make_extraction_job(runtime, interval_sec=60.0)
+            bgloop.register_job(job)
+            logger.info("[startup] cognitive_decisions job registrado")
+        except Exception as e:
+            logger.warning("[startup] falha ao registrar cognitive_decisions: %s", e)
+
+    # ── Commit C (Sessão 3, 09/06/2026): Cognitive Health Index ───────────
+    # Combina Gauss + Bayes + CoOccurrence + cognitive_decisions em score
+    # de saúde cognitiva. Roda em background com cooldown 15min.
+    # Env var EDP_HEALTH_INDEX=false desliga sem mudar código.
+    if bgloop is not None and session_ok:
+        try:
+            from ..runtime.health_index import make_health_job, is_health_index_enabled
+            if is_health_index_enabled():
+                chi_job = make_health_job(
+                    session_id="default",
+                    cooldown_sec=900.0,   # 15min
+                    interval_sec=60.0,    # tick a cada 1min (cooldown filtra)
+                )
+                bgloop.register_job(chi_job)
+                logger.info("[startup] cognitive_health_index job registrado")
+            else:
+                logger.info("[startup] CHI desabilitado via EDP_HEALTH_INDEX=false")
+        except Exception as e:
+            logger.warning("[startup] falha ao registrar CHI: %s", e)
+
+        # ── Sprint #43 (11/06/2026): consolidação automática ─────────────
+        # Promove entries episódicas com acessos>=3 para a semântica do
+        # scope ativo a cada 30min. Automatiza o caminho do endpoint
+        # /memory/consolidate — o único que jamais populou a semântica.
+        try:
+            from ..runtime.auto_consolidation import (
+                make_auto_consolidation_job, is_auto_consolidate_enabled,
+            )
+            if is_auto_consolidate_enabled():
+                consol_job = make_auto_consolidation_job(
+                    session_id="default",
+                    interval_sec=60.0,    # tick 1min (cooldown 30min filtra)
+                )
+                bgloop.register_job(consol_job)
+                logger.info("[startup] auto_consolidation job registrado")
+            else:
+                logger.info(
+                    "[startup] auto_consolidation desabilitado via "
+                    "EDP_AUTO_CONSOLIDATE=false"
+                )
+        except Exception as e:
+            logger.warning("[startup] falha ao registrar auto_consolidation: %s", e)
+
     yield
+
     logger.info("[shutdown] EDP v3.5 encerrando...")
+
+    # ── Commit 6: shutdown limpo do background loop ──────────────────────
+    if bgloop is not None:
+        try:
+            await bgloop.stop()
+            logger.info("[shutdown] background_loop parado")
+        except Exception as e:
+            logger.warning("[shutdown] erro ao parar background_loop: %s", e)
+
     if boot:
         boot.transition(RuntimeState.SHUTDOWN, "lifespan_exit")
 
@@ -177,6 +265,7 @@ try:
     from .routes import (
         health, memory, metrics, llm, websocket, dashboard_state, providers, flags,
         mode,  # Peça 2.6a (2026-05-30): endpoint /mode para modo bimodal
+        cognitive_decisions, lineage,  # α (Tier 3, 13/06/2026): leitura REST
     )
 
     app.include_router(health.router)
@@ -188,6 +277,8 @@ try:
     app.include_router(providers.router)
     app.include_router(flags.router)
     app.include_router(mode.router)  # Peça 2.6a
+    app.include_router(cognitive_decisions.router)  # α
+    app.include_router(lineage.router)              # α
 
     # ── Dashboard estático ────────────────────────────────────────────────────
     _DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"

@@ -66,7 +66,10 @@ TEMPORAL_GAUSSIAN_STD = float(os.environ.get("EDP_GAUSS_STD", "7.0"))    # dias
 COMPRESSION_MAX_RATIO = float(os.environ.get("EDP_COMPRESS_RATIO", "0.5"))
 
 # ── API ────────────────────────────────────────────────────────────────────────
-API_HOST    = os.environ.get("EDP_API_HOST", "0.0.0.0")
+# Dívida #48 (13/06/2026): default localhost-only (seguro por padrão).
+# API sem auth + CORS ["*"] → bind 0.0.0.0 exporia tudo na rede local.
+# Para expor conscientemente: EDP_API_HOST=0.0.0.0. Auth/CORS ficam p/ item D.
+API_HOST    = os.environ.get("EDP_API_HOST", "127.0.0.1")
 API_PORT    = int(os.environ.get("EDP_API_PORT", "8000"))
 API_VERSION = "v3"
 

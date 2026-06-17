@@ -720,6 +720,7 @@ class EchoChamber:
         texto_A_ja_gerado: Optional[str] = None,
         on_camara_iniciada: Optional[Callable[[dict], None]] = None,
         on_fase_b_completa: Optional[Callable[[dict], None]] = None,
+        auto_sinal_confianca: Optional[str] = None,
     ) -> dict:
         """
         Executa a câmara de eco completa.
@@ -982,6 +983,37 @@ class EchoChamber:
         )
         logger.info("[camara %s] %s", camara_id[:8], resumo)
 
+        # ── Fase 1 — Câmara Adaptativa (12/06/2026): instrumentação ──
+        # Cada disparo vira evento Pareto. Não-fatal por construção.
+        try:
+            from .runtime.pareto_store import emit_camara_outcome
+            _tg = None
+            try:
+                from .model_router import MODELS as _M
+                if modelo_A in _M and modelo_B in _M:
+                    _tg = _M[modelo_B]["tier"] - _M[modelo_A]["tier"]
+            except Exception:
+                pass
+            emit_camara_outcome(
+                session_id=edp_session_id,
+                camara_id=camara_id,
+                modelo_A=modelo_A,
+                modelo_B=modelo_B,
+                vencedor=vencedor,
+                concordancia=concordancia,
+                custo_total_usd=custo_total,
+                latencia_total_ms=latencia_total_ms,
+                tier_gap=_tg,
+                fallback=False,
+                flag_condescendencia=(
+                    vencedor == "B" and discordancia_tipo == "epistemica"
+                ),
+                auto_sinal_confianca=auto_sinal_confianca,
+            )
+        except Exception as _pe:
+            logger.debug("[camara %s] emit pareto falhou: %s",
+                         camara_id[:8], _pe)
+
         return {
             "sucesso":              True,
             "texto_final":          texto_final,
@@ -1033,6 +1065,27 @@ class EchoChamber:
         with self._lock:
             self.records.append(record)
             self.save()
+
+        # Fase 1 (12/06/2026): fallback também é dado — taxa de falha
+        # da câmara entra no histórico calibrado.
+        try:
+            from .runtime.pareto_store import emit_camara_outcome
+            emit_camara_outcome(
+                session_id=edp_session_id,
+                camara_id=camara_id,
+                modelo_A=modelo_A,
+                modelo_B="(fallback)",
+                vencedor="A",
+                concordancia=0,
+                custo_total_usd=custo_parcial,
+                latencia_total_ms=latencia_parcial,
+                tier_gap=None,
+                fallback=True,
+                flag_condescendencia=False,
+                auto_sinal_confianca=None,
+            )
+        except Exception:
+            pass
 
         return {
             "sucesso":              False,

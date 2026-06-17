@@ -41,6 +41,61 @@ from .clock import now as _now, is_verified as _clock_verified  # Peça 0.2a —
 from . import schema_v1 as _schema  # Peça 0.3 — schema novo
 from . import metrics as M
 
+# ── Commit 3c.β (Renato, 04/06/2026) ──────────────────────────────────────────
+# Constantes do session_marker persistente.
+#
+# SESSION_GAP_THRESHOLD_SEC: fronteira de sessão diária. Gap > 4h entre dois
+# entries consecutivos define que estão em sessões diferentes. Mesmo valor
+# usado no llm_adapter.py para detecção dinâmica de sessão atual (3c.α) —
+# consistência arquitetural.
+#
+# SESSION_BOOST_FACTOR: multiplicador aplicado ao ranking_score no retrieval
+# quando entry.session_marker == current_session_marker.
+# OUT_OF_SESSION_PENALTY: multiplicador aplicado quando entry TEM marker mas
+# é DIFERENTE do atual (sessão antiga conhecida).
+#
+# CALIBRAÇÃO EMPÍRICA (Commit 3c.β-cal, Renato 04/06/2026):
+#   Valor inicial 1.30 mostrou-se insuficiente em produção:
+#     - Pergunta: "qual escolher pra cache de sessões web?"
+#     - Sessão atual: discussão de Redis/Memcached
+#     - Memória legacy: Docker/Podman (sim semântica alta)
+#     - Resultado: modelo alucinou Docker em vez de Redis (INADMISSÍVEL)
+#   Decisão: boost 1.60 + penalty 0.85 (Opção P1, aprovada Renato 04/06):
+#     - Memória atual: ×1.60 (era ×1.30 — +23%)
+#     - Memória sessão antiga conhecida: ×0.85 (era ×1.0 — -15%)
+#     - Memória legacy sem marker: ×1.00 (preservada para backward-compat)
+#     - Diferenciação atual/antiga: ×1.88 (era ×1.30 — +45%)
+#   Por que essa combinação > boost 2.00 puro:
+#     - Preserva acesso a memórias legacy valiosas (sem marker = neutro)
+#     - Cria assimetria nuançada (boost forte + penalty sutil)
+#     - Não ofusca memórias antigas semanticamente muito superiores
+#   Princípio aplicado: Solidificação Iterativa — dados empíricos sobrescrevem
+#   palpite inicial. Commit 4 (Gauss) calibrará empiricamente no futuro
+#   baseado em distribuição real de similaridades.
+SESSION_GAP_THRESHOLD_SEC = 4 * 3600   # 4h
+SESSION_BOOST_FACTOR      = 1.60       # calibrado 04/06/2026 (era 1.30)
+OUT_OF_SESSION_PENALTY    = 0.85       # NOVO 04/06/2026 — sessão antiga conhecida
+
+# Commit 3c.β-γ (Renato, 05/06/2026): Filtragem Adaptativa
+#
+# Problema descoberto empiricamente: boost+penalty corrigem RANKING mas não
+# INCLUSÃO. Memórias antigas conhecidas (Docker/Podman) com similaridade alta
+# ainda passam do min_score=0.20 e entram no contexto, levando o modelo a
+# mencioná-las explicitamente para "dispensar" — alucinação residual.
+#
+# Filtragem adaptativa: se EXISTE pelo menos uma memória da sessão atual com
+# score >= CURRENT_SESSION_TRUST_THRESHOLD, DESCARTA memórias com session_marker
+# DIFERENTE (sessão antiga conhecida) do retrieval. Legacy (sem marker) é
+# preservada — backward-compat.
+#
+# Se NÃO existe nada relevante na sessão atual: mantém tudo (busca em todo
+# histórico normalmente). Comportamento adaptativo: não é cego, é contextual.
+#
+# Threshold 0.30 escolhido: mesmo patamar que o EDP considera "memória útil"
+# em outros lugares do scoring (semelhante ao min_score=0.20 mas com margem
+# para boost ×1.60 já aplicado, então 0.30 é "score líquido após boost").
+CURRENT_SESSION_TRUST_THRESHOLD = 0.30
+
 # ── Utilitário de serialização ────────────────────────────────────────────────
 
 def _serialize(entries: list[dict]) -> list[dict]:
@@ -407,6 +462,13 @@ class EpisodicMemory:
         self._dirty:          bool = False   # [WAL-FIX] batch persistence
         self._pending_writes: int  = 0
         self._batch_size:     int  = 50      # flush a cada 50 inserções
+
+        # Commit 3c.β (Renato, 04/06/2026): cache lazy do current_session_marker.
+        # Computado no primeiro add(), reverificado a cada add subsequente
+        # (se gap > 4h desde último entry → nova sessão, novo marker).
+        # None inicial: força recomputação no primeiro uso pós-load.
+        self._current_session_marker: Optional[str] = None
+
         self._load()
 
     def _load(self) -> None:
@@ -422,9 +484,93 @@ class EpisodicMemory:
         with self._lock:
             _atomic_write_json(self.path, _serialize(self.entries))
 
+    # ── Commit 3c.β (Renato, 04/06/2026) ──────────────────────────────────────
+    def _get_or_create_session_marker(self) -> str:
+        """
+        Resolve o session_marker apropriado para uma entry NOVA que está
+        prestes a ser adicionada.
+
+        Lógica:
+          1. Se não há entries anteriores → gera novo UUID (primeira sessão)
+          2. Pega timestamp do último entry + seu session_marker
+          3. Se gap (now - last_ts) > SESSION_GAP_THRESHOLD_SEC → nova sessão
+             (gera novo UUID)
+          4. Senão → herda session_marker do último entry (mesma sessão)
+
+        Cache lazy em self._current_session_marker:
+          - Computado no primeiro uso
+          - Reverificado a cada chamada (timestamp do último entry pode
+            indicar fronteira de sessão mesmo que cache exista)
+
+        Robustez:
+          - Entries sem timestamp ou session_marker (legacy) tratados como
+            indefinidos: cria novo marker
+          - Exceções: fallback para novo UUID (não trava add)
+
+        Retorna: UUID string (sempre — nunca None).
+        """
+        try:
+            now_ts = _now()
+            # Caso 1: sem entries → primeira do scope
+            if not self.entries:
+                new_marker = str(uuid.uuid4())
+                self._current_session_marker = new_marker
+                return new_marker
+
+            # Caso 2: pega último entry (entries é cronológica via append)
+            last_entry = self.entries[-1]
+            last_ts = last_entry.get("timestamp") or last_entry.get(
+                _schema.FIELD_T_ABSOLUTE
+            )
+            last_marker = last_entry.get(_schema.FIELD_SESSION_MARKER)
+
+            # Casos defensivos: last_ts/marker ausentes ou inválidos → nova sessão
+            if last_ts is None or float(last_ts) <= 0:
+                new_marker = str(uuid.uuid4())
+                self._current_session_marker = new_marker
+                return new_marker
+            if not last_marker:
+                # Entry legado sem marker → criar nova sessão a partir daqui
+                new_marker = str(uuid.uuid4())
+                self._current_session_marker = new_marker
+                return new_marker
+
+            # Caso 3: calcula gap
+            gap = now_ts - float(last_ts)
+            if gap > SESSION_GAP_THRESHOLD_SEC:
+                # Fronteira de sessão: nova
+                new_marker = str(uuid.uuid4())
+                self._current_session_marker = new_marker
+                logger.info(
+                    "[session] nova sessão detectada (gap=%.0fs > %ds) | scope=%s | marker=%s",
+                    gap, SESSION_GAP_THRESHOLD_SEC, self.scope, new_marker[:8],
+                )
+                return new_marker
+
+            # Caso 4: continua mesma sessão
+            self._current_session_marker = str(last_marker)
+            return self._current_session_marker
+        except Exception as e:
+            # Robustez total: nunca trava add por causa de session_marker
+            logger.debug("[session] _get_or_create_session_marker falhou: %s", e)
+            fallback = str(uuid.uuid4())
+            self._current_session_marker = fallback
+            return fallback
+
     def add(self, entry: dict) -> None:
         entry = dict(entry)
         entry["layer"] = "episodic"
+
+        # Commit 3c.β (Renato, 04/06/2026): preenche session_marker
+        # ANTES do append. Se entry já tem marker (raro — só em migração ou
+        # testes), respeita; senão computa via helper.
+        # Helper resolve fronteira de sessão via gap > 4h.
+        try:
+            if not entry.get(_schema.FIELD_SESSION_MARKER):
+                entry[_schema.FIELD_SESSION_MARKER] = self._get_or_create_session_marker()
+        except Exception as e:
+            logger.debug("[session] preenchimento de session_marker falhou: %s", e)
+
         self.entries.append(entry)
         if len(self.entries) > self.max_size:
             self._prune()
@@ -435,6 +581,32 @@ class EpisodicMemory:
         if self._pending_writes >= self._batch_size:
             self.save()
             self._pending_writes = 0
+
+        # ── Commit 3b (Renato, 04/06/2026) ────────────────────────────────────
+        # Pareto event logger: emite memory_added para telemetria de
+        # calibradores (Gauss/Bayes/Memory Palace). Hook explícito (D2=α).
+        # Falha silenciosa: telemetria não pode quebrar gravação de memória.
+        #
+        # Commit 3b-fix (Renato, 04/06/2026): scope agora usa self.scope
+        # (atributo direto da EpisodicMemory). Antes pegava do entry, mas
+        # entries não carregam campo "scope" — resultava sempre em "unknown".
+        try:
+            from .runtime.pareto_store import emit_memory_added
+            session_id = getattr(self, "session_id", None) or entry.get("session_id", "unknown")
+            source_type = entry.get("source_type", "unknown")
+            # Scope direto do atributo da EpisodicMemory (set no __init__)
+            scope = getattr(self, "scope", None) or "unknown"
+            text = entry.get("text") or ""
+            topic_tag = entry.get("topic_tag") or entry.get("tag")
+            emit_memory_added(
+                session_id=str(session_id),
+                source_type=str(source_type),
+                scope=str(scope),
+                len_text=len(text),
+                topic_tag=str(topic_tag) if topic_tag else None,
+            )
+        except Exception as e:
+            logger.debug("[memory.add] pareto emit falhou: %s", e)
 
     def retrieve(
         self,
@@ -526,12 +698,31 @@ class EpisodicMemory:
             # Backward-compat: campo ausente → False → multiplicador 1.0.
             anchor_boost = 1.20 if e.get("is_epistemic_anchor") else 1.0
 
+            # ── Commit 3c.β-cal (Renato, 04/06/2026): session_boost calibrado ─
+            # Lógica de 3 ramos baseada em session_marker:
+            #   1. Marker == atual              → boost ×1.60 (sessão atual)
+            #   2. Marker != atual (mas existe) → penalty ×0.85 (sessão antiga conhecida)
+            #   3. Marker ausente (legacy)      → neutro ×1.0 (backward-compat)
+            # Resolve amnésia retrógrada parcial: turnos do dia que caíram fora da
+            # janela imediata (N=6) ficam significativamente mais acessíveis via
+            # retrieval. Calibração corrige alucinação observada empiricamente
+            # em 04/06/2026 (cache de sessões web → Docker em vez de Redis).
+            # Diferenciação atual/antiga: ×1.88 (vs ×1.30 da versão inicial).
+            entry_marker = e.get(_schema.FIELD_SESSION_MARKER)
+            if entry_marker and self._current_session_marker:
+                if entry_marker == self._current_session_marker:
+                    session_boost = SESSION_BOOST_FACTOR   # ×1.60 atual
+                else:
+                    session_boost = OUT_OF_SESSION_PENALTY # ×0.85 antiga conhecida
+            else:
+                session_boost = 1.0                        # ×1.00 legacy/neutro
+
             d    = decay(e["ultimo_acesso"])
             prio = PRIORIDADE_PESO.get(e["prioridade"], 1.0)
             ab   = access_boost(e["acessos"])
             rank_score = round(
                 float(sim) * d * prio * ab
-                * epi_multiplier * src_weight * dom_penalty * anchor_boost,
+                * epi_multiplier * src_weight * dom_penalty * anchor_boost * session_boost,
                 4,
             )
             if rank_score >= min_score:
@@ -540,6 +731,7 @@ class EpisodicMemory:
                     "access_boost": ab, "epi_mult": epi_multiplier,
                     "src_weight": src_weight, "dom_penalty": dom_penalty,
                     "anchor_boost": anchor_boost,
+                    "session_boost": session_boost,
                 }))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -555,6 +747,108 @@ class EpisodicMemory:
             except Exception:
                 pass
 
+        # ── Commit 3c.β-γ (Renato, 05/06/2026): Filtragem Adaptativa ───────────
+        # Após scoring + sort, ANTES de pegar top-K, aplica filtro contextual:
+        #
+        # Regra: SE existe pelo menos 1 memória da sessão atual com score >=
+        # CURRENT_SESSION_TRUST_THRESHOLD (0.30), ENTÃO descarta memórias com
+        # session_marker DIFERENTE do current. Legacy (sem marker) preservada.
+        #
+        # Justificativa: quando a sessão atual já fornece contexto suficiente,
+        # incluir memórias de SESSÕES ANTIGAS conhecidas adiciona ruído (modelo
+        # tende a mencioná-las explicitamente para "dispensar"). Quando NÃO
+        # tem nada relevante na sessão atual, busca em todo histórico.
+        #
+        # Comportamento adaptativo: não é filtro cego, é contextual. Resolve
+        # alucinação residual descoberta empiricamente em 05/06/2026.
+        try:
+            if self._current_session_marker and scored:
+                # Procura algum entry da sessão atual com score >= threshold
+                has_current_with_quality = any(
+                    (
+                        self.entries[i].get(_schema.FIELD_SESSION_MARKER)
+                        == self._current_session_marker
+                        and rank_score >= CURRENT_SESSION_TRUST_THRESHOLD
+                    )
+                    for rank_score, i, _ in scored
+                )
+
+                if has_current_with_quality:
+                    n_before = len(scored)
+                    filtered = []
+                    n_dropped_other_session = 0
+                    for rank_score, i, breakdown in scored:
+                        entry_marker = self.entries[i].get(_schema.FIELD_SESSION_MARKER)
+                        # Mantém:
+                        #   - memórias SEM marker (legacy)
+                        #   - memórias DA sessão atual (marker == current)
+                        # Descarta:
+                        #   - memórias COM marker DIFERENTE (sessão antiga conhecida)
+                        if entry_marker is None:
+                            filtered.append((rank_score, i, breakdown))
+                        elif entry_marker == self._current_session_marker:
+                            filtered.append((rank_score, i, breakdown))
+                        else:
+                            n_dropped_other_session += 1
+
+                    scored = filtered
+                    if n_dropped_other_session > 0:
+                        logger.info(
+                            "[retrieve] filtragem_adaptativa | descartadas=%d "
+                            "(sessao antiga conhecida) | preservadas=%d",
+                            n_dropped_other_session, len(scored),
+                        )
+        except Exception as e:
+            logger.debug("[retrieve] filtragem adaptativa falhou: %s", e)
+
+        # ── Commit 3c.β-calibrate (Renato, 04/06/2026) ─────────────────────────
+        # Log diagnóstico dos top-3 com session_boost aplicado. Permite ver
+        # mecanicamente se memórias da sessão atual estão vencendo memórias
+        # antigas semanticamente fortes. Habilitado apenas em modo debug
+        # (logger.debug) para não poluir logs em produção.
+        try:
+            if scored and logger.isEnabledFor(logging.DEBUG):
+                for rank, i, bd in scored[:3]:
+                    e_obj = self.entries[i]
+                    txt = (e_obj.get("text") or "")[:50].replace("\n", " ")
+                    marker = (e_obj.get(_schema.FIELD_SESSION_MARKER) or "—")[:8]
+                    atual = "★" if bd.get("session_boost", 1.0) > 1.0 else " "
+                    logger.debug(
+                        "[retrieve] top%s: score=%.3f sim=%.3f sboost=%.2f marker=%s | %s",
+                        atual, rank, bd["sim"], bd.get("session_boost", 1.0), marker, txt,
+                    )
+        except Exception:
+            pass
+
+        # ── Dívida #49 (13/06/2026): filtro de recusas no retrieval ────────────
+        # Respostas de recusa (frase-gatilho da câmara) que são recuperadas e
+        # injetadas no contexto podem PRIMAR o modelo a repetir a recusa →
+        # disparo da câmara (loop de auto-reforço). Medição: 3/5 disparos tinham
+        # recusa na fonte (probabilístico, não determinante). Filtro reusa o
+        # detector do echo_chamber, SÓ confiança "alta" (frases exatas) — isola
+        # a variável para o experimento antes/depois da taxa de disparo.
+        # As recusas PERMANECEM na episódica (auditoria/lineage intactos); só
+        # deixam de ser injetadas e de ter acessos incrementados (quebra o
+        # reforço). Filtrar ANTES de montar results é o que zera o incremento.
+        try:
+            from .echo_chamber import detectar_auto_sinal_de_limite
+            _n_antes = len(scored)
+            scored = [
+                (rs, i, bd) for (rs, i, bd) in scored
+                if detectar_auto_sinal_de_limite(
+                    self.entries[i].get("text", "") or ""
+                ).get("confianca") != "alta"
+            ]
+            _n_recusa = _n_antes - len(scored)
+            if _n_recusa > 0:
+                logger.info(
+                    "[retrieve] filtro_recusa | descartadas=%d "
+                    "(recusa alta-confianca) | preservadas=%d",
+                    _n_recusa, len(scored),
+                )
+        except Exception as e:
+            logger.debug("[retrieve] filtro_recusa falhou: %s", e)
+
         results = []
         for rank_score, i, breakdown in scored[:top_k]:
             entry = self.entries[i]
@@ -568,6 +862,31 @@ class EpisodicMemory:
 
         if self._dirty:
             self.save()
+
+        # ── Commit 3b (Renato, 04/06/2026) ────────────────────────────────────
+        # Pareto event logger: emite memory_accessed para telemetria.
+        # n_returned=len(results), top_score=primeiro ranking_score (ou 0).
+        # Falha silenciosa: telemetria não pode quebrar retrieval.
+        #
+        # Commit 3b-fix (Renato, 04/06/2026): scope agora usa self.scope
+        # (atributo direto). Heurística substring de session_id era frágil:
+        # se session_id="default", nenhum match → scope sempre "unknown".
+        try:
+            from .runtime.pareto_store import emit_memory_accessed
+            session_id = getattr(self, "session_id", "unknown")
+            n_returned = len(results)
+            top_score = results[0].get("ranking_score", 0.0) if results else 0.0
+            # Scope direto do atributo (cognitive ou sprint, set no __init__)
+            scope = getattr(self, "scope", None) or "unknown"
+            emit_memory_accessed(
+                session_id=str(session_id),
+                n_returned=n_returned,
+                top_score=float(top_score),
+                scope=str(scope),
+            )
+        except Exception as e:
+            logger.debug("[memory.retrieve] pareto emit falhou: %s", e)
+
         return results
 
     def _rank(self, e: dict, query_emb: np.ndarray) -> float:
@@ -835,6 +1154,22 @@ class SemanticMemory:
 
     def promote(self, entry: dict) -> None:
         """Promove uma entrada episódica para memória semântica."""
+        # Dívida #49 (13/06/2026): recusas (frase-gatilho da câmara) NÃO viram
+        # conhecimento consolidado. "Não sei" não é fato semântico, e promovê-lo
+        # daria peso alto (0.85) a uma recusa no retrieval — alimentando o loop.
+        # Mesma confiança "alta" do filtro de retrieval, por consistência.
+        try:
+            from .echo_chamber import detectar_auto_sinal_de_limite
+            if detectar_auto_sinal_de_limite(
+                entry.get("text", "") or ""
+            ).get("confianca") == "alta":
+                logger.info(
+                    "[promote] recusa NÃO promovida à semântica (Dívida #49) "
+                    "| id=%s", (entry.get("id", "") or "")[:8],
+                )
+                return
+        except Exception as e:
+            logger.debug("[promote] checagem de recusa falhou: %s", e)
         entry = dict(entry)
         entry["layer"]     = "semantic"
         entry["prioridade"] = "alta"

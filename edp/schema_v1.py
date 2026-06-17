@@ -91,6 +91,18 @@ FIELD_BLOCK_ID = "block_id"
 # apontando para histórico detalhado em sessions/<id>_camara.json
 FIELD_CAMARA_ID = "camara_id"  # None se câmara não foi ativada
 
+# Commit 3c.β (Renato, 04/06/2026): session_marker persistente
+# UUID gerado por SESSÃO DIÁRIA (não vitalício como edp_session_id).
+# Fronteira de sessão: gap > 4h entre entries consecutivos cria novo marker.
+# Permite:
+#   - Boost ×1.30 no retrieval para memórias da sessão atual (resolve
+#     amnésia retrógrada parcial — memórias do dia ficam mais acessíveis)
+#   - Análise estatística futura (Bayes: P(retrieval | mesma sessão))
+#   - Memory Palace #36: sessões podem virar "palácios temporários"
+# Distinto dos campos vitalícios (edp_session_id) e de bloco (block_id).
+# Backward-compat: entries antigos sem o campo → boost neutro 1.0.
+FIELD_SESSION_MARKER = "session_marker"
+
 
 # ───────────────────────────────────────────────────────────────────
 # Peça 2.2 — Checks de refutação (modelo B avalia)

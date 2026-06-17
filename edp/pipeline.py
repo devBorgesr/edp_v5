@@ -133,6 +133,9 @@ class PipelineResult:
     tokens_final:    int  = 0
     trace:           list[dict] = field(default_factory=list)
     metrics:         dict       = field(default_factory=dict)
+    # Commit A (Sessão 2, 08/06/2026): score agregado da resposta.
+    # None quando agregação não foi chamada ou chunks insuficientes.
+    aggregate_score: object     = None  # Optional[ScoreVector]
 
     @property
     def reduction_pct(self) -> float:
@@ -143,6 +146,66 @@ class PipelineResult:
     @property
     def context_str(self) -> str:
         return "\n".join(self.context)
+
+    def compute_aggregate(
+        self,
+        chunk_scores: list,
+        chunk_sizes:  list,
+    ) -> None:
+        """
+        Commit A (Sessão 2, 08/06/2026): agrega chunk_score_vectors em
+        um único ScoreVector via média ponderada por tamanho do chunk.
+
+        Filtra Nones (chunks que falharam scoring) ANTES de agregar —
+        bug evitável: chunk_score_vectors pode conter None (pipeline.py:354).
+
+        Args:
+            chunk_scores: list[Optional[ScoreVector]]
+            chunk_sizes:  list[int] — comprimento de cada chunk
+                          (mesmo índice de chunk_scores)
+
+        Side effect: self.aggregate_score recebe ScoreVector agregado
+                     ou permanece None se nenhum chunk válido.
+        """
+        # Filtra pares válidos (não-None + size positivo)
+        pairs = [
+            (sv, sz)
+            for sv, sz in zip(chunk_scores, chunk_sizes)
+            if sv is not None and sz > 0
+        ]
+        if not pairs:
+            return  # sem dados, mantém None
+
+        total = sum(sz for _, sz in pairs)
+        if total <= 0:
+            return  # paranoia
+
+        def wavg(attr: str) -> float:
+            return sum(
+                getattr(sv, attr, 0.0) * sz for sv, sz in pairs
+            ) / total
+
+        # Import lazy para evitar circular (scoring → pipeline)
+        from .scoring import ScoreVector, compute_confidence, classify_score
+
+        relevance_avg  = wavg("relevance")
+        redundancy_avg = wavg("redundancy")
+        final_avg      = wavg("final_score")
+
+        try:
+            self.aggregate_score = ScoreVector(
+                final_score       = final_avg,
+                relevance         = relevance_avg,
+                novelty           = wavg("novelty"),
+                entropy           = wavg("entropy"),
+                diversity         = wavg("diversity"),
+                redundancy        = redundancy_avg,
+                confidence_weight = compute_confidence(relevance_avg, redundancy_avg),
+                decision          = classify_score(final_avg),
+            )
+        except Exception:
+            # Não derruba pipeline se agregação falhar
+            self.aggregate_score = None
 
 
 # ── Utilitários internos ──────────────────────────────────────────────────────
@@ -585,8 +648,20 @@ def run_pipeline(
             _trace("semantic_store", {"stored": len(learnable_blocks)})
         except Exception as e:
             logs.append({"stage": "semantic_store", "error": str(e)})
+            # Sprint #43 (11/06/2026): este erro era engolido em logs
+            # internos que ninguém lê (anti-padrão δ). Caminho standalone
+            # (_concepts.json) DEPRECADO em favor do job auto_consolidation;
+            # warning mantém qualquer falha visível até a remoção total.
+            import logging as _logging
+            _logging.getLogger("edp.pipeline").warning(
+                "[pipeline] semantic_store (standalone, deprecado) falhou: %s",
+                str(e)[:120],
+            )
 
-    return PipelineResult(
+    # Commit A (Sessão 2, 08/06/2026): construir result e agregar scores
+    # antes de retornar. chunk_score_vectors pode conter None — filter
+    # acontece dentro de compute_aggregate.
+    _result = PipelineResult(
         context=blocos_final,
         logs=logs,
         tokens_original=tokens_original,
@@ -594,6 +669,17 @@ def run_pipeline(
         trace=trace,
         metrics={"compression_ratio": ratio},
     )
+    try:
+        # chunk_score_vectors e chunks ainda em escopo (locais de run_pipeline)
+        _chunk_sizes = [len(c) for c in chunks]
+        _result.compute_aggregate(
+            chunk_scores=chunk_score_vectors,
+            chunk_sizes=_chunk_sizes,
+        )
+    except Exception as e:
+        # Agregação NÃO pode derrubar pipeline conversacional
+        logs.append({"stage": "aggregate_score", "error": str(e)})
+    return _result
 
 
 # ── Streaming pipeline ────────────────────────────────────────────────────────

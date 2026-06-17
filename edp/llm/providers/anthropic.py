@@ -36,10 +36,15 @@ logger = logging.getLogger("edp.llm.providers.anthropic")
 
 # ── Preços (USD por 1M tokens) — atualizado Maio/2026 ────────────────────────
 PRICING = {
-    "claude-opus-4-7":          {"input": 15.00, "output": 75.00},
-    "claude-opus-4-6":          {"input": 15.00, "output": 75.00},
+    # Atualizado 12/06/2026 conforme docs oficiais (claude.com/pricing).
+    # Correções: opus-4-7 era 15/75 (preço do Opus 4.1/4 antigos — o real
+    # é 5/25); haiku-4-5 era 0.80/4.00 (preço do haiku-3.5 — o real é 1/5).
+    "claude-fable-5":           {"input": 10.00, "output": 50.00},
+    "claude-opus-4-8":          {"input":  5.00, "output": 25.00},
+    "claude-opus-4-7":          {"input":  5.00, "output": 25.00},
+    "claude-opus-4-6":          {"input":  5.00, "output": 25.00},
     "claude-sonnet-4-6":        {"input":  3.00, "output": 15.00},
-    "claude-haiku-4-5":         {"input":  0.80, "output":  4.00},
+    "claude-haiku-4-5":         {"input":  1.00, "output":  5.00},
     "claude-3-5-sonnet":        {"input":  3.00, "output": 15.00},
     "claude-3-5-haiku":         {"input":  0.80, "output":  4.00},
     "claude-3-opus":            {"input": 15.00, "output": 75.00},
@@ -53,7 +58,14 @@ PRICING = {
 # retry-on-error, mas adiciona latência a cada chamada — manter lista é
 # mais simples até virar problema.
 MODELS_REJECTING_TEMPERATURE = {
+    # Doc oficial (12/06/2026): temperature/top_p/top_k retornam HTTP 400
+    # em Opus 4.7 E POSTERIORES — inclui 4.8 e a família Mythos/Fable.
+    # Sem estas entradas, a 1ª escalada da câmara p/ esses juízes
+    # morreria em 400 → fallback (bug latente prevenido).
     "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-fable-5",
+    "claude-mythos-5",
 }
 
 
@@ -135,15 +147,20 @@ class AnthropicProvider(LLMProviderBase):
         if not messages or messages[0]["role"] != "user":
             messages.insert(0, {"role": "user", "content": "(continue)"})
 
+        # Dívida #47 (12/06/2026): modelo efetivo = override por request
+        # (câmara de eco) ou o modelo do config (caminho normal).
+        eff_model = request.model or self.config.model
         payload = {
-            "model":       self.config.model,
+            "model":       eff_model,
             "messages":    messages,
             "max_tokens":  request.max_tokens,
             "stream":      stream,
         }
         # Dívida #11 (2026-05-27): Opus 4.7+ rejeita `temperature`.
         # Omite o parâmetro para modelos listados em MODELS_REJECTING_TEMPERATURE.
-        if self.config.model not in MODELS_REJECTING_TEMPERATURE:
+        # #47: o gate usa o modelo EFETIVO — um override p/ Opus a partir de
+        # config Haiku deve omitir temperature também.
+        if eff_model not in MODELS_REJECTING_TEMPERATURE:
             payload["temperature"] = request.temperature
         if system_text:
             payload["system"] = system_text
@@ -231,7 +248,9 @@ class AnthropicProvider(LLMProviderBase):
         usage  = data.get("usage", {})
         ptoks  = usage.get("input_tokens", 0)
         ctoks  = usage.get("output_tokens", 0)
-        pricing = _pricing_for(self.config.model)
+        # #47: custo/log/response refletem o modelo EFETIVO da chamada
+        eff_model = request.model or self.config.model
+        pricing = _pricing_for(eff_model)
         cost   = (ptoks * pricing["input"] + ctoks * pricing["output"]) / 1_000_000
 
         metrics = CompletionMetrics(
@@ -244,11 +263,11 @@ class AnthropicProvider(LLMProviderBase):
         )
         logger.info(
             "[anthropic] complete | model=%s lat=%.0fms tok_in=%d tok_out=%d cost=$%.4f",
-            self.config.model, latency_ms, ptoks, ctoks, cost,
+            eff_model, latency_ms, ptoks, ctoks, cost,
         )
         return CompletionResponse(
             text=text,
-            model=self.config.model,
+            model=eff_model,
             metrics=metrics,
             stop_reason=data.get("stop_reason"),
             raw=data,
@@ -262,13 +281,23 @@ class AnthropicProvider(LLMProviderBase):
 
         Anthropic SSE format:
             event: message_start
-            data: {...}
+            data: {... "message": {"usage": {...}}}
 
             event: content_block_delta
             data: {"delta": {"text": "..."}}
 
+            event: message_delta
+            data: {"delta": {"stop_reason": "end_turn|max_tokens|...",
+                             "stop_sequence": null},
+                   "usage": {"output_tokens": N}}
+
             event: message_stop
             data: {...}
+
+        Diagnóstico (2026-05-31): captura stop_reason e usage para investigar
+        cortes em Opus 4.7 Tier 1. Cortes observados ~1100 tokens (Java 21
+        sectioned) sem 429 nos logs. Hipóteses: max_tokens implícito do tier,
+        end_turn precoce, ou bug no parser SSE.
         """
         payload = self._build_payload(request, stream=True)
         req = self._request(payload, stream=True)
@@ -281,6 +310,32 @@ class AnthropicProvider(LLMProviderBase):
             raise
         except (TimeoutError, urllib.error.URLError) as e:
             raise ProviderTimeout(f"Timeout conectando: {e}") from e
+
+        # ── Captura de headers de rate limit (informação "golden") ──────────
+        # Anthropic retorna em cada resposta:
+        #   anthropic-ratelimit-output-tokens-remaining
+        #   anthropic-ratelimit-output-tokens-limit
+        #   anthropic-ratelimit-output-tokens-reset
+        # Headers ficam disponíveis ANTES do stream começar a fluir.
+        try:
+            _rl_out_rem   = resp.headers.get("anthropic-ratelimit-output-tokens-remaining")
+            _rl_out_limit = resp.headers.get("anthropic-ratelimit-output-tokens-limit")
+            _rl_out_reset = resp.headers.get("anthropic-ratelimit-output-tokens-reset")
+            _rl_req_rem   = resp.headers.get("anthropic-ratelimit-requests-remaining")
+            if _rl_out_rem or _rl_out_limit:
+                logger.info(
+                    "[anthropic] rate_limit headers | model=%s | "
+                    "out_remaining=%s out_limit=%s out_reset=%s req_remaining=%s",
+                    self.config.model, _rl_out_rem, _rl_out_limit,
+                    _rl_out_reset, _rl_req_rem,
+                )
+        except Exception as e:
+            logger.debug("[anthropic] falha ao ler headers de rate limit: %s", e)
+
+        # Estado capturado durante o stream para diagnóstico
+        _stop_reason = None
+        _output_tokens_reported = None
+        _input_tokens_reported = None
 
         try:
             current_event = ""
@@ -311,12 +366,42 @@ class AnthropicProvider(LLMProviderBase):
                             text = delta.get("text", "")
                             if text:
                                 yield text
+                    elif current_event == "message_start":
+                        # message_start carrega usage.input_tokens
+                        try:
+                            _input_tokens_reported = (
+                                data.get("message", {})
+                                    .get("usage", {})
+                                    .get("input_tokens")
+                            )
+                        except Exception:
+                            pass
+                    elif current_event == "message_delta":
+                        # message_delta carrega stop_reason e output_tokens finais
+                        try:
+                            _delta = data.get("delta", {})
+                            _stop_reason = _delta.get("stop_reason")
+                            _usage = data.get("usage", {})
+                            _output_tokens_reported = _usage.get("output_tokens")
+                        except Exception:
+                            pass
                     elif current_event == "message_stop":
                         elapsed = (time.perf_counter() - t_start) * 1000.0
                         logger.info(
-                            "[anthropic] stream done | model=%s lat=%.0fms",
+                            "[anthropic] stream done | model=%s lat=%.0fms | "
+                            "stop_reason=%s | tok_in=%s tok_out=%s",
                             self.config.model, elapsed,
+                            _stop_reason or "(não reportado)",
+                            _input_tokens_reported or "?",
+                            _output_tokens_reported or "?",
                         )
+                        # Sinal explícito quando stop_reason é max_tokens
+                        if _stop_reason == "max_tokens":
+                            logger.warning(
+                                "[anthropic] CORTE POR MAX_TOKENS | model=%s "
+                                "output_tokens=%s — modelo atingiu limite de saída",
+                                self.config.model, _output_tokens_reported,
+                            )
                         break
                     elif current_event == "error":
                         err = data.get("error", {})

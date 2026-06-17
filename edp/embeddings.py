@@ -9,6 +9,9 @@ v3: singleton com fallback, cache integrado, retry,
     OOM protection, batch auto-split, embed_one/embed_many.
 """
 import time
+import logging
+import os as _os
+import traceback as _tb
 import numpy as np
 from functools import lru_cache
 from sklearn.metrics.pairwise import cosine_similarity
@@ -19,23 +22,97 @@ from .config import (
 )
 from . import cache as _cache
 
+logger = logging.getLogger("edp.embeddings")
+
+
+def _diag_load(kind: str, model_name: str) -> None:
+    """
+    Dívida #42 (10/06/2026) — diagnóstico de instanciação dupla.
+    Loga pid + nome do módulo + quem chamou. Se em produção aparecerem
+    DOIS loads do mesmo kind: __name__ diferente = módulo duplicado
+    (import sob dois nomes); pid diferente = dois processos.
+    Remover após Dívida #42 resolvida.
+    """
+    try:
+        caller = " <- ".join(
+            f"{f.name}@{_os.path.basename(f.filename)}:{f.lineno}"
+            for f in _tb.extract_stack(limit=6)[:-2][-3:]
+        )
+        logger.warning(
+            "[embed][diag#42] CARREGANDO %s model=%s | pid=%s module=%s | caller: %s",
+            kind, model_name, _os.getpid(), __name__, caller,
+        )
+    except Exception:
+        pass
+
 _MAX_RETRIES    = 3
 _RETRY_DELAY    = 1.0   # segundos
 _OOM_BATCH_MIN  = 8     # batch mínimo antes de desistir
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 
-@lru_cache(maxsize=1)
-def get_model():
-    """Carrega o modelo principal (lazy, singleton)."""
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(EMBED_MODEL)
+import threading as _threading
 
-@lru_cache(maxsize=1)
+# ── Singletons com lock explícito ─────────────────────────────────────────────
+# Dívida #42 (10/06/2026) — FIX: lru_cache NÃO serializa a execução da
+# função, só o dict. Duas threads com cache frio executavam o corpo em
+# paralelo → DUAS instâncias do modelo (provado pelo diag#42 em produção:
+# mesmo pid, mesmo module, 7ms de diferença, callers distintos).
+# Double-checked locking garante carga única. Padrão idêntico ao
+# usado em todos os singletons de edp/runtime/.
+
+_model = None
+_fallback_model = None
+_model_lock = _threading.Lock()
+
+
+def get_model():
+    """Carrega o modelo principal (lazy, singleton thread-safe)."""
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                from sentence_transformers import SentenceTransformer
+                _diag_load("PRINCIPAL", EMBED_MODEL)
+                _model = SentenceTransformer(EMBED_MODEL)
+    return _model
+
+
 def get_fallback_model():
-    """Carrega modelo de fallback (lazy, singleton)."""
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(EMBED_MODEL_FALLBACK)
+    """Carrega modelo de fallback (lazy, singleton thread-safe)."""
+    global _fallback_model
+    if _fallback_model is None:
+        with _model_lock:
+            if _fallback_model is None:
+                from sentence_transformers import SentenceTransformer
+                _diag_load("FALLBACK", EMBED_MODEL_FALLBACK)
+                _fallback_model = SentenceTransformer(EMBED_MODEL_FALLBACK)
+    return _fallback_model
+
+
+def warmup_model() -> bool:
+    """
+    Dívida #42 (10/06/2026): warmup REAL do modelo no startup.
+
+    O warmup antigo (embed_one("warmup")) dava cache HIT no embedding
+    cache em disco e retornava SEM carregar o modelo — o log
+    "pré-carregado" era falso. Este chama get_model() diretamente e
+    encoda 1 texto SEM passar pelo cache, garantindo modelo em RAM e
+    caminhos compilados antes do primeiro turno real.
+    """
+    try:
+        model = get_model()
+        model.encode(
+            ["__edp_warmup__"],
+            batch_size=1,
+            convert_to_numpy=True,
+            normalize_embeddings=EMBED_NORMALIZE,
+            show_progress_bar=False,
+        )
+        return True
+    except Exception as e:
+        logger.warning("[embed] warmup_model falhou: %s", e)
+        return False
 
 # ── Encode interno ────────────────────────────────────────────────────────────
 

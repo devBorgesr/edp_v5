@@ -66,6 +66,12 @@ class CompletionRequest:
     max_tokens:  int            = 2048
     stop:        Optional[List[str]] = None
     metadata:    Dict[str, Any] = field(default_factory=dict)
+    # Dívida #47 (12/06/2026): override de modelo POR CHAMADA.
+    # None → provider usa self.config.model (comportamento original).
+    # Usado pela câmara de eco para invocar o juiz B sem reinicializar
+    # o provider. O bug original: override em LLMClient._cfg.model não
+    # tinha efeito porque a rota Anthropic congelava o modelo no init.
+    model:       Optional[str]  = None
 
 
 @dataclass
