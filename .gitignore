@@ -22,3 +22,12 @@ edp_data/
 # Backups antigos
 *_backup_*/
 edp_v3_backup_*.zip
+
+# Ambiente virtual (NUNCA versionar)
+.venv/
+venv/
+env/
+
+# Backups manuais pre-refactor
+*.backup-pre-*
+*.backup-*
