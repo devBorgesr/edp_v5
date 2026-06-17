@@ -1799,9 +1799,28 @@ REGRAS ABSOLUTAS:
     # ── Internos ──────────────────────────────────────────────────────────────
 
     def _init_edp_subsystems(self) -> None:
+        # ── Dívida #46b (14/06/2026): usar a MESMA instância de MemoryStore do
+        # registry — a que o websocket grava (get_memory) e o cog_dec lê — em vez
+        # de criar uma instância PRÓPRIA isolada. Antes, MemoryStore(session_id)
+        # criava a instância "A" do adapter, congelada no estado do disco no boot:
+        # a janela imediata E o retrieve (tudo que usa self._memory) liam de A e
+        # NUNCA viam os turnos da sessão viva, gravados na instância "B" via
+        # get_memory. Resultado: continuidade quebrada para tópicos novos (turno
+        # 7/GIN). get_memory é idempotente e usa o mesmo RLock reentrante por
+        # sessão, então a criação aninhada (get_runtime → __init__ → get_memory)
+        # é segura. Fallback para instância própria se o registry falhar.
         try:
-            from .memory import MemoryStore
-            self._memory = MemoryStore(self.session_id)
+            from .runtime.registry import get_memory, is_valid
+            _mem = get_memory(self.session_id)
+            if is_valid(_mem):
+                self._memory = _mem
+            else:
+                from .memory import MemoryStore
+                self._memory = MemoryStore(self.session_id)
+                logger.warning(
+                    "[EDPRuntime] #46b: registry.get_memory inválido — usando "
+                    "instância própria (continuidade da sessão pode degradar)"
+                )
         except Exception as e:
             logger.warning("[EDPRuntime] MemoryStore indisponível: %s", e)
 
@@ -2486,42 +2505,45 @@ REGRAS ABSOLUTAS:
                     key=lambda e: e.get("timestamp", 0),
                 )
                 # ── Dívida #46 (14/06/2026): JANELA IMEDIATA ÍNTEGRA ──────────
-                # Os N=4 turnos CONVERSACIONAIS mais recentes entram COMPLETOS
-                # (Q+A), sem truncar. Pula entries não-conversacionais
-                # (session_summary, decisões cognitivas, meta) que roubavam
-                # slots e empurravam os turnos reais para fora da janela.
-                # Orçamento folga (~28k tokens livres): cabem inteiros — o
-                # resumo semântico no teto fica para quando o budget apertar.
-                # O filtro por source_type é validado em produção pelo log
-                # abaixo (source_types vistos) — ajustar se aparecer tipo novo.
-                _NAO_CONVERSA = {
-                    "session_summary", "meta_conversation",
-                    "cognitive_decision", "cognitive_decisions",
-                    "decision", "summary",
-                }
-                _CONVERSA = {"llm_response", "camara_response"}
-                _src_vistos: dict = {}
-                turnos_conv: list = []
-                for e in entries:
-                    st = (e.get("source_type") or "").lower()
-                    _src_vistos[st] = _src_vistos.get(st, 0) + 1
-                    if st in _CONVERSA:
-                        turnos_conv.append(e)
-                    elif st in _NAO_CONVERSA:
-                        continue
-                    else:
-                        # source_type inesperado: aceita só se parecer turno Q/A
-                        _t = (e.get("text", "") or "").lstrip()
-                        if _t[:2] == "Q:" or _t[:3] == "Q :":
-                            turnos_conv.append(e)
-                # Fallback defensivo: se o filtro zerou (source_types fora do
-                # previsto), relaxa para "tudo que não é summary/meta explícito"
-                # — evita janela vazia por engano de classificação.
+                # Os N=4 turnos CONVERSACIONAIS mais recentes da SESSÃO VIVA
+                # entram COMPLETOS (Q+A), sem truncar. Orçamento folga (~28k
+                # tokens livres): cabem inteiros — o resumo semântico no teto
+                # fica para quando o budget apertar.
+                #
+                # ── Dívida #46c (14/06/2026): UNIFICAR a definição de "turno
+                # recente" com a do histórico cronológico, em vez de recalcular.
+                # Duas correções nascem disto:
+                #   (1) Usar _detect_sessao_atual (gap 4h) — a MESMA função que o
+                #       histórico cronológico usa e que acerta os turnos de hoje.
+                #       Antes, entries[-N:] global misturava sessões: turnos de
+                #       4h atrás invadiam a janela e empurravam os de agora.
+                #   (2) Selecionar turno por FORMA (texto começa com "Q:" e tem
+                #       "A:"), NÃO por source_type. O classificador rotulou o
+                #       turno do Luhn como "meta_conversation" (rótulo errado →
+                #       Dívida #46d), e o filtro por categoria o excluía. O
+                #       form-check inclui o turno apesar do rótulo. Verificado
+                #       que nenhum gerador não-conversacional emite texto
+                #       começando com "Q:" (session_summary → "[session_summary]",
+                #       cog_dec → JSON), então a forma isola turnos reais sem
+                #       depender de a lista de source_types estar completa.
+                #
+                # Recibo histórico: o _build_historico_cronologico_compacto já
+                # sofreu este exato padrão (Commit 3c.α-fix2, 04/06/2026) — filtrar
+                # "o que é um turno" por source_type excluía conversas reais. A
+                # lição não persistiu para o código do ζ; #46c a reaplica.
+                _Q_RE = re.compile(r"^\s*Q:\s*.+\bA:\s*", re.DOTALL)
+
+                def _eh_turno_conversacional(e: dict) -> bool:
+                    return bool(_Q_RE.match((e.get("text", "") or "")))
+
+                sessao_viva = _detect_sessao_atual(entries, now_ts)
+                turnos_conv = [e for e in sessao_viva if _eh_turno_conversacional(e)]
+                # Fallback defensivo: se a sessão viva não tiver turnos com forma
+                # Q/A (ex: sessão recém-iniciada só com summaries), relaxa para a
+                # base inteira filtrada por forma — evita janela vazia, sem voltar
+                # a depender de source_type.
                 if not turnos_conv:
-                    turnos_conv = [
-                        e for e in entries
-                        if (e.get("source_type") or "").lower() not in _NAO_CONVERSA
-                    ]
+                    turnos_conv = [e for e in entries if _eh_turno_conversacional(e)]
 
                 N_RECENT_INTEGRO = 4
                 for e in turnos_conv[-N_RECENT_INTEGRO:]:
@@ -2534,10 +2556,11 @@ REGRAS ABSOLUTAS:
                     recent_turns.append(prefix + txt)
 
                 logger.info(
-                    "[ctx] janela imediata INTEGRA #46 | turnos=%d (N=%d) | "
-                    "source_types=%s",
-                    len(recent_turns), N_RECENT_INTEGRO, dict(_src_vistos),
-                )
+                    "[ctx] janela imediata INTEGRA #46/#46c | turnos=%d (N=%d) | "
+                    "sessao_viva=%d entries",
+                    len(recent_turns), N_RECENT_INTEGRO, len(sessao_viva),
+                )    
+                
                 # Primeiros 2 (anchors): contexto inicial
                 for e in entries[:5]:
                     txt = (e.get("text", "") or "")[:300]
@@ -2655,7 +2678,7 @@ REGRAS ABSOLUTAS:
         except Exception as _e46:
             logger.warning("[ctx-DEBUG #46] instrumentacao falhou: %s", _e46)
         # ── FIM INSTRUMENTAÇÃO TEMPORÁRIA #46 ──
-
+       
         return rendered, meta
 
     def _store_to_memory(self, user_msg: str, response: str) -> None:
