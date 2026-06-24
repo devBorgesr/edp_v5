@@ -385,9 +385,11 @@ def run_pipeline(
     # ── Estágio 5: Deduplicação ───────────────────────────────────────────────
     with M.timer("dedup_chunks"):
         try:
-            chunks_deduped = deduplicate(chunks, DEDUP_THRESH, chunk_embs)
+            chunks_deduped, kept_idx = deduplicate(
+                chunks, DEDUP_THRESH, chunk_embs, return_indices=True
+            )
             if len(chunks_deduped) < len(chunks):
-                chunk_embs = embed(chunks_deduped)
+                chunk_embs = chunk_embs[kept_idx]   # fatia embeddings existentes — sem re-embed
                 chunks     = chunks_deduped
         except Exception as e:
             logs.append({"stage": "dedup_chunks", "error": str(e)})

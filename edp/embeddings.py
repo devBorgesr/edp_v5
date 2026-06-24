@@ -213,14 +213,18 @@ def deduplicate(
     items: list[str],
     threshold: float,
     embeddings: np.ndarray | None = None,
-) -> list[str]:
+    return_indices: bool = False,
+) -> list[str] | tuple[list[str], list[int]]:
     """
     Remove near-duplicatas. Aceita embeddings pré-computados.
     [P-F7] FIX O(n²): pré-computa similarity matrix completa (consistente
     com retrieval_patched.py e belief_graph_patched.py).
+
+    return_indices=True → retorna (items_kept, indices_kept) para que o
+    chamador possa fatiar embeddings já computados sem re-embed.
     """
     if not items:
-        return []
+        return ([], []) if return_indices else []
     emb = embeddings if embeddings is not None else embed(items)
     # Pré-computa matrix completa — 1 chamada sklearn vs n×k individuais
     sim_matrix = cosine_similarity(emb, emb)  # (n, n)
@@ -228,5 +232,6 @@ def deduplicate(
     for i in range(len(items)):
         if not any(float(sim_matrix[i, j]) > threshold for j in keep):
             keep.append(i)
-    return [items[i] for i in keep]
+    kept_items = [items[i] for i in keep]
+    return (kept_items, keep) if return_indices else kept_items
 
