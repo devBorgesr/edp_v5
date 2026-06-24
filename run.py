@@ -4,10 +4,9 @@ run.py — Entrypoint do EDP v3.2 (PATCHED)
 Modos:
     python run.py serve              → inicia API FastAPI
     python run.py test               → benchmark pipeline v3.1
-    python run.py test_v32           → benchmark OrchestratorV32 completo
     python run.py bench_retrieval    → benchmark retrieval (1000 docs)
     python run.py bench_vector       → benchmark InMemoryVectorStore (novo)
-    python run.py query <text> <q> [session_id] [--v32]
+    python run.py query <text> <q> [session_id]
 
 PATCHES APLICADOS:
   [FIX-1] from edp_v3 import metrics → from edp import metrics
@@ -17,9 +16,7 @@ PATCHES APLICADOS:
            (pipeline_patched.py remove GLOBAL_MEMORY singleton)
   [FIX-5] M.summary(from_file=True) para benchmark cross-session real
   [FIX-6] uvicorn: workers e timeout configuráveis via env
-  [FIX-7] test_v32: modo de benchmark OrchestratorV32 com health report
   [FIX-8] bench_vector: benchmark InMemoryVectorStore vs RetrievalEngine
-  [FIX-9] query_mode: --v32 flag usa OrchestratorV32 em vez de pipeline
 """
 import os
 import sys
@@ -197,88 +194,6 @@ def test():
     print(json.dumps(M.summary(from_file=True), indent=2))
 
 
-# ── test_v32 (OrchestratorV32 completo) ──────────────────────────────────────
-
-def test_v32():
-    """
-    [FIX-7] Benchmark do OrchestratorV32 — exercita todos os subsistemas v3.2:
-      snapshot_manager, economy, storm_guard, meta_stability,
-      pressure_regulator, biodiversity, decision_graph_v32.
-    """
-    try:
-        from edp.orchestrator_v32 import OrchestratorV32, OrchestratorV32Config
-        from edp.types_v32 import ImmutableCognitiveNode, AbstractionLevel
-    except ImportError as e:
-        print(f"[WARN] OrchestratorV32 não disponível: {e}")
-        print("       Verifique se os módulos v3.2 estão instalados.")
-        return
-
-    print("\n=== BENCHMARK ORCHESTRATOR v3.2 ===\n")
-
-    cfg  = OrchestratorV32Config()
-    orch = OrchestratorV32(config=cfg)
-
-    TEXTS = [
-        "RAG reduz alucinações em LLMs usando retrieval semântico.",
-        "Embeddings capturam significado contextual de texto.",
-        "FAISS permite busca eficiente em espaços de alta dimensão.",
-        "Transformers revolucionaram processamento de linguagem natural.",
-        "Compressão de contexto reduz custo computacional em LLMs.",
-        "Memória semântica preserva conhecimento entre sessões.",
-        "Retrieval híbrido combina BM25 léxico com busca vetorial.",
-        "Consolidação semântica agrupa memórias relacionadas.",
-        "Pressure regulation garante homeostase cognitiva.",
-        "Snapshot geracional preserva consistência temporal.",
-    ]
-
-    print("Ingestão de nós cognitivos:")
-    t0 = time.perf_counter()
-    for i, text in enumerate(TEXTS):
-        node = ImmutableCognitiveNode(
-            text=text,
-            semantic_entropy=0.5 + (i % 3) * 0.1,
-            abstraction_level=AbstractionLevel(i % 4),
-            novelty_score=0.8 - (i * 0.02),
-        )
-        event = orch.ingest(node, pressure_delta=0.05)
-        status = "✅" if event else "⚠ rejected"
-        print(f"  [{i:02d}] {status} {text[:50]}")
-
-    ingest_ms = (time.perf_counter() - t0) * 1000
-    print(f"\n  Total ingest: {ingest_ms:.1f}ms ({ingest_ms/len(TEXTS):.1f}ms/node)")
-
-    # Retrieval
-    print("\nRetrieval:")
-    try:
-        from edp.embeddings import embed_one
-        q_emb = embed_one("Como funciona retrieval semântico?")
-        t0    = time.perf_counter()
-        results = orch.retrieve(tuple(q_emb.tolist()), k=3)
-        ret_ms  = (time.perf_counter() - t0) * 1000
-        print(f"  {len(results)} resultados em {ret_ms:.2f}ms")
-        for r in results:
-            print(f"    [{r.score:.3f}] {r.node.text[:55]}")
-    except Exception as e:
-        print(f"  [WARN] retrieve falhou: {e}")
-
-    # Health report
-    print("\nHealth Report:")
-    health = orch.health()
-    print(f"  stability_mode:     {health.stability_mode}")
-    print(f"  composite_pressure: {health.composite_pressure:.4f}")
-    print(f"  snapshot_nodes:     {health.snapshot_node_count}")
-    print(f"  storm_score:        {health.storm_metrics_score:.4f}")
-    print(f"  economy_mode:       {health.economy_mode}")
-    print(f"  tick_count:         {health.tick_count}")
-    if health.warnings:
-        print(f"  warnings: {health.warnings}")
-    else:
-        print(f"  warnings: nenhum ✅")
-
-    orch.shutdown(timeout=3.0)
-    print("\n✅ OrchestratorV32 shutdown limpo")
-
-
 # ── bench_retrieval ───────────────────────────────────────────────────────────
 
 def bench_retrieval():
@@ -414,20 +329,14 @@ def bench_vector():
 
 def query_mode(args: list):
     if len(args) < 2:
-        print("Uso: python run.py query <texto> <pergunta> [session_id] [--v32]")
+        print("Uso: python run.py query <texto> <pergunta> [session_id]")
         sys.exit(1)
 
     text       = args[0]
     question   = args[1]
-    use_v32    = "--v32" in args
-    raw_args   = [a for a in args if a != "--v32"]
-    session_id = raw_args[2] if len(raw_args) > 2 else "default"
+    session_id = args[2] if len(args) > 2 else "default"
 
-    if use_v32:
-        # [FIX-9] usa OrchestratorV32
-        _query_v32(text, question, session_id)
-    else:
-        _query_v31(text, question, session_id)
+    _query_v31(text, question, session_id)
 
 
 def _query_v31(text: str, question: str, session_id: str) -> None:
@@ -453,45 +362,6 @@ def _query_v31(text: str, question: str, session_id: str) -> None:
         print(f"  [{r.get('ranking_score', 0):.3f}] {r['text'][:70]}")
 
 
-def _query_v32(text: str, question: str, session_id: str) -> None:
-    """[FIX-9] Query via OrchestratorV32."""
-    try:
-        from edp.orchestrator_v32 import OrchestratorV32
-        from edp.types_v32 import ImmutableCognitiveNode
-        from edp.pipeline import run_pipeline
-        from edp.embeddings import embed_one
-    except ImportError as e:
-        print(f"[WARN] Módulo v3.2 ausente: {e}. Fallback para v3.1.")
-        _query_v31(text, question, session_id)
-        return
-
-    # Pipeline v3.1 para compressão inicial
-    result = run_pipeline(text, question, session_id=session_id)
-    print(f"\n=== CONTEXTO COMPRIMIDO ===\n{result.context_str}")
-    print(f"REDUÇÃO: {result.reduction_pct:.2f}%")
-
-    # Ingere blocos no orchestrator v3.2
-    orch = OrchestratorV32()
-    for i, bloco in enumerate(result.context):
-        if bloco.strip():
-            node = ImmutableCognitiveNode(text=bloco, semantic_entropy=0.5)
-            orch.ingest(node, pressure_delta=0.03)
-
-    # Retrieval v3.2
-    try:
-        q_emb = embed_one(question)
-        results = orch.retrieve(tuple(q_emb.tolist()), k=3)
-        print(f"\nRETRIEVAL v3.2 ({len(results)} resultados):")
-        for r in results:
-            print(f"  [{r.score:.3f}] {r.node.text[:70]}")
-        health = orch.health()
-        print(f"\nHEALTH: mode={health.stability_mode} pressure={health.composite_pressure:.3f}")
-    except Exception as e:
-        print(f"[WARN] retrieve falhou: {e}")
-
-    orch.shutdown(timeout=2.0)
-
-
 # ── main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -500,8 +370,6 @@ if __name__ == "__main__":
         serve()
     elif args[0] == "test":
         test()
-    elif args[0] == "test_v32":          # [FIX-7] novo modo
-        test_v32()
     elif args[0] == "bench_retrieval":
         bench_retrieval()
     elif args[0] == "bench_vector":      # [FIX-8] novo modo
