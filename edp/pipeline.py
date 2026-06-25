@@ -6,9 +6,9 @@ PATCHES APLICADOS:
         Substituído por factory get_pipeline_memory(session_id) com cache
         protegido por threading.Lock — sem race condition em multi-thread.
   [P14] ADAPTIVE_CONTROLLER mantido como singleton (read-only após init — seguro).
-  [P15] Bridge v3.1 → v3.2: MemoryBridgeV32 provê compatibilidade entre
-        pipeline.py (SemanticMemory v3.1) e OrchestratorV32 (VectorStoreProtocol v3.2).
-        Pipeline pode ser usado standalone OU integrado ao Orchestrator v3.2.
+  [P15] MemoryBridgeV32: envolve SemanticMemory e é detectada via isinstance
+        em pipeline.py:646 para chamar bridge.consolidate() em vez de
+        semantic_memory.consolidate_from_episodes(). Ramo v3.2 interno removido.
   [P16] Import de SemanticMemory lazy (evita falha no import-time se módulo ausente).
   [P17] classify_score não é mais chamado separadamente quando ScoreVector.decision
         já contém a decisão — elimina duplicação de lógica.
@@ -68,58 +68,18 @@ def get_pipeline_memory(session_id: str = "default") -> object:
 
 class MemoryBridgeV32:
     """
-    [P15] Ponte entre o pipeline v3.1 (SemanticMemory) e o OrchestratorV32 (v3.2).
-
-    Problema: pipeline.py usa SemanticMemory (entries list + consolidate_from_episodes)
-              orchestrator_v32.py usa VectorStoreProtocol (ImmutableCognitiveNode)
-              → Dois sistemas de memória paralelos sem sincronização.
-
-    Solução: MemoryBridgeV32 envolve SemanticMemory e expõe interface compatível
-             com VectorStoreProtocol. O Orchestrator pode registrar uma instância
-             aqui e receber eventos de consolidação do pipeline.
-
-    Uso:
-        bridge = MemoryBridgeV32(session_id="prod")
-        orchestrator.register_memory_bridge(bridge)  # quando disponível
-        # Pipeline continua funcionando standalone sem o orchestrator
+    [P15] Envolve SemanticMemory expondo consolidate() e retrieve().
+    Detectada via isinstance em pipeline.py:646 para rotear consolidação.
     """
 
     def __init__(self, session_id: str = "default"):
         self.session_id       = session_id
         self._semantic_memory = get_pipeline_memory(session_id)
-        self._v32_store       = None  # injeta OrchestratorV32 quando disponível
-        self._lock            = threading.Lock()
-
-    def register_v32_store(self, store) -> None:
-        """Injeta VectorStoreProtocol do orchestrator v3.2."""
-        with self._lock:
-            self._v32_store = store
 
     def consolidate(self, episodes: list[dict]) -> None:
-        """
-        Consolida episódios tanto na SemanticMemory (v3.1) quanto
-        no VectorStoreProtocol (v3.2), se disponível.
-        """
-        # v3.1 path — sempre executa
         self._semantic_memory.consolidate_from_episodes(episodes)
 
-        # v3.2 path — executa só se orchestrator registrado
-        if self._v32_store is not None:
-            with self._lock:
-                store = self._v32_store
-            for ep in episodes:
-                try:
-                    # Converte dict de episódio para formato v3.2
-                    store.upsert_raw(
-                        id=ep.get("id", ""),
-                        text=ep.get("text", ""),
-                        embedding=ep.get("embedding"),
-                    )
-                except Exception:
-                    pass  # v3.2 path é best-effort
-
     def retrieve(self, question: str, top_k: int = 3) -> list[dict]:
-        """Retrieval via SemanticMemory (v3.1). Bridge transparente."""
         return self._semantic_memory.retrieve(question, top_k=top_k)
 
 
