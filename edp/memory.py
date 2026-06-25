@@ -471,6 +471,16 @@ class EpisodicMemory:
 
         self._load()
 
+        # Store pressure monitor — extracted from feb0db9:pressure_monitor.py
+        from .pressure import StorePressureMonitor
+        self._pressure = StorePressureMonitor()
+        self._pressure.update(len(self.entries) / max(self.max_size, 1))
+        if len(self.entries) > self.max_size:
+            logger.warning(
+                "[memory] store carregado acima do limite: %d/%d entradas",
+                len(self.entries), self.max_size,
+            )
+
     def _load(self) -> None:
         if self.path.exists():
             # Peça 0.3.1: usa _safe_load_json que tolera JSON corrompido por write parcial
@@ -574,6 +584,12 @@ class EpisodicMemory:
         self.entries.append(entry)
         if len(self.entries) > self.max_size:
             self._prune()
+        _prev_alert = self._pressure.snapshot().eviction_alert
+        self._pressure.update(len(self.entries) / max(self.max_size, 1))
+        _snap = self._pressure.snapshot()
+        if _snap.eviction_alert and not _prev_alert:
+            logger.warning("[memory] pressão de eviction em ALERTA: %d/%d (ema=%.2f)",
+                           len(self.entries), self.max_size, _snap.eviction)
         # [WAL-FIX] batch mode: não salva em cada add — marca dirty
         # save() explícito chamado por: flush(), retrieve(), _prune(), shutdown
         self._dirty = True

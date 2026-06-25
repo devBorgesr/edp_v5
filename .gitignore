@@ -13,6 +13,7 @@ __pycache__/
 
 # Dados do EDP (ficam fora do repo, mas garantia)
 edp_data/
+data/
 *.json.broken
 *.json.recovered
 
