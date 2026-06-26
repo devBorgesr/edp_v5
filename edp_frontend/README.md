@@ -36,13 +36,13 @@ do mesmo origin do Vite dev server.
 
 ## Rotas
 
-| URL | Página |
-|-----|--------|
-| `/` | Chat (Fase 2) |
-| `/memory` | Memória episódica/semântica (Fase 3) |
-| `/echo` | Câmara de Eco — debate multi-modelo (Fase 3) |
-| `/dashboard` | Estado do sistema (Fase 3) |
-| `/flags` | Contradições / Flags (Fase 3) |
+| URL | Página | O que faz |
+|-----|--------|-----------|
+| `/` | Chat | Conversa via WS com streaming, câmara de eco e lineage por resposta |
+| `/memory` | Memória | Lista episódica/semântica com filtros, busca, stats e exclusão |
+| `/echo` | Câmara / Lineage | Histórico de proveniência (REST `/lineage`) — qual memória alimentou cada resposta |
+| `/dashboard` | Dashboard | Estado do runtime, pressão, fila, memória, contradições (auto-refresh 5s) |
+| `/flags` | Flags | Pares contraditórios detectados, com feedback (útil / falso+ / ambíguo) |
 
 ## Build de produção
 
