@@ -28,6 +28,10 @@ console.log('[dashboard] script carregado');
   let wsReady = false;
   let wsConnecting = false;
 
+  // ── Feature: Echo Chamber state ───────────────────────────────────────────
+  let _camaraActive = null;  // {camara_id, modelo_A, modelo_B, trecho_A}
+  let _camaraChecks = {};    // checks from fase_b_completa
+
   // ── DOM helpers ───────────────────────────────────────────────────────────
   function el(id) { return document.getElementById(id); }
 
@@ -54,6 +58,151 @@ console.log('[dashboard] script carregado');
     msg.appendChild(bub);
     box.appendChild(msg);
     box.scrollTop = box.scrollHeight;
+    return msg;
+  }
+
+  // ── Feature 1: Sources panel ──────────────────────────────────────────────
+
+  function _sourceTypeBadge(t) {
+    const cls = t.includes('llm') ? 'llm' : t.includes('user') ? 'user' : t.includes('summary') ? 'summary' : '';
+    return '<span class="source-type-badge ' + cls + '">' + t + '</span>';
+  }
+
+  function _epistemicBadge(e) {
+    const label = e || 'hypothesis';
+    return '<span class="epistemic-badge ' + label + '">' + label + '</span>';
+  }
+
+  function attachSourcesPanel(msgEl, sourcesUi, conflictCount) {
+    if (!msgEl || !sourcesUi || sourcesUi.length === 0) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'sources-panel';
+
+    const conflictHtml = conflictCount > 0
+      ? '<span class="conflict-badge">⚠ ' + conflictCount + ' conflito' + (conflictCount > 1 ? 's' : '') + '</span>'
+      : '';
+
+    const toggle = document.createElement('button');
+    toggle.className = 'sources-toggle';
+    toggle.innerHTML = '<span class="arrow">▶</span> ' +
+      sourcesUi.length + ' fonte' + (sourcesUi.length > 1 ? 's' : '') + ' recuperada' + (sourcesUi.length > 1 ? 's' : '') +
+      conflictHtml;
+
+    const list = document.createElement('div');
+    list.className = 'sources-list';
+
+    if (conflictCount > 0) {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:6px 0;color:var(--warn);font-size:11px;border-bottom:1px solid var(--border);margin-bottom:4px';
+      warn.textContent = '⚠ Registros conflitantes detectados — examine as fontes abaixo.';
+      list.appendChild(warn);
+    }
+
+    sourcesUi.forEach(function(s) {
+      const item = document.createElement('div');
+      item.className = 'source-item';
+      item.innerHTML =
+        _sourceTypeBadge(s.source_type) +
+        _epistemicBadge(s.epistemic) +
+        '<span class="source-text" title="' + s.text.replace(/"/g, '&quot;') + '">' + s.text + '</span>' +
+        '<span class="source-meta">' + (s.rel_time || '') + (s.score ? ' · ' + s.score : '') + '</span>';
+      list.appendChild(item);
+    });
+
+    toggle.addEventListener('click', function() {
+      const open = list.classList.toggle('visible');
+      toggle.classList.toggle('open', open);
+    });
+
+    panel.appendChild(toggle);
+    panel.appendChild(list);
+    msgEl.appendChild(panel);
+    el('chat-box').scrollTop = el('chat-box').scrollHeight;
+  }
+
+  // ── Feature 2: Compare / Echo Chamber panel ───────────────────────────────
+
+  function _checkChips(checks) {
+    if (!checks || typeof checks !== 'object') return '';
+    return Object.entries(checks).map(function(kv) {
+      const id = kv[0], info = kv[1];
+      const v = (info.verdict || '').toUpperCase();
+      return '<span class="check-chip ' + (v === 'PASS' ? 'pass' : 'fail') + '" title="' + (info.justificativa || '') + '">' + id + ':' + v + '</span>';
+    }).join('');
+  }
+
+  function attachCamaraLoading(msgEl, info) {
+    if (!msgEl) return;
+    const loader = document.createElement('div');
+    loader.className = 'camara-panel';
+    loader.id = 'camara-' + info.camara_id;
+    loader.innerHTML =
+      '<div class="camara-header">' +
+        '<span class="camara-label">⚡ Câmara de eco</span>' +
+        '<span class="camara-models">' + info.modelo_A + ' → ' + info.modelo_B + '</span>' +
+      '</div>' +
+      '<div class="camara-loading">B refutando…</div>';
+    msgEl.appendChild(loader);
+    el('chat-box').scrollTop = el('chat-box').scrollHeight;
+  }
+
+  function updateCamaraFaseB(camaraId, checks) {
+    const panel = document.getElementById('camara-' + camaraId);
+    if (!panel) return;
+    const loader = panel.querySelector('.camara-loading');
+    if (loader) loader.textContent = 'A avaliando reformulação de B…';
+    const checksDiv = document.createElement('div');
+    checksDiv.className = 'camara-loading';
+    checksDiv.style.fontSize = '10px';
+    checksDiv.innerHTML = _checkChips(checks);
+    if (loader) loader.insertAdjacentElement('afterend', checksDiv);
+  }
+
+  function finalizeCamaraPanel(camaraId, textoA, textoFinal, modeloA, modeloB, vencedor, concordancia, scoreA) {
+    const panel = document.getElementById('camara-' + camaraId);
+    if (!panel) return;
+
+    const vencedorCls = vencedor === 'A' ? 'A' : vencedor === 'B' ? 'B' : 'ambos';
+    const vencedorLabel = vencedor === 'A' ? 'A venceu' : vencedor === 'B' ? 'B venceu' : 'empate';
+    const concord = concordancia || 0;
+    const passCount = scoreA ? scoreA.pass_count : '?';
+    const failCount = scoreA ? scoreA.fail_count : '?';
+
+    const isAWon = vencedor === 'A' || vencedor === 'ambos_similar';
+    const textAClass = isAWon ? 'winner' : 'loser';
+    const textBClass = !isAWon ? 'winner' : 'loser';
+
+    const textoADisplay = textoA || '(não disponível)';
+    const textoBDisplay = (vencedor === 'B' && textoFinal !== textoA) ? textoFinal : '(B não reformulou ou reformulação vetada)';
+
+    panel.innerHTML =
+      '<div class="camara-header">' +
+        '<span class="camara-label">⚡ Câmara de eco</span>' +
+        '<span class="vencedor-badge ' + vencedorCls + '">' + vencedorLabel + '</span>' +
+        '<span class="camara-models">' + modeloA + ' vs ' + modeloB + '</span>' +
+      '</div>' +
+      '<div class="compare-columns">' +
+        '<div class="compare-col">' +
+          '<div class="compare-col-header"><span class="model-name">' + modeloA + '</span> (A)</div>' +
+          '<div class="compare-text ' + textAClass + '">' + textoADisplay + '</div>' +
+        '</div>' +
+        '<div class="compare-col">' +
+          '<div class="compare-col-header"><span class="model-name">' + modeloB + '</span> (B)</div>' +
+          '<div class="compare-text ' + textBClass + '">' + textoBDisplay + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="camara-synthesis">' +
+        '<span>Concordância A→B: ' +
+          '<span class="concordancia-bar">' +
+            '<span class="concordancia-fill" style="width:' + (concord * 0.8) + 'px"></span>' +
+          '</span>' +
+          concord + '%' +
+        '</span>' +
+        '<span>Checks A: ' + passCount + ' PASS / ' + failCount + ' FAIL</span>' +
+      '</div>';
+
+    el('chat-box').scrollTop = el('chat-box').scrollHeight;
   }
 
   // ── Fetch helper ──────────────────────────────────────────────────────────
@@ -336,7 +485,47 @@ console.log('[dashboard] script carregado');
       if (d.type === 'heartbeat') {
         // v3.4: heartbeat para manter WS vivo — não loga
         return;
+      } else if (d.type === 'lineage') {
+        // Feature 1: Memória Visível — mostra fontes e conflitos
+        const lastMsg = el('chat-box').lastElementChild;
+        if (lastMsg && lastMsg.classList.contains('assistant')) {
+          attachSourcesPanel(lastMsg, d.sources_ui, d.conflict_count || 0);
+        }
+        return;
+      } else if (d.type === 'camara_iniciada') {
+        // Feature 2: Compare — câmara iniciou, mostra loading panel
+        _camaraActive = d;
+        _camaraChecks = {};
+        const lastMsg = el('chat-box').lastElementChild;
+        if (lastMsg && lastMsg.classList.contains('assistant')) {
+          attachCamaraLoading(lastMsg, d);
+        }
+        setStage('⚡ Câmara: ' + d.modelo_B + ' refutando…');
+        return;
+      } else if (d.type === 'camara_fase_b_completa') {
+        // Feature 2: B terminou refutação, atualiza painel
+        _camaraChecks = d.checks || {};
+        updateCamaraFaseB(d.camara_id, d.checks);
+        setStage('⚡ Câmara: A avaliando reformulação de B…');
+        return;
+      } else if (d.type === 'camara_resultado') {
+        // Feature 2: resultado final — renderiza Compare side-by-side
+        finalizeCamaraPanel(
+          d.camara_id,
+          d.texto_A,
+          d.texto_final,
+          d.modelo_A,
+          d.modelo_B,
+          d.vencedor,
+          d.concordancia,
+          d.score_A,
+        );
+        _camaraActive = null;
+        setStage('⚡ Câmara concluída — vencedor: ' + d.vencedor);
+        return;
       } else if (d.type === 'start') {
+        _camaraActive = null;
+        _camaraChecks = {};
         addMsg('assistant', '');
         setStage('Processando pipeline...');
       } else if (d.type === 'pipeline_done') {

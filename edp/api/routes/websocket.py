@@ -611,6 +611,9 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             # Commit B (10/06/2026): estado do lineage por turno
             lineage_retrieved: list = []
             lineage_quality:   dict = {}
+            # Feature/odysseus-ui: fontes enriquecidas + conflitos
+            sources_ui:    list = []
+            conflict_count: int = 0
 
             try:
                 await _safe_send(websocket, {
@@ -715,6 +718,25 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         # ── Retrieval por similaridade (dedupe) ───────────
                         retrieved = memory.retrieve(message, top_k=5, min_score=0.20)
                         lineage_retrieved = retrieved  # Commit B: captura p/ lineage
+
+                        # ── Feature/odysseus-ui: fontes enriquecidas ─────────────
+                        for r in retrieved[:5]:
+                            rel = _format_relative_time(r.get("timestamp"), _now) \
+                                  if r.get("timestamp") else ""
+                            sources_ui.append({
+                                "text":        (r.get("text") or "")[:120],
+                                "rel_time":    rel,
+                                "source_type": r.get("source_type") or "unknown",
+                                "epistemic":   r.get("epistemic_status") or "hypothesis",
+                                "score":       round(float(r.get("ranking_score", 0.0)), 3),
+                            })
+                        # ── Feature/odysseus-ui: detecção de conflito ────────────
+                        try:
+                            from ...runtime.contradiction_flagger import get_flagger
+                            conflict_count = get_flagger().scan_results(retrieved)
+                        except Exception as _ce:
+                            logger.debug("[WS] contradiction scan falhou: %s", _ce)
+
                         for r in retrieved:
                             rid = r.get("id")
                             if rid and rid in seen_ids:
@@ -1085,10 +1107,12 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                                                     await _safe_send(websocket, {
                                                         "type":          "camara_resultado",
                                                         "texto_final":   texto_final,
+                                                        "texto_A":       full_text,
                                                         "modelo_A":      modelo_A,
                                                         "modelo_B":      modelo_B,
                                                         "vencedor":      vencedor,
                                                         "concordancia":  chamber_result.get("concordancia"),
+                                                        "score_A":       chamber_result.get("score_A"),
                                                         "camara_id":     camara_id,
                                                     })
                                                 except Exception as e:
@@ -1312,11 +1336,13 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         )
                         get_lineage_tracker().persist(_rec)
                         await _safe_send(websocket, {
-                            "type":        "lineage",
-                            "response_id": _rec.response_id,
-                            "n_sources":   _rec.n_sources,
-                            "sources":     _rec.source_entries[:5],
-                            "model_used":  _rec.model_used,
+                            "type":           "lineage",
+                            "response_id":    _rec.response_id,
+                            "n_sources":      _rec.n_sources,
+                            "sources":        _rec.source_entries[:5],
+                            "sources_ui":     sources_ui,
+                            "conflict_count": conflict_count,
+                            "model_used":     _rec.model_used,
                         })
                         logger.info(
                             "[WS] lineage gravado | response_id=%s n_sources=%d model=%s",
