@@ -1,4 +1,4 @@
-import type { WsStatus } from '../hooks/useWebSocket'
+import type { WsStatus } from '../store/chat'
 
 const labels: Record<WsStatus, string> = {
   open:       'Conectado',

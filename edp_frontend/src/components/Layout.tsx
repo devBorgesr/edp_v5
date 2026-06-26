@@ -1,9 +1,9 @@
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
-import { useWebSocket } from '../hooks/useWebSocket'
+import { useChat } from '../store/chat'
 
 export default function Layout() {
-  const { status } = useWebSocket()
+  const status = useChat(s => s.status)
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--color-bg)' }}>

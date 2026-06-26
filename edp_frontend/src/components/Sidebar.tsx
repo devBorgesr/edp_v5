@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import type { WsStatus } from '../hooks/useWebSocket'
+import type { WsStatus } from '../store/chat'
 import StatusDot from './StatusDot'
 
 const nav = [

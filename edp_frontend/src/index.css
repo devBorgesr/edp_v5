@@ -106,3 +106,15 @@ html, body, #root {
   50%       { opacity: 0.35; }
 }
 .pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+/* highlight.js token colors (github-dark-ish) */
+.hljs-comment, .hljs-quote { color: #8b949e; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-name, .hljs-tag { color: #ff7b72; }
+.hljs-string, .hljs-title, .hljs-section, .hljs-attribute, .hljs-literal,
+.hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: #a5d6ff; }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-meta, .hljs-link { color: #79c0ff; }
+.hljs-title.function_, .hljs-function .hljs-title { color: #d2a8ff; }
+.hljs-variable, .hljs-attr, .hljs-property { color: #ffa657; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: bold; }
+.hljs-deletion { color: #ffa198; }
