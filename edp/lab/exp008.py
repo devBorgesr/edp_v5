@@ -350,11 +350,30 @@ def run_exp008(
         except Exception:
             pass
         # injeta o clone na sessao isolada — toda mutacao do retrieve cai aqui.
-        mem.entries = copy.deepcopy(entries)
+        # Fix A: o retrieve lê de mem._episodic.entries, não de mem.entries.
+        # Injetamos nos dois para garantir que o retrieve REAL veja os dados
+        # com cognitive_decisions. (Descoberto via inspect_cognitive.py)
+        _clone = copy.deepcopy(entries)
+        mem.entries = _clone
+        # Injeta na estrutura interna onde o retrieve busca:
+        if hasattr(mem, "_episodic") and hasattr(mem._episodic, "entries"):
+            mem._episodic.entries = _clone
+        elif hasattr(mem, "_cognitive") and hasattr(mem._cognitive, "episodic"):
+            mem._cognitive.episodic.entries = _clone
 
         for qi, par in enumerate(pares):
             # POOL via retrieve REAL (sobre o clone). min_score=0.0 -> ranking puro.
             pool = mem.retrieve(par.query, top_k=POOL_SIZE, min_score=MIN_SCORE_POOL, layers=LAYERS)
+
+            # Fix B: session_summary tem embedding próximo de qualquer query de
+            # "continuação de conversa" — domina o pool e empurra alvos reais
+            # para fora do top-K. Filtramos ANTES do re-rank (decisão de método
+            # documentada no pré-registro: session_summary não é memória-alvo).
+            pool = [
+                e for e in pool
+                if e.get("source_type") != "session_summary"
+                and not str(e.get("text", "")).startswith("[session_summary]")
+            ]
 
             listas = {
                 ROTULO_BASELINE:   list(pool),                          # ja ordenado por ranking_score
