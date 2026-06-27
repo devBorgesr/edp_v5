@@ -37,7 +37,7 @@ logger = logging.getLogger("edp.lab.exp008")
 # ── Constantes CONGELADAS (§9 do pre-registro) ────────────────────────────────
 EXPERIMENTO     = "008"
 BETA            = 0.25          # peso do overlap concepts/domain no tratamento
-POOL_SIZE       = 50           # candidatos por query (retrieve REAL)
+POOL_SIZE       = 100           # candidatos por query (retrieve REAL)
 K3              = 3
 K5              = 5
 MIN_PAIRS       = 15           # abaixo disso o experimento ABORTA
