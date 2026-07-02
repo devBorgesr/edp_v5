@@ -67,17 +67,44 @@ MemoryStore** de cada rodada). Nunca no snapshot, nunca na produção, nunca em
 | `trat_combinado` | gravador + trivial juntos |
 | `trat_gravador_srcw` **(§EXPLORATÓRIO)** | gravador + `src_weight` neutro (1.0) para SS — isola a contribuição do `src_weight`. Implementado por patch **em memória, no processo do lab** (`SOURCE_TYPE_WEIGHTS["session_summary"]=1.0`, restaurado ao fim da condição); nenhum arquivo de produção tocado. Gera hipótese, **não** entra no critério confirmatório. |
 
-### §3a. Regra de "trivial" (CONGELADA)
+### §3a. Regra de "trivial" — **v2** (refinada pós-dry-run, ANTES de armar; congela ao armar)
 
-Após remover o prefixo `[session_summary]` e normalizar espaços
-(`re.sub(r"\s+"," ",·).strip()`), a SS é **trivial** se:
-- `len(texto_util) < 80` caracteres; **OU**
-- o texto (minúsculas) **começa com `"nada"`**; **OU**
-- contém `"primeira mensagem da conversa"`.
+**Histórico do refino (registrado, como manda a régua):** a v1 (`<80 chars úteis
+OU começa com "nada" OU "primeira mensagem"`) foi ao 1º dry-run em produção e
+pegou **TODOS os 25** session_summary — inclusive resumos curtos **com conteúdo
+técnico real** (`"**Sobre indexação GIN no PostgreSQL:**"`, `"- Armazenamento
+chave-valor em RAM"`, `"- **CUDA/ROCm** - APIs de baixo nível para GPUs"`). O
+alvo da condição é **AUSÊNCIA DE CONTEÚDO** (vazios semânticos, cabeçalhos de
+tabela, rótulos sem corpo), não brevidade. O experimento ainda **não** havia sido
+disparado — refino legítimo. **v2 congela ao armar.**
 
-**O dry-run LISTA quais entries a regra pega** (id + preview), para revisão
-humana **antes** de armar. Se a regra pegar entries legítimas, ajusta-se ANTES do
-disparo (e o ajuste fica registrado aqui); depois do disparo, congelada.
+**Regra v2.** Após remover o prefixo `[session_summary]`, a SS é **trivial** se:
+- **(a)** o texto útil (minúsculas) **começa com `"nada"` ou `"você misturou"`**,
+  ou **contém `"primeira mensagem da conversa"`** (vazio semântico declarado); **OU**
+- **(c)** após limpar markdown/pipes/pontuação (`** | - # > _ : ; . , …`),
+  restam **menos de `TRIVIAL_MIN_CONTENT_TOKENS = 3` tokens ÚTEIS de conteúdo** —
+  onde "útil" exclui stopwords PT mínimas e as **palavras de rótulo do próprio
+  resumo** (`tópico(s)`, `abordado(s)`, `resumo(s)`, `sumário`, `sessão/sessões`,
+  `conversa`, `registrado`), ambas as listas congeladas no `exp009.py`.
+- *(o caso (b) — "só cabeçalho/rótulo de tabela" — é coberto por (c): rótulos
+  rendem <3 tokens úteis por construção.)*
+
+**Calibração declarada (exemplos reais do dry-run):**
+
+| texto (pós-prefixo) | tokens úteis | veredito |
+|---|---|---|
+| `"**Sobre indexação GIN no PostgreSQL:**"` | {indexação, gin, postgresql} = 3 | **conteúdo** (não pega) |
+| `"- Armazenamento chave-valor em RAM"` | {armazenamento, chave, valor, ram} = 4 | **conteúdo** |
+| `"- **CUDA/ROCm** - APIs de baixo nível para GPUs"` | ≥5 | **conteúdo** |
+| `"- Mapeia **valores/elementos** → **linhas que os contêm**"` | ≥4 | **conteúdo** |
+| `"Nada. Esta é a primeira mensagem da conversa..."` | — (regra a) | **trivial** |
+| `"| **Redis** | **Memcached** |"` | {redis, memcached} = 2 | **trivial** |
+| `"**Redis:**"` | {redis} = 1 | **trivial** |
+| `"**Tópicos abordados:**"` / `"| Tópico | Resumo |"` | 0 (só rótulo) | **trivial** |
+
+**Expectativa pós-refino:** o dry-run em produção deve pegar **~5–8** (os vazios
+reais), não 25. **O dry-run LISTA quais entries a regra pega** (id + preview) para
+revisão humana antes de armar; depois do disparo, congelada.
 
 ### Identificação de SS nas métricas
 
@@ -123,6 +150,16 @@ Queries em linguagem **NATURAL**, nunca "domínio-puro" (lição do exp008):
 
 *(As linhas de 4c são as constantes editáveis do `exp009.py` — o pesquisador
 ajusta needles/ids ao conteúdo real do store DELE no dry-run; congela ao armar.)*
+
+**Pendência do 1º dry-run em produção — needle `faiss` NÃO resolveu.** Decisão a
+tomar no dry-run (procedimento documentado em comentário no `exp009.py`, acima de
+`SPECIFIC_QUERIES`):
+1. Grep por `'faiss'` nas memórias **não**-`session_summary` do store real (cópia);
+   se existir memória de conteúdo, trocar o needle por `{"id": "<id>"}`;
+2. Se **não** houver memória de conteúdo sobre FAISS, **remover a query** (dataset
+   fica com 5 específicas) e registrar a remoção **aqui** antes de armar.
+
+*Status: decisão pendente do pesquisador. Congela ao armar.*
 
 ### 4d. GUARDA — caso legítimo (n=3)
 Queries que **pedem explicitamente** resumo/consolidação. Nelas, um
@@ -198,7 +235,7 @@ antes por serem legíveis e acionáveis para decisão de fix).
 | `EXPERIMENTO` | `"009"` |
 | `TOP_K` / `MIN_SCORE` | `10` / `0.0` |
 | condições | `baseline`, `trat_gravador`, `trat_trivial`, `trat_combinado` (+ `trat_gravador_srcw` exploratória) |
-| trivial | `len<80` úteis OU começa com `"nada"` OU contém `"primeira mensagem da conversa"` |
+| trivial (v2) | começa `"nada"`/`"você misturou"` OU contém `"primeira mensagem da conversa"` OU `<3` tokens úteis de conteúdo (pós-limpeza de markdown; exclui stopwords + palavras de rótulo) |
 | limiar H1 | %SS top-5 vagas `< 40%` E Redis top-5 `≥ 2/3` E guarda `≥ 1` resumo c/ SS |
 | ids Redis | `0c78fa08…`, `a5ef2402…`, `4c57ed7a…` (§4b) |
 | gravador | `prioridade→"media"`, `epistemic_status→"hypothesis"` |

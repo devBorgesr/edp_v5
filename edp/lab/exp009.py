@@ -90,6 +90,23 @@ REDIS_QUERIES = [
 
 # 4c — outras especificas: needle resolve para memorias NAO-SS (validar no dry-run;
 # se ambiguo/0-match, o pesquisador troca por {"id": "..."} ANTES de armar).
+#
+# ── COMO RESOLVER UM NEEDLE QUE NAO CASOU (o dry-run lista os nao-resolvidos) ──
+# Exemplo real do 1o dry-run em producao: o needle "faiss" nao resolveu.
+# No store REAL (a COPIA), rode:
+#
+#   python -c "import json,glob;
+#     [print(e['id'], (e.get('text') or '')[:80]) for f in
+#      glob.glob(r'<EDP_BASE_DIR>/sessions/default_cognitive/*.json')
+#      for e in (lambda d: d.get('entries', d) if isinstance(d, dict) else d)(json.load(open(f, encoding='utf-8')))
+#      if isinstance(e, dict) and 'faiss' in (e.get('text') or '').lower()
+#      and e.get('source_type') != 'session_summary']"
+#
+#   - Se ACHAR uma memoria de conteudo: troque a linha por
+#       {"query": "...", "id": "<id-encontrado>"}
+#   - Se NAO houver memoria de conteudo sobre o topico: REMOVA a linha (o dataset
+#     fica com 5 especificas) e DOCUMENTE a remocao no preregistro (§4c).
+#   Decisao tomada no dry-run; congela ao armar.
 SPECIFIC_QUERIES = [
     {"query": "continuando nossa conversa sobre transformers e atenção em LLMs", "needle": "transformer"},
     {"query": "me lembra o que vimos sobre FAISS e busca vetorial",              "needle": "faiss"},
@@ -106,26 +123,72 @@ GUARD_QUERIES = [
     "qual foi o resumo das nossas últimas sessões?",
 ]
 
-# ── Regra de "trivial" (§3a) — CONGELADA ─────────────────────────────────────
+# ── Regra de "trivial" (§3a, v2 pos-dry-run) — CONGELADA AO ARMAR ────────────
+# Refinada apos o 1o dry-run (ANTES de armar — o experimento nao congelou):
+# o corte cego de tamanho (<80 chars) pegava resumos curtos COM conteudo
+# ("**Sobre indexação GIN no PostgreSQL:**"). O alvo da condicao e AUSENCIA DE
+# CONTEUDO (cabecalhos de tabela, rotulos sem corpo, "nada"), nao brevidade.
+#
+# Regra v2 — trivial se:
+#   (a) o texto util comeca com "nada" / "você misturou", ou contem
+#       "primeira mensagem da conversa" (vazio semantico); OU
+#   (c) apos limpar markdown (**, |, -, #, etc.), o texto tem MENOS de
+#       TRIVIAL_MIN_CONTENT_TOKENS tokens UTEIS de conteudo — excluindo
+#       stopwords e as palavras do proprio rotulo de resumo ("tópicos",
+#       "resumo", "sessão"...). Cabecalho/rotulo puro cai aqui: "Redis:" (1),
+#       "| Redis | Memcached |" (2), "Tópicos abordados:" (0 — so rotulo).
+#       Conteudo real NAO cai: "Sobre indexação GIN no PostgreSQL:" → 3 tokens
+#       uteis {indexação, gin, postgresql}.
+#   (o caso (b) do pedido — "so cabecalho/rotulo" — e coberto por (c): rotulos
+#    rendem < 3 tokens uteis por construcao.)
 _PREFIX_RE = re.compile(r"^\s*\[session_summary\]\s*", re.IGNORECASE)
+
+TRIVIAL_MIN_CONTENT_TOKENS = 3
+
+# Palavras de rotulo do proprio resumo (meta, nao conteudo) — congeladas
+_LABEL_WORDS = frozenset({
+    "tópico", "tópicos", "topico", "topicos", "abordado", "abordados",
+    "resumo", "resumos", "sumário", "sumario", "sessão", "sessao", "sessões",
+    "sessoes", "conversa", "registrado",
+})
+
+# Stopwords PT minimas — congeladas
+_STOPWORDS_PT = frozenset({
+    "de", "da", "do", "das", "dos", "em", "no", "na", "nos", "nas", "o", "a",
+    "os", "as", "um", "uma", "uns", "umas", "para", "por", "com", "que", "e",
+    "ou", "ao", "à", "aos", "às", "se", "sobre", "entre", "mais", "menos",
+    "é", "são", "foi", "ser", "como", "não", "nao", "sim",
+})
+
+_MD_CLEAN_RE = re.compile(r"[*_|#>`~\[\]\(\)\-–—=+:;.,!?]+")
+_TOKEN_RE = re.compile(r"[0-9a-zA-Zà-úÀ-Úçñ]+")
 
 
 def useful_text(text: str) -> str:
     return re.sub(r"\s+", " ", _PREFIX_RE.sub("", text or "")).strip()
 
 
+def content_tokens(text: str) -> List[str]:
+    """Tokens UTEIS de conteudo: limpa markdown/pipes/pontuacao, tokeniza,
+    remove stopwords e palavras de rotulo. len>=2 chars."""
+    clean = _MD_CLEAN_RE.sub(" ", text or "")
+    toks = [t.lower() for t in _TOKEN_RE.findall(clean) if len(t) >= 2]
+    return [t for t in toks if t not in _STOPWORDS_PT and t not in _LABEL_WORDS]
+
+
 def is_trivial_ss(entry: dict) -> bool:
-    """SS trivial: <80 chars uteis OU comeca com 'nada' OU 'primeira mensagem da
-    conversa'. So se aplica a entries session_summary."""
+    """SS trivial = SEM conteudo (regra v2 acima). So se aplica a session_summary."""
     if entry.get("source_type") != SS:
         return False
     t = useful_text(entry.get("text") or "")
     low = t.lower()
-    return (
-        len(t) < 80
-        or low.startswith("nada")
-        or "primeira mensagem da conversa" in low
-    )
+    # (a) vazio semantico declarado
+    if low.startswith("nada") or low.startswith("você misturou") or low.startswith("voce misturou"):
+        return True
+    if "primeira mensagem da conversa" in low:
+        return True
+    # (c) menos de N tokens uteis de conteudo (cobre cabecalho/rotulo puro)
+    return len(content_tokens(t)) < TRIVIAL_MIN_CONTENT_TOKENS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
