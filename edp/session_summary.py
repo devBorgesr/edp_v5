@@ -238,13 +238,16 @@ def generate_session_summary(
     # 5) Persiste como memória especial
     try:
         text_to_store = f"[session_summary] {summary_text}"
+        # exp009 (H1 confirmada, limiares §6): sem os privilégios de nascença
+        # (prioridade="alta" + epistemic_status="verified"), a dominância indevida
+        # dos summaries no retrieve cai (86.7%→33% nas queries vagas) e a memória
+        # de conteúdo volta ao topo, sem quebrar o caso legítimo. Defaults do add
+        # valem: prioridade="media", epistemic_status="hypothesis".
         entry = memory_store.add(
             text=text_to_store,
             score=0.85,
-            prioridade="alta",
             source=f"system:summary",
             confidence=0.85,
-            epistemic_status="verified",  # summaries entram como verified
         )
         # Sobrescreve no objeto retornado E na entry persistida.
         # mem.add pode fazer cópia interna, então localiza por id.
