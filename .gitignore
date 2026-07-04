@@ -32,3 +32,8 @@ env/
 # Backups manuais pre-refactor
 *.backup-pre-*
 *.backup-*
+
+# Node (front-end)
+node_modules/
+dist/
+*.tsbuildinfo
