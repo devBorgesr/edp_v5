@@ -37,6 +37,18 @@ ANN_NPROBE        = int(os.environ.get("EDP_NPROBE",         "8"))
 HNSW_EF_SEARCH    = int(os.environ.get("EDP_HNSW_EF",        "50"))
 HNSW_M            = int(os.environ.get("EDP_HNSW_M",         "16"))
 
+# ── Retrieval híbrido (exp010, 07/2026) ────────────────────────────────────────
+# DESLIGADO por padrão: com "0", MemoryStore.retrieve é EXATAMENTE o atual
+# (cosine puro). Com EDP_HYBRID_RETRIEVAL=1, o retrieve usa o HybridRetriever
+# (BM25+vetorial+RRF, SEM MMR — o exp010 mostrou MMR piorando neste tamanho de
+# store). Evidência (exp010, H1 confirmada sobre dados reais): Recall@5
+# 25%→87.5%, Redis 3/3 no top-5, session_summary 40%→10% do top-5 em queries
+# vagas, guarda (pedidos de resumo) intacta.
+EDP_HYBRID_RETRIEVAL = os.environ.get("EDP_HYBRID_RETRIEVAL", "0") == "1"
+# min_score do caminho híbrido: RRF produz scores ~1/(60+rank) (máx ≈0.016).
+# O RETRIEVAL_MIN_SIM (0.20, escala cosine) zeraria TUDO — escala própria.
+HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))
+
 # ── Memória ────────────────────────────────────────────────────────────────────
 DECAY_LAMBDA      = float(os.environ.get("EDP_DECAY_LAMBDA",  "0.1"))
 MAX_MEMORY        = int(os.environ.get("EDP_MAX_MEMORY",       "500"))

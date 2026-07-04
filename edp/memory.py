@@ -1618,6 +1618,17 @@ class MemoryStore:
     ) -> list[dict]:
         from .embeddings import embed_one as _e1
         query_emb = _e1(query)
+
+        # ── EDP_HYBRID_RETRIEVAL (exp010, 07/2026) — flag DESLIGADA por padrão ─
+        # Ligada, a SELEÇÃO/RANKING passa a ser BM25+vetorial+RRF (sem MMR);
+        # todo o pós-processamento (monitor, contradiction, formato final_top)
+        # é o mesmo. min_score do chamador (escala cosine) NÃO se aplica ao RRF
+        # (escala ~0.016) — o caminho híbrido usa HYBRID_MIN_SCORE (config).
+        # Desligada (default), o fluxo abaixo é EXATAMENTE o de antes.
+        from .config import EDP_HYBRID_RETRIEVAL
+        if EDP_HYBRID_RETRIEVAL:
+            return self._retrieve_hybrid(query, query_emb, top_k)
+
         layers    = layers or ["working", "episodic", "semantic"]
         results: list[dict] = []
 
@@ -1663,6 +1674,164 @@ class MemoryStore:
                 get_flagger().scan_results(final_top)
             except Exception:
                 pass  # nunca quebra retrieve
+
+        return final_top
+
+    # ── Retrieval híbrido (exp010) — só roda com EDP_HYBRID_RETRIEVAL=1 ──────
+
+    def _hybrid_index(self):
+        """Índice do HybridRetriever sobre episodic+semantic do scope ativo.
+
+        Cache com invalidação barata: chave = (scope, len(epi), len(sem),
+        último id de cada). Cobre o caso comum (append de entries); edição
+        in-place sem mudar contagem não invalida — dívida documentada, o
+        custo de rebuild é medível e o miss é raro.
+
+        Governança preservada na SELEÇÃO (o híbrido substitui o ranking, não
+        a governança dura): entries contradicted/quarantined ficam FORA do
+        índice ("não retorna nunca", mesma regra do cosine), e recusas de
+        alta confiança também (Dívida #49 — filtro_recusa do cosine).
+        """
+        view = self._active_view()
+        epi = view.episodic.entries
+        sem = view.semantic.entries
+        key = (
+            self._active_scope, len(epi), len(sem),
+            (epi[-1].get("id") if epi else None),
+            (sem[-1].get("id") if sem else None),
+        )
+        cached = getattr(self, "_hybrid_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        from .retrieval_hybrid import HybridRetriever
+        try:
+            from .echo_chamber import detectar_auto_sinal_de_limite as _recusa
+        except Exception:
+            _recusa = None
+
+        entries_kept: list[dict] = []
+        layer_of:     list[str]  = []
+        for layer, pool in (("episodic", epi), ("semantic", sem)):
+            for e in pool:
+                if not isinstance(e, dict):
+                    continue
+                if not e.get("id") or not (e.get("text") or "").strip():
+                    continue
+                if e.get("embedding") is None:
+                    continue
+                # governança dura: nunca retornáveis ficam fora do índice
+                if e.get("epistemic_status") in ("contradicted", "quarantined"):
+                    continue
+                # filtro_recusa (Dívida #49): recusa alta-confiança não é injetada
+                if _recusa is not None:
+                    try:
+                        if _recusa(e.get("text", "") or "").get("confianca") == "alta":
+                            continue
+                    except Exception:
+                        pass
+                entries_kept.append(e)
+                layer_of.append(layer)
+
+        if not entries_kept:
+            index = None
+        else:
+            hr = HybridRetriever()  # alpha=0.5, rrf_k=60 (defaults = exp010)
+            hr.add(
+                [e["text"] for e in entries_kept],
+                np.array([e["embedding"] for e in entries_kept], dtype=np.float32),
+            )
+            index = {"hr": hr, "entries": entries_kept, "layer_of": layer_of}
+        self._hybrid_cache = (key, index)
+        return index
+
+    def _retrieve_hybrid(self, query: str, query_emb: np.ndarray, top_k: int) -> list[dict]:
+        """Caminho híbrido do retrieve (exp010): BM25+vetorial+RRF, SEM MMR.
+
+        Mesmo contrato do retrieve cosine: retorna final_top (dicts de entry +
+        ranking_score/ranking_breakdown) e preserva os efeitos do caminho atual:
+        acessos++/ultimo_acesso nas entries episódicas retornadas (com save
+        oportunista, como episodic.retrieve), telemetria pareto, M.retrieval_score,
+        retrieval_monitor e contradiction flagging.
+
+        NOTA de escala: ranking_score aqui é RRF (~0.016 máx), não cosine —
+        consumidores de exibição/telemetria veem a escala nova enquanto a flag
+        estiver ligada (documentado no commit).
+        """
+        from .config import HYBRID_MIN_SCORE
+
+        index = self._hybrid_index()
+        if not index:
+            return []
+
+        res = index["hr"].search(
+            query, query_emb,
+            top_k=top_k, min_score=HYBRID_MIN_SCORE,   # escala RRF, NÃO 0.20
+            method="rrf", mmr=False,                    # exp010: MMR piora aqui
+        )
+
+        agora = _now()
+        final_top: list[dict] = []
+        touched_episodic = False
+        for pos, i in enumerate(res.indices):
+            if i >= len(index["entries"]):
+                continue
+            entry = index["entries"][i]
+            if index["layer_of"][i] == "episodic":
+                entry["acessos"]      = entry.get("acessos", 0) + 1
+                entry["ultimo_acesso"] = agora
+                touched_episodic = True
+            final_top.append({
+                **entry,
+                "ranking_score": res.scores[pos] if pos < len(res.scores) else 0.0,
+                "ranking_breakdown": {
+                    "method": "rrf",
+                    "bm25":   res.bm25_scores[pos] if pos < len(res.bm25_scores) else 0.0,
+                    "vec":    res.vector_scores[pos] if pos < len(res.vector_scores) else 0.0,
+                },
+            })
+
+        # save oportunista — mesma semântica do episodic.retrieve (memory.py:879)
+        if touched_episodic:
+            ep = self._active_view().episodic
+            if getattr(ep, "_dirty", False):
+                try:
+                    ep.save()
+                except Exception:
+                    pass
+
+        for r in final_top:
+            M.retrieval_score(r["ranking_score"])
+
+        # telemetria pareto (paridade com episodic.retrieve)
+        try:
+            from .runtime.pareto_store import emit_memory_accessed
+            emit_memory_accessed(
+                session_id=str(getattr(self, "session_id", "unknown")),
+                n_returned=len(final_top),
+                top_score=final_top[0].get("ranking_score", 0.0) if final_top else 0.0,
+                scope=self._active_scope,
+            )
+        except Exception:
+            pass
+
+        # P2: retrieval monitor (paridade)
+        try:
+            from .runtime.retrieval_monitor import get_monitor
+            get_monitor().record_turn(
+                top_scores=[r["ranking_score"] for r in final_top],
+                result_ids=[r.get("id", "") for r in final_top],
+            )
+        except Exception:
+            pass
+
+        # P3: contradiction flagging (paridade)
+        if len(final_top) >= 2:
+            try:
+                from .runtime.contradiction_flagger import get_flagger
+                get_flagger().scan_results(final_top)
+            except Exception:
+                pass
 
         return final_top
 

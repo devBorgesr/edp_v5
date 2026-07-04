@@ -210,8 +210,6 @@ class HybridRetriever:
         # ── MMR reranking ──────────────────────────────────────────────────────
         if mmr and len(idx_list) > 1:
             idx_list = self._mmr_rerank(idx_list, query_emb, mmr_lambda, top_k)
-            sc_list  = [fused[idx_list.index(i)] if i in idx_list else 0.0
-                        for i in idx_list]
             # recalcula scores na nova ordem
             sc_list = [
                 next((s for ii, s in fused if ii == i), 0.0)
