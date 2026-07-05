@@ -11,12 +11,28 @@ e este relatório.
 Registradas em 2026-07-05, antes de qualquer execução dos Testes 1/2:
 
 - **P1:** no store LIMPO, `4c57ed7a` chega aos 3 checkpoints (a contaminação era
-  o fator dominante). → **veredito: PENDENTE (aguarda rodada no store real)**
+  o fator dominante). → **REFUTADA.** Store limpo (0 negações); o alvo passa CP1
+  e CP2 mas **morre no CP3** — `"chave-valor"` ausente do prompt, ids rastreados
+  no prompt final = `[]`. A aposta a priori (contaminação como fator dominante)
+  **caiu**: mesmo sem nenhuma negação, a memória real não chega ao prompt. O
+  gargalo é **estrutural no read-path**, não a contaminação.
 - **P2:** no store CONTAMINADO, o rank BM25 isolado da negação > rank da
-  `4c57ed7a` para a query canônica (eco de query: a negação contém a pergunta
-  verbatim). → **veredito: PENDENTE**
-- **P3:** no store contaminado, `4c57ed7a` passa o CP1 (lineage já provou) e
-  morre no CP2 (seen_ids ou top-k dominado pelas negações). → **veredito: PENDENTE**
+  `4c57ed7a` para a query canônica (eco de query). → **CONFIRMADA.** BM25 puro:
+  as 3 negações nas **posições 1–3** (score ~22) vs. o alvo na **posição 17**
+  (score 8.5); RRF top-5 = **100% lixo do teste**, alvo ausente. O eco de query
+  é real e forte — a negação contém a pergunta verbatim e vence lexicalmente.
+- **P3:** o alvo passa o CP1 e morre no CP2 por **seen_ids**. → **REFUTADA NO
+  MECANISMO.** `seen_ids` **não foi exercitado como causa em nenhum teste**. No
+  store limpo o alvo sobrevive ao CP2 e morre no CP3 (Defeito 1, §6). No
+  contaminado o afogamento é **no próprio top-k do retrieve (CP1)** — as
+  negações dominam antes de qualquer pós-processamento. O checkpoint onde a
+  memória morre depende do store, e em nenhum é o `seen_ids`.
+
+**Síntese honesta:** a hipótese única de trabalho (contaminação → seen_ids) caiu
+por inteiro. Emergiram **dois defeitos independentes e aditivos**: (D1) um
+**estrutural de read-path** que mata a memória mesmo no store limpo (CP3), e (D2)
+o **eco de query no BM25** que afoga a memória no top-k quando há contaminação
+(CP1). D1 é o dominante — atinge toda conversa, com ou sem negações.
 
 ---
 
@@ -85,45 +101,114 @@ scores, posições das negações vs. alvo, veredito por checkpoint).
 
 ---
 
-## §3. TESTE 1 — tabela CP1/CP2/CP3 *(preencher com a saída da rodada real)*
+## §3. TESTE 1 — store LIMPO (`C:\edp_data_fase0`, 0 negações)
 
-| checkpoint | ids presentes | 4c57ed7a? | evidência |
-|---|---|---|---|
-| CP1 `mem.retrieve` | *(rodada)* | ? | scores RRF impressos |
-| CP2 `_retrieve_context` | *(rodada)* | ? | retrieve interno vs blocks vs janela-6 |
-| CP3 prompt final | *(rodada)* | ? | `"chave-valor"` no rendered? rendered_len |
+Contagem de negações na cópia da produção (item **(b)**): **0** — a cópia está
+genuinamente limpa; a produção **não** carrega negações históricas sobre Redis.
+Isto é o que torna o resultado decisivo: qualquer morte da memória aqui é
+**estrutural**, não contaminação.
 
-Contagem de negações na cópia da produção: *(rodada — item (b))*.
+| checkpoint | 4c57ed7a? | evidência |
+|---|---|---|
+| **CP1** `mem.retrieve(top_k=5)` | **VIVO** | o alvo está entre os ids retornados (consistente com o lineage fa6df49e, 5/5 fontes Redis) |
+| **CP2** `_retrieve_context` | **VIVO** | o alvo entra no retrieve interno (:2334) **e** aparece nos `blocks`; `seen_ids` **não** o descartou (não estava na janela-6) |
+| **CP3** `_build_enriched_context` | **MORTO** | `"chave-valor"` **ausente** do prompt renderizado; ids rastreados no prompt final = `[]`. `remaining=1164` tokens → **espaço não faltava** |
 
-## §4. TESTE 2 — rankings *(preencher com a saída da rodada real)*
+**Onde morre:** entre CP2 (está nos `blocks`) e CP3 (não está no prompt). Não é
+budget (sobravam 1164 tokens). É o corte `retrieval[:max_retrieval]` sobre a
+lista `blocks` com metadados na frente — ver §6.
 
-BM25 puro: posições das 3 negações vs. `4c57ed7a` vs. demais conteúdos reais.
-RRF completo: negações no top-5? posições vs. memórias reais.
+## §4. TESTE 2 — store CONTAMINADO (`C:\edp_data_hybrid_test`)
 
-## §5. Tabela final de mecanismos *(após a rodada)*
+**BM25 puro (braço lexical isolado), query canônica:**
+
+| posição | tipo | score BM25 |
+|---|---|---|
+| 1 | NEGAÇÃO | ~22 |
+| 2 | NEGAÇÃO | ~22 |
+| 3 | NEGAÇÃO | ~22 |
+| … | … | … |
+| **17** | **CONTEÚDO-REAL `4c57ed7a`** | **8.5** |
+
+As 3 negações ocupam o pódio: cada uma contém a **pergunta verbatim** ("vamos
+continuar a conversa sobre Redis…"), então o BM25 as pontua ~2.6× acima da
+memória de conteúdo. **Eco de query confirmado.**
+
+**RRF (híbrido completo):** o **top-5 é 100% lixo do teste** (negações/ecos); o
+alvo `4c57ed7a` está **ausente do top-5**. Ou seja: no store contaminado a
+memória real **morre já no CP1** — afogada no top-k do próprio retrieve, antes de
+qualquer pós-processamento. (Contraste com o store limpo, onde o CP1 a preserva.)
+
+## §5. Tabela final de mecanismos
 
 | mecanismo | veredito | evidência |
 |---|---|---|
-| contaminação write-path (negações gravadas) | *(pend.)* | contagem §3(b) + T2 |
-| eco de query (BM25 premia a negação que contém a pergunta) | *(pend.)* | ranking BM25 §4 |
-| seen_ids skip (:2340-2342) | *(pend.)* | CP2 (spy + janela-6) |
-| top-k/recência (negações dominam o top-5) | *(pend.)* | CP1 + RRF §4 |
+| **D1 — read-path: metadados afogam o retrieval no corte `[:max_retrieval]`** | **CONFIRMADO (dominante)** | CP3 mata o alvo no store **limpo** com `remaining=1164`; `retrieval_kept=[249,149,69,116,597]` = 5 metadados, nenhum ≈1181; §6 file:line |
+| **D2 — eco de query (BM25 premia a negação que contém a pergunta)** | **CONFIRMADO** | BM25 negações pos 1–3 (~22) vs alvo pos 17 (8.5); RRF top-5 100% lixo (§4) |
+| contaminação write-path (negações viram memória episódica) | **CONFIRMADO como habilitador de D2** | as negações existem no store contaminado e são o combustível do eco; mas a contaminação **não** é o fator dominante (store limpo também falha — P1 refutada) |
+| **seen_ids skip (:2340-2342)** | **REFUTADO / NÃO-EXERCITADO** | em nenhum teste o alvo morreu por seen_ids; no limpo sobrevive ao CP2, no contaminado morre antes (CP1) |
+| top-k/recência dominado | **CONFIRMADO só no contaminado** | RRF top-5 100% negações (§4); no limpo o top-k preserva o alvo (CP1 vivo) |
 
-## §6. Recomendação preliminar de alvo para a Fase 1 (condicional aos vereditos)
+## §6. Defeito 1 (read-path) — CONFIRMADO NA FONTE + alvos da Fase 1
 
-**Sem implementar nada.** Leitura condicional, declarada antes dos números:
-- Se **P2 confirmar** (eco de query no BM25): o alvo primário é o **write-path**
-  — negações do próprio EDP não deviam virar memória episódica recuperável
-  (filtro de gravação por padrão de recusa, análogo ao filtro_recusa que já
-  existe no READ-path, memory.py:849 — a assimetria é gravar o que já se recusa
-  a ler). O eco de query é estrutural do BM25: enquanto a negação existir no
-  índice, ela contém a pergunta verbatim e vence lexicalmente; limpar na leitura
-  seria enxugar gelo.
-- Se **P1 confirmar** e **P3 apontar seen_ids**: alvo secundário no
-  `_retrieve_context` (o skip da janela imediata não deveria descartar a única
-  cópia de conteúdo do slot de retrieval quando a versão da janela está truncada).
-- Se **P1 REFUTAR** (alvo morre até no store limpo): o problema é estrutural da
-  cadeia CP2/CP3 e a Fase 1 muda de endereço — reavaliar com os ids impressos.
+**Sem implementar nada** — o conserto é o exp011 (pré-registro em preparação).
+Como P1 refutou a aposta da contaminação, a investigação seguiu o Defeito 1
+apontado pelos logs (`retrieval_kept=[249,149,69,116,597]` idêntico em todos os
+testes) e o **confirmou na fonte**.
+
+### D1 — a lista `blocks` é montada com metadados na frente; o corte decapita as memórias
+
+**(a) Ordem de montagem de `blocks` em `_retrieve_context`** (`edp/llm_adapter.py`),
+na ordem exata em que os `append` ocorrem:
+
+| ordem | file:line | o que entra | natureza |
+|---|---|---|---|
+| 1 | `llm_adapter.py:2070` | `[ÂNCORA TEMPORAL]` (data/hora) | metadado |
+| 2 | `llm_adapter.py:2091` | âncora de tarefa em curso | metadado |
+| 3 | `llm_adapter.py:2170` | histórico cronológico compacto | metadado |
+| 4 | `llm_adapter.py:2229` | session summaries `[{tag}]` | resumo |
+| 5 | `llm_adapter.py:2319` | `[bloco atual]` (entries do bloco ativo) | contexto |
+| **6+** | **`llm_adapter.py:2364`** | **`prefix + txt` — as memórias do retrieve (:2334)** | **conteúdo recuperado** |
+
+As memórias recuperadas por similaridade (onde vive a `4c57ed7a`, 1181 chars) são
+**as últimas** a entrar em `blocks` — posição 6 em diante.
+
+**(b) O corte** — `blocks` é passado como `retrieval=` ao manager
+(`llm_adapter.py:2639`: `ctx = mgr.build(..., retrieval=blocks, ...)`), e o
+manager aplica, em `edp/runtime/context_window_manager.py:305`:
+
+```python
+for item in retrieval[:self.max_retrieval]:   # max_retrieval=5 (:203 default, :245)
+```
+
+`retrieval[:5]` sobre a lista mista pega **exatamente os 5 metadados das posições
+1–5 e corta antes de qualquer memória recuperada (posição 6+)**. Prova numérica: a
+assinatura `retrieval_kept=[249,149,69,116,597]` são os 5 tamanhos de metadados
+(âncora temporal, histórico, 3 blocos), **nenhum ≈1181** (o tamanho da memória
+real); e `remaining=1164` mostra que **espaço não faltava** — o corte é
+posicional, não por budget. Isto explica CP3 matando o alvo no store LIMPO (§3).
+
+### Alvos recomendados para a Fase 1 / exp011 (sem implementar)
+
+1. **D1 (dominante, read-path):** o slot `retrieval` do `ContextWindowManager`
+   deveria receber **só as memórias recuperadas**, não a lista `blocks` já
+   poluída com metadados que têm seus próprios slots (âncoras/recentes). Ou o
+   `_retrieve_context` separa metadados de conteúdo, ou o `mgr.build` recebe a
+   lista de retrieval limpa. Como atinge o store limpo, é o que devolve conteúdo
+   a **toda** conversa. Ponto de exp011: medir Recall@k no prompt final
+   (`"chave-valor"` presente) antes/depois, com o mesmo harness da Fase 0.
+2. **D2 (write-path, aditivo):** negações do próprio EDP ("não encontro
+   registro…") não deveriam virar memória episódica recuperável — a assimetria é
+   que o READ-path já filtra recusas de alta confiança (`memory.py:849`,
+   `filtro_recusa`, reusado no índice híbrido) mas o WRITE-path **grava** o que
+   depois se recusa a injetar. Espelhar esse filtro na gravação seca o combustível
+   do eco de query. Secundário: só morde o store contaminado; com D1 corrigido, a
+   memória real volta ao prompt mesmo competindo — mas o eco ainda desperdiça
+   slots, então vale medir.
+
+Ordem sugerida: **D1 primeiro** (dominante, atinge todos), D2 em seguida
+(elimina o afogamento no top-k contaminado). Cada um com seu experimento e
+critério congelado — a Fase 0 fecha aqui.
 
 ## §7. Confirmações de integridade
 
