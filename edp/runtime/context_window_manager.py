@@ -263,10 +263,17 @@ class ContextWindowManager:
         recent_turns:  Optional[List[str]] = None,
         retrieval:     Optional[List[str]] = None,
         all_history:   Optional[List[str]] = None,
+        metadata:      Optional[List[str]] = None,
     ) -> BuiltContext:
+        # metadata (exp011, default None = comportamento IDENTICO ao anterior):
+        # blocos estruturais (ancora temporal, historico, bloco atual) que
+        # entram na MESMA secao do retrieval mas FORA da contagem
+        # [:max_retrieval] — budget-checked, nunca competem por slot com as
+        # memorias recuperadas (Defeito 1 da Fase 0).
         recent_turns = recent_turns or []
         retrieval    = retrieval or []
         all_history  = all_history or []
+        metadata     = metadata or []
 
         budget = ContextBudget(
             total_window=self.window,
@@ -300,6 +307,15 @@ class ContextWindowManager:
                     budget.anchor_tokens += cost
                 else:
                     break
+
+        # ── Nível 2.7 (exp011): metadados estruturais — fora da contagem ──
+        # Sempre incluidos (budget permitindo), na frente da secao, na ordem
+        # recebida. Com metadata=[] (default/flag OFF) este loop e um no-op.
+        for item in metadata:
+            cost = estimate_tokens(item)
+            if budget.remaining >= cost:
+                ctx.retrieval.append(item)
+                budget.retrieval_tokens += cost
 
         # ── Nível 3: retrieval (top-K relevantes) ──
         for item in retrieval[:self.max_retrieval]:

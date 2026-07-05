@@ -2332,6 +2332,10 @@ REGRAS ABSOLUTAS:
 
             # ── Retrieval por similaridade ──────────────────────────────────
             results = self._memory.retrieve(query, top_k=5, min_score=0.20)
+            # exp011: coleta paralela dos blocos de MEMORIA RECUPERADA (mesmos
+            # objetos str de `blocks`) para o split metadados/retrieval no
+            # _build_enriched_context. Bookkeeping puro — nao altera `blocks`.
+            _sim_blocks: list = []
             # PR2: coleta IDs do retrieval por similaridade (exclui janela imediata)
             # para registrar co-ocorrência. Memórias que estão em seen_ids vieram
             # da janela imediata e NÃO contam (D2: excluir janela imediata).
@@ -2361,7 +2365,9 @@ REGRAS ABSOLUTAS:
                     tags.append(status)
 
                 prefix = f"[{', '.join(tags)}] " if tags else ""
-                blocks.append(prefix + txt)
+                _b = prefix + txt
+                blocks.append(_b)
+                _sim_blocks.append(_b)  # exp011: mesmo objeto, split por id()
                 # Debug: registra entrada do retrieval
                 _debug_similarity.append({
                     "id":               eid,
@@ -2414,9 +2420,11 @@ REGRAS ABSOLUTAS:
             except Exception as e:
                 logger.debug("[context_debug] log falhou: %s", e)
 
+            self._last_similarity_blocks = _sim_blocks  # exp011
             return blocks, len(blocks)
         except Exception as e:
             logger.debug("[retrieve_context] erro: %s", e)
+            self._last_similarity_blocks = []  # exp011
             return [], 0
 
     def _build_enriched_context(
@@ -2632,12 +2640,31 @@ REGRAS ABSOLUTAS:
             logger.debug("[ctx] #46 filtro blocks falhou: %s", _e46b)
 
         # Constrói contexto otimizado
+        # ── exp011 (EDP_CTX_SLOTS, default OFF): metadados fora da contagem ──
+        # OFF: chamada IDENTICA a atual (metadata=None e no-op no manager).
+        # ON: separa `blocks` por identidade — memorias recuperadas (coletadas
+        # em _last_similarity_blocks pelo _retrieve_context) vao ao slot
+        # retrieval[:max_retrieval]; o resto (ancora temporal, historico, bloco
+        # atual, summaries) vira `metadata`, sempre incluido (budget-checked).
+        from .config import EDP_CTX_SLOTS as _CTX_SLOTS
+        _meta_blocks = None
+        _retr_blocks = blocks
+        if _CTX_SLOTS:
+            try:
+                _sim = getattr(self, "_last_similarity_blocks", None) or []
+                _sim_ids = {id(b) for b in _sim}
+                if _sim_ids:
+                    _meta_blocks = [b for b in blocks if id(b) not in _sim_ids]
+                    _retr_blocks = [b for b in blocks if id(b) in _sim_ids]
+            except Exception:
+                _meta_blocks, _retr_blocks = None, blocks
         ctx = mgr.build(
             system_prompt=system_prompt.replace("{context}", "").strip(),
             query=query,
             recent_turns=recent_turns,
-            retrieval=blocks,
+            retrieval=_retr_blocks,
             all_history=all_history,
+            metadata=_meta_blocks,
         )
 
         rendered = ctx.to_prompt()
