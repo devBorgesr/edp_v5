@@ -45,6 +45,16 @@ HNSW_M            = int(os.environ.get("EDP_HNSW_M",         "16"))
 # 25%→87.5%, Redis 3/3 no top-5, session_summary 40%→10% do top-5 em queries
 # vagas, guarda (pedidos de resumo) intacta.
 EDP_HYBRID_RETRIEVAL = os.environ.get("EDP_HYBRID_RETRIEVAL", "0") == "1"
+
+# ── Slots de contexto (exp011 / Fase 1, 07/2026) ──────────────────────────────
+# DESLIGADO por padrão (OFF = byte-idêntico ao atual). Ligado, os metadados
+# estruturais (âncora temporal, histórico, bloco atual, summaries) saem da
+# CONTAGEM retrieval[:max_retrieval] do ContextWindowManager — o corte passa a
+# valer só para memórias recuperadas por similaridade. Defeito 1 da Fase 0:
+# blocks tinha 5 metadados na frente (llm_adapter:2070-2319) e as memórias em
+# 6+ (:2364); manager:305 cortava [:5] e decapitava todas as memórias mesmo
+# com remaining=1164 tokens.
+EDP_CTX_SLOTS = os.environ.get("EDP_CTX_SLOTS", "0") == "1"
 # min_score do caminho híbrido: RRF produz scores ~1/(60+rank) (máx ≈0.016).
 # O RETRIEVAL_MIN_SIM (0.20, escala cosine) zeraria TUDO — escala própria.
 HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))
