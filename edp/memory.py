@@ -714,6 +714,10 @@ class EpisodicMemory:
             # Backward-compat: campo ausente → False → multiplicador 1.0.
             anchor_boost = 1.20 if e.get("is_epistemic_anchor") else 1.0
 
+            # exp012 (EDP_WRITE_PROVENANCE): peso-piso p/ answer_class=not_found
+            from .config import EDP_WRITE_PROVENANCE as _WP, NOT_FOUND_FLOOR as _NF
+            nf_floor = _NF if (_WP and e.get("answer_class") == "not_found") else 1.0
+
             # ── Commit 3c.β-cal (Renato, 04/06/2026): session_boost calibrado ─
             # Lógica de 3 ramos baseada em session_marker:
             #   1. Marker == atual              → boost ×1.60 (sessão atual)
@@ -738,7 +742,8 @@ class EpisodicMemory:
             ab   = access_boost(e["acessos"])
             rank_score = round(
                 float(sim) * d * prio * ab
-                * epi_multiplier * src_weight * dom_penalty * anchor_boost * session_boost,
+                * epi_multiplier * src_weight * dom_penalty * anchor_boost * session_boost
+                * nf_floor,
                 4,
             )
             if rank_score >= min_score:
@@ -1722,6 +1727,11 @@ class MemoryStore:
                     continue
                 # governança dura: nunca retornáveis ficam fora do índice
                 if e.get("epistemic_status") in ("contradicted", "quarantined"):
+                    continue
+                # exp012: not_found fora do índice híbrido (piso operacional;
+                # a entry NÃO é deletada — segue no store e no cosine com piso)
+                from .config import EDP_WRITE_PROVENANCE as _WP12
+                if _WP12 and e.get("answer_class") == "not_found":
                     continue
                 # filtro_recusa (Dívida #49): recusa alta-confiança não é injetada
                 if _recusa is not None:

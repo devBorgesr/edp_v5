@@ -2667,6 +2667,19 @@ REGRAS ABSOLUTAS:
             metadata=_meta_blocks,
         )
 
+        # exp012 Camada A (fonte): memórias de conteúdo que CHEGARAM ao prompt.
+        # Exato por id() via _last_similarity_blocks (exp011); com CTX_SLOTS
+        # OFF a lista é mista e memórias raramente sobrevivem (Defeito 1) —
+        # sinal documentadamente aproximado nesse modo.
+        try:
+            _simset = {id(b) for b in (getattr(self, "_last_similarity_blocks", None) or [])}
+            self._last_ctx_provenance = {
+                "n_mem_prompt": sum(1 for b in ctx.retrieval if id(b) in _simset),
+                "retrieval_tokens": (ctx.budget.retrieval_tokens if ctx.budget else None),
+            }
+        except Exception:
+            self._last_ctx_provenance = None
+
         rendered = ctx.to_prompt()
         meta     = {
             "memory_hits":   hits,
