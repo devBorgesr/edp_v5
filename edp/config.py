@@ -44,7 +44,13 @@ HNSW_M            = int(os.environ.get("EDP_HNSW_M",         "16"))
 # store). Evidência (exp010, H1 confirmada sobre dados reais): Recall@5
 # 25%→87.5%, Redis 3/3 no top-5, session_summary 40%→10% do top-5 em queries
 # vagas, guarda (pedidos de resumo) intacta.
-EDP_HYBRID_RETRIEVAL = os.environ.get("EDP_HYBRID_RETRIEVAL", "0") == "1"
+# PROMOVIDO A DEFAULT ON (Fase 1, 08/07/2026) apos suite de regressao 3/3
+# (R1 CP3 presente, R2 Recall 2/3, R3 SS 13.3%). Para DESLIGAR (reverter ao
+# cosine antigo): EDP_HYBRID_RETRIEVAL=0 — a env var e a rede de seguranca.
+# DIVIDA ASSUMIDA: ranking_score agora e escala RRF (~0.016) em vez de cosine
+# (~0.4); dashboards/telemetria Gauss/retrieval_score veem a escala nova. Nao
+# quebra funcao; reajuste dos paineis e ciclo separado. Reversivel pela env.
+EDP_HYBRID_RETRIEVAL = os.environ.get("EDP_HYBRID_RETRIEVAL", "1") == "1"
 
 # ── Slots de contexto (exp011 / Fase 1, 07/2026) ──────────────────────────────
 # DESLIGADO por padrão (OFF = byte-idêntico ao atual). Ligado, os metadados
@@ -54,7 +60,9 @@ EDP_HYBRID_RETRIEVAL = os.environ.get("EDP_HYBRID_RETRIEVAL", "0") == "1"
 # blocks tinha 5 metadados na frente (llm_adapter:2070-2319) e as memórias em
 # 6+ (:2364); manager:305 cortava [:5] e decapitava todas as memórias mesmo
 # com remaining=1164 tokens.
-EDP_CTX_SLOTS = os.environ.get("EDP_CTX_SLOTS", "0") == "1"
+# PROMOVIDO A DEFAULT ON (Fase 1, 08/07/2026) junto com o hibrido, apos a
+# suite 3/3. Para DESLIGAR (metadados voltam a contagem): EDP_CTX_SLOTS=0.
+EDP_CTX_SLOTS = os.environ.get("EDP_CTX_SLOTS", "1") == "1"
 # min_score do caminho híbrido: RRF produz scores ~1/(60+rank) (máx ≈0.016).
 # O RETRIEVAL_MIN_SIM (0.20, escala cosine) zeraria TUDO — escala própria.
 HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))
