@@ -16,8 +16,10 @@ import hashlib, os, shutil, subprocess, sys, tempfile
 def die(m): print(f"[ERRO] {m}"); sys.exit(2)
 base = os.environ.get("EDP_BASE_DIR") or die("EDP_BASE_DIR não setado (cópia fase0)")
 if os.path.basename(base.rstrip("/\\")).lower()=="edp_data": die("aponte para CÓPIA, não produção")
-assert os.environ.get("EDP_HYBRID_RETRIEVAL")=="1" and os.environ.get("EDP_CTX_SLOTS")=="1", \
-    "ligue AMBAS: EDP_HYBRID_RETRIEVAL=1 e EDP_CTX_SLOTS=1 (a suite testa os três JUNTOS)"
+from edp.config import EDP_HYBRID_RETRIEVAL as _H, EDP_CTX_SLOTS as _C
+assert _H and _C, \
+    "AMBAS precisam estar efetivamente ON (a suite testa os três JUNTOS). " \
+    "Pós-promoção o default já é ON; se falhou, alguma env var está =0."
 sid=os.environ.get("EDP_SESSION_ID","default"); sd=os.path.join(base,"sessions",f"{sid}_cognitive")
 
 def fp(p):
