@@ -22,3 +22,8 @@ VENENO_NEGACAO (nega memória/registro/contexto pedido — negação honesta ENT
 - PR-4: nenhum sinal isolado atinge 100% — a regra final será composta.
 
 Integridade: zero regra, zero freeze, zero diff no hot path, zero API, produção intocada. PARADO para rotulação humana.
+
+## ADENDO (pré-rotulação) — regras congeladas da matriz + PR-5
+REGRAS (congeladas ANTES de qualquer rótulo visto): R1 `negacao_textual` | R2 `kw_continuidade` | R3 `negacao_textual and kw_continuidade` | R4 `negacao_textual or kw_continuidade`.
+- **PR-5:** no quadrante neg=F ∧ kw=T, confabulação e continuação-bem-sucedida são inseparáveis sem proveniência; o backlog pagará FPs em continuações (aceitável pelo custo assimétrico); entradas novas usarão `kw AND n_mem_prompt==0`.
+Matriz roda no `avaliador_matriz.py` v2: dedup por conteúdo (hash de Q+A normalizados; gt_extract/fase0/hybrid_test compartilham população), duplicatas com rótulos DIVERGENTES listadas e EXCLUÍDAS (fronteira instável = informação), contagens N bruto/pós-dedup/excluído/AMBIGUO.
