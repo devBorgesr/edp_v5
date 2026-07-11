@@ -26,6 +26,19 @@ SINT = [("sint_neg_%d"%i,q,a) for i,(q,a) in enumerate([
  ("retomando o plano de migração","Perfeito — retomando: tínhamos definido as 3 etapas na conversa passada..."),
  ("voltando ao seu projeto de drone","Sim! Da última vez avançamos no controle PID do seu drone; continuando...")])]
 
+LINEAGE_TOL=120
+def lineage_lookup(idx_sorted, ts):
+    """registro mais proximo em ±LINEAGE_TOL s; None se nenhum (join por chave
+    direta NAO existe — P4; igualdade exata de segundo era degenerada)."""
+    if not idx_sorted or not ts: return None
+    import bisect
+    ks=[k for k,_ in idx_sorted]; i=bisect.bisect_left(ks,ts)
+    best=None
+    for j in (i-1,i):
+        if 0<=j<len(idx_sorted) and abs(idx_sorted[j][0]-ts)<=LINEAGE_TOL:
+            if best is None or abs(idx_sorted[j][0]-ts)<abs(best[0]-ts): best=idx_sorted[j]
+    return best[1] if best else None
+
 def lineage_idx(base):
     idx={}
     for r,_d,fs in os.walk(os.path.join(base,"lineage")) if os.path.isdir(os.path.join(base,"lineage")) else []:
@@ -35,14 +48,14 @@ def lineage_idx(base):
                     try: d=json.loads(ln); idx[round(d.get("timestamp",0))]=d
                     except Exception: pass
             except Exception: pass
-    return idx
+    return sorted(idx.items())
 
 rot,feat=[],[]
 def add(sid,store,origem,q,a,e,lin):
     rot.append(dict(id=sid,store=store,origem=origem,query=q.replace("\n"," ")[:500],
                     resposta=a.replace("\n"," ")[:1500],rotulo="",observacao=""))
     kws=[k for k in KW if k in q.lower()]
-    ln=lin.get(round(e.get("timestamp",0) or 0)) if e else None
+    ln=lineage_lookup(lin, e.get("timestamp") or 0) if e else None
     src=(ln or {}).get("source_entries") or []
     prov=(e or {}).get("ctx_provenance") or {}
     feat.append(dict(id=sid,n_mem_prompt=prov.get("n_mem_prompt","AUSENTE"),
@@ -57,7 +70,7 @@ def add(sid,store,origem,q,a,e,lin):
 censo={}
 for base in sys.argv[1:]:
     assert os.path.basename(base.rstrip("/\\")).lower()!="edp_data","PRODUCAO E SAGRADA"
-    lin=lineage_idx(base); tot=cand=0; store=os.path.basename(base)
+    lin=lineage_idx(base); tot=cand=0; por_gat={}; store=os.path.basename(base)
     resto=[]
     for scope in ("cognitive","sprint"):
         root=os.path.join(base,"sessions")
@@ -73,15 +86,22 @@ for base in sys.argv[1:]:
                     if not m: continue
                     tot+=1; q,a=m.group(1),m.group(2)
                     i8=str(e.get("id"))[:8]
-                    ln0=lin.get(round(e.get("timestamp",0) or 0))
-                    gat=(bool(NEG.search(a)) or (ln0 is None or (ln0 or {}).get("n_sources")==0)
-                         or any(k in q.lower() for k in KW) or i8 in IDS_LIXO or i8 in IDS_LEG
-                         or any(nd in (e.get("text") or "").lower() for nd in NEEDLES))
-                    if gat: cand+=1; add(i8,store,"real",q,a,e,lin)
+                    ln0=lineage_lookup(lin, e.get("timestamp") or 0)
+                    # gatilhos FORTES (v2 pos-censo-degenerado): lineage-baixo
+                    # NAO qualifica (ausente e o estado normal do backlog — P4);
+                    # entra so como FEATURE no gt_features.csv.
+                    g_neg=bool(NEG.search(a))
+                    g_kw=any(k in q.lower() for k in KW)
+                    g_id=(i8 in IDS_LIXO or i8 in IDS_LEG
+                          or any(nd in (e.get("text") or "").lower() for nd in NEEDLES))
+                    g_lin=(ln0 is None or (ln0 or {}).get("n_sources")==0)  # feature/diagnostico
+                    for k2,v2 in (("neg",g_neg),("kw",g_kw),("id",g_id),("lineage_baixo(nao-gatilho)",g_lin)):
+                        por_gat[k2]=por_gat.get(k2,0)+int(v2)
+                    if g_neg or g_kw or g_id: cand+=1; add(i8,store,"real",q,a,e,lin)
                     else: resto.append((i8,q,a,e))
     for i8,q,a,e in random.sample(resto,min(20,len(resto))):
         add(i8,store,"real",q,a,e,lin)
-    censo[store]=dict(qa_total=tot,candidatas=cand,controles=min(20,len(resto)))
+    censo[store]=dict(qa_total=tot,candidatas=cand,controles=min(20,len(resto)),por_gatilho=por_gat)
 for sid,q,a in SINT: add(sid,"sintetico","sintetico",q,a,None,{})
 
 with open("gt_rotulacao.csv","w",newline="",encoding="utf-8") as f:
