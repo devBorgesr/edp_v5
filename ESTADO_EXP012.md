@@ -36,3 +36,13 @@ Desenhar o **segundo sinal determinístico** de "negação de recuperação":
 ## Integridade
 Sem congelamento, sem PR, sem merge. Produção intocada. Calibração foi
 somente-leitura sobre cópia.
+
+## Fase 3 (rebase pós-promoção) — 12/07/2026
+Regra R4 (negacao_textual OR kw_continuidade) CONGELADA em 2 estratos (matriz
+fase 2: P=0.90 R=0.69 F1=0.78, zero FP em LEGITIMO_META; estrato B usa
+n_mem_prompt, resolvendo o quadrante inseparável da PR-5). Achado: branch
+nasceu com EDP_CTX_SLOTS="0" (pré-PR#4) — nesse regime n_mem_prompt mente
+(Defeito 1), colapsando a Camada B em silêncio. Rebase corrige a causa
+(defaults promovidos: HYBRID=1, CTX_SLOTS=1); guarda em `classify()` corrige
+a classe do erro (descarta n_mem_prompt se CTX_SLOTS OFF). Pendente: rodada
+Daniel/Windows contra stores + `push --force-with-lease` (histórico reescrito).

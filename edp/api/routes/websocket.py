@@ -1223,7 +1223,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             _prov = getattr(runtime, "_last_ctx_provenance", None) if runtime_ok else None
                             if EDP_WRITE_PROVENANCE and _prov and isinstance(_entry, dict):
                                 from ...write_provenance import stamp_and_classify
-                                stamp_and_classify(memory, _entry, _prov, full_text)
+                                stamp_and_classify(memory, _entry, _prov, msg_capped, full_text)
                         except Exception as _e12:
                             logger.debug("[WS] exp012 provenance falhou (não-fatal): %s", _e12)
                         if hasattr(memory.episodic, "flush"):

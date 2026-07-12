@@ -27,3 +27,26 @@ Integridade: zero regra, zero freeze, zero diff no hot path, zero API, produçã
 REGRAS (congeladas ANTES de qualquer rótulo visto): R1 `negacao_textual` | R2 `kw_continuidade` | R3 `negacao_textual and kw_continuidade` | R4 `negacao_textual or kw_continuidade`.
 - **PR-5:** no quadrante neg=F ∧ kw=T, confabulação e continuação-bem-sucedida são inseparáveis sem proveniência; o backlog pagará FPs em continuações (aceitável pelo custo assimétrico); entradas novas usarão `kw AND n_mem_prompt==0`.
 Matriz roda no `avaliador_matriz.py` v2: dedup por conteúdo (hash de Q+A normalizados; gt_extract/fase0/hybrid_test compartilham população), duplicatas com rótulos DIVERGENTES listadas e EXCLUÍDAS (fronteira instável = informação), contagens N bruto/pós-dedup/excluído/AMBIGUO.
+
+## CORREÇÃO PÓS-ROTULAÇÃO (pré-matriz fase 2)
+`sint_meta_0/1/2` rotulados por engano como VENENO_NEGACAO → corrigidos para **LEGITIMO_META**. Motivo: negam objeto EXTERNO (arquivo/anexo/log), não a própria memória episódica — são os controles de fronteira negativa do conjunto. Quarentená-los premiaria exatamente o comportamento que a regra deve evitar. `observacao` de `96a26e9b` (Java Records): verificada — já estava vazia no arquivo corrente (sem conteúdo cruzado de outro caso a remover); nenhuma edição necessária nesse campo.
+
+## FASE 2 — MATRIZ (pós-correção, N=193 bruto / 97 pós-dedup, 0 inconsistências, 0 AMBIGUO)
+
+| Regra | TP | FP | FN | TN | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|---|
+| R1 `negacao_textual` | 12 | 0 | 14 | 71 | 1.00 | 0.46 | 0.63 |
+| R2 `kw_continuidade` | 15 | 2 | 11 | 69 | 0.88 | 0.58 | 0.70 |
+| R3 `negacao_textual and kw_continuidade` | 9 | 0 | 17 | 71 | 1.00 | 0.35 | 0.51 |
+| R4 `negacao_textual or kw_continuidade` | 18 | 2 | 8 | 69 | 0.90 | 0.69 | 0.78 |
+
+Recorte fino classe×origem (ok,erro): LEGITIMO_META real=[7,0] sintetico=[3,0] em **todas as 4 regras** — os controles de fronteira corrigidos não geram FP em nenhuma variante, validando a correção.
+
+Quadrante de discordância R1×R2 (11 casos): 8 em neg=F∧kw=T (5 VENENO_CONFABULACAO, 2 LEGITIMO continuação-bem-sucedida, 1 VENENO_NEGACAO) — confirma PR-5 (confabulação e continuação inseparáveis por kw isolado). 3 em neg=T∧kw=F.
+
+**Veredito PR-1..PR-5:**
+- PR-1: NÃO TESTÁVEL — F2 (auto-declaração) foi descartado na Parte 1 (P2), não existe em `gt_features.csv`.
+- PR-2: REFUTADA — recall de kw_continuidade em ambos os venenos é moderado (44–71% por classe/origem, não "alto"), e o FP-em-LEGITIMO_META previsto não ocorreu (0 erros nas 10 linhas META).
+- PR-3: CONFIRMADA (com ressalva) — a fusão OU eleva recall de confabulação de 0% (AND) para 71%, com precisão ainda aceitável (0.90); estratificação por proveniência baixa (`n_mem_prompt`) não foi rodada nesta passada.
+- PR-4: CONFIRMADA — nenhum sinal isolado (R1, R2) atinge performance perfeita; a regra composta (R4/OR) supera ambos em F1.
+- PR-5: CONFIRMADA — no quadrante neg=F∧kw=T, confabulação e continuação legítima aparecem misturadas (5 vs 2), e os 2 FP de R2/R4 são exatamente continuações legítimas.

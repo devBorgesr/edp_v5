@@ -10,7 +10,7 @@ construção). Coluna extra mostra recusa_alta cru p/ diagnóstico.
 """
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from edp.write_provenance import classify, eh_recusa_alta
+from edp.write_provenance import classify_v1_refutada as classify, eh_recusa_alta
 
 LIXO  = ["9738c6f9","b4dbb2b1","b9cfb9c5","757b3aa2","7683deb4","3d34504c"]
 LEGIT = ["4c57ed7a","0c78fa08","7c7d6ce9"]
