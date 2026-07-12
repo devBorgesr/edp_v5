@@ -47,8 +47,9 @@ restore()
 f0p="fase0_checkpoints.py"
 if not os.path.exists(f0p):
     src=subprocess.run(["git","show","origin/fase0/memoria-vs-negacoes:fase0_checkpoints.py"],
-                       capture_output=True,text=True)
-    if src.returncode: die("fase0_checkpoints.py ausente e não extraível da branch fase0")
+                       capture_output=True,text=True,encoding="utf-8",errors="replace")
+    if src.returncode or src.stdout is None:
+        die(f"subprocess falhou (git show fase0_checkpoints.py): {src.stderr}")
     f0p=os.path.join(tmp,"fase0_checkpoints.py"); open(f0p,"w",encoding="utf-8").write(src.stdout)
 sys.path.insert(0,os.path.dirname(os.path.abspath(f0p)) or "."); sys.path.insert(0,".")
 import importlib; f0=importlib.import_module("fase0_checkpoints")
