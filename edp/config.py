@@ -79,6 +79,21 @@ NOT_FOUND_FLOOR = 0.05
 # O RETRIEVAL_MIN_SIM (0.20, escala cosine) zeraria TUDO — escala própria.
 HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))
 
+# ── exp015 (strong provenance no template): default OFF ───────────────────────
+# DESLIGADO por padrao (OFF = render byte-identico ao atual, sem cabecalho).
+# H15: no store contaminado, o EDP leu uma memoria verdadeira como TEXTO puro
+# (sem sinal de existencia fisica) e a desqualificou ("eu a inventei"). Ligada,
+# cada memoria do bloco de retrieval por similaridade (llm_adapter.py, loop de
+# tags em _retrieve_context) ganha um cabecalho [MEMORIA REGISTRADA · id=... ·
+# gravada ... · N chars · fonte=... · embedding=...] ANTES do texto, e o
+# system prompt ganha uma linha dizendo que memorias marcadas assim sao
+# registros auditaveis, nao invencao do modelo. So renderiza campos
+# CONFIRMADOS na entry (memory.py:344-373): id, timestamp, source_type,
+# embedding_version. NAO inclui lineage/n_sources — esse campo vive em
+# runtime/lineage.py por response_id, fora do escopo da entry neste ponto.
+# SO renderizacao — nao toca retrieval/ranking/selecao.
+EDP_STRONG_PROVENANCE = os.environ.get("EDP_STRONG_PROVENANCE", "0") == "1"
+
 # ── Memória ────────────────────────────────────────────────────────────────────
 DECAY_LAMBDA      = float(os.environ.get("EDP_DECAY_LAMBDA",  "0.1"))
 MAX_MEMORY        = int(os.environ.get("EDP_MAX_MEMORY",       "500"))

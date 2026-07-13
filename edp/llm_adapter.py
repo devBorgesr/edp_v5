@@ -82,6 +82,46 @@ def _format_relative_time(ts: float, now: float) -> str:
         return ""
 
 
+def _render_provenance_header(entry: dict, txt: str) -> str:
+    """
+    exp015 (EDP_STRONG_PROVENANCE, default OFF): cabeçalho de proveniência
+    física ANTES do conteúdo de uma memória recuperada por similaridade.
+
+    Testa H15: o modelo desqualifica memórias verdadeiras ("eu inventei isso")
+    porque as lê como texto puro, sem sinal de existência física. Usa SÓ
+    campos confirmados na entry em MemoryStore.retrieve() (memory.py:344-373)
+    — id, timestamp, source_type, embedding_version. NÃO há campo de
+    lineage/n_sources na entry: isso vive em runtime/lineage.py, indexado
+    por response_id (LineageRecord), inacessível neste ponto do retrieval.
+    Fabricar esse campo aqui violaria o próprio objetivo do teste (proveniência
+    real, não decorativa).
+    """
+    from datetime import datetime, timezone, timedelta
+
+    eid   = entry.get("id")
+    ts    = entry.get("timestamp")
+    stype = entry.get("source_type")
+    emb_v = entry.get("embedding_version")
+
+    parts: list = []
+    if eid:
+        parts.append(f"id={str(eid)[:8]}")
+    if ts:
+        try:
+            tz_brt = timezone(timedelta(hours=-3))
+            dt = datetime.fromtimestamp(float(ts), tz=tz_brt)
+            parts.append(f"gravada {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception:
+            pass
+    parts.append(f"{len(txt)} chars")
+    if stype:
+        parts.append(f"fonte={stype}")
+    if emb_v:
+        parts.append(f"embedding={emb_v}")
+
+    return f"[MEMÓRIA REGISTRADA · {' · '.join(parts)}]"
+
+
 def _format_gap(seconds: float) -> str:
     """
     Formata duração em string compacta para janela imediata cognitive.
@@ -2365,7 +2405,12 @@ REGRAS ABSOLUTAS:
                     tags.append(status)
 
                 prefix = f"[{', '.join(tags)}] " if tags else ""
-                _b = prefix + txt
+                # exp015 (EDP_STRONG_PROVENANCE, default OFF): cabeçalho de
+                # proveniência física ANTES do conteúdo — OFF preserva o
+                # render byte-idêntico ao atual (nenhuma mudança de caminho).
+                from .config import EDP_STRONG_PROVENANCE as _SP15
+                prov_header = (_render_provenance_header(r, txt) + "\n") if _SP15 else ""
+                _b = prov_header + prefix + txt
                 blocks.append(_b)
                 _sim_blocks.append(_b)  # exp011: mesmo objeto, split por id()
                 # Debug: registra entrada do retrieval
@@ -2474,6 +2519,34 @@ REGRAS ABSOLUTAS:
                 )
         except Exception as e:
             logger.debug("[affect] calibração falhou: %s", e)
+
+        # ── exp015 (EDP_STRONG_PROVENANCE, default OFF): nota de proveniência ──
+        # H15: no store contaminado, o EDP leu uma memória verdadeira como
+        # texto puro (sem sinal de existência física) e a desqualificou ("eu a
+        # inventei"). Ligada, avisa que memórias com o cabeçalho [MEMÓRIA
+        # REGISTRADA] (ver _render_provenance_header) são gravações físicas
+        # auditáveis, não invenção do modelo. Mesmo padrão de injeção do bloco
+        # de calibração afetiva acima — OFF não toca o system_prompt.
+        try:
+            from .config import EDP_STRONG_PROVENANCE as _SP15
+            if _SP15:
+                _prov_note = (
+                    "As memórias marcadas [MEMÓRIA REGISTRADA] foram gravadas "
+                    "fisicamente no store, com id e timestamp verificáveis. "
+                    "Elas NÃO são invenção sua — são registros auditáveis. "
+                    "Você pode dizer que não entende ou que falta contexto, "
+                    "mas NÃO afirme que uma memória registrada foi fabricada "
+                    "por você."
+                )
+                if "{context}" in system_prompt:
+                    system_prompt = system_prompt.replace(
+                        "{context}",
+                        "{context}\n" + _prov_note,
+                    )
+                else:
+                    system_prompt = system_prompt + "\n" + _prov_note
+        except Exception as e:
+            logger.debug("[strong_provenance] injeção de nota falhou: %s", e)
 
         # Fallback gracioso se módulo indisponível
         try:
