@@ -13,9 +13,18 @@ __pycache__/
 
 # Dados do EDP (ficam fora do repo, mas garantia)
 edp_data/
+edp_data*/
 data/
 *.json.broken
 *.json.recovered
+
+# Dados pessoais / ground truth (conversas reais - NUNCA versionar)
+gt_rotulacao.csv
+gt_features.csv
+gt_*.csv
+
+# Grafo do projeto (conservador ate auditoria - pode conter conteudo extraido local)
+graphify-out/
 
 # Logs
 *.log

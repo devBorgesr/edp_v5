@@ -63,6 +63,18 @@ EDP_HYBRID_RETRIEVAL = os.environ.get("EDP_HYBRID_RETRIEVAL", "1") == "1"
 # PROMOVIDO A DEFAULT ON (Fase 1, 08/07/2026) junto com o hibrido, apos a
 # suite 3/3. Para DESLIGAR (metadados voltam a contagem): EDP_CTX_SLOTS=0.
 EDP_CTX_SLOTS = os.environ.get("EDP_CTX_SLOTS", "1") == "1"
+
+# ── exp012 (write-path): proveniência na gravação — default OFF ───────────────
+# Camada A: carimbo {n_mem_prompt, retrieval_tokens} na memória gravada.
+# Camada B: answer_class=not_found + peso-piso quando proveniência indica falha
+# de recuperação. Sinal EXATO só com EDP_CTX_SLOTS=1 (default pós-promoção; se
+# alguém sobrescrever para 0 em runtime, o sinal volta a ser lista mista — a
+# guarda de defesa de write_provenance.classify() cobre esse caso, descartando
+# n_mem_prompt e caindo no estrato A/backlog). Regra B CONGELADA na Fase 3
+# (matriz fase 2, avaliador_matriz.py): R4 (negacao_textual OR kw_continuidade),
+# estratificada por n_mem_prompt quando exato — ver write_provenance.py.
+EDP_WRITE_PROVENANCE = os.environ.get("EDP_WRITE_PROVENANCE", "0") == "1"
+NOT_FOUND_FLOOR = 0.05
 # min_score do caminho híbrido: RRF produz scores ~1/(60+rank) (máx ≈0.016).
 # O RETRIEVAL_MIN_SIM (0.20, escala cosine) zeraria TUDO — escala própria.
 HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))

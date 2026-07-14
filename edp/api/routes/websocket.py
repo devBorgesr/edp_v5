@@ -1207,7 +1207,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             source = "user"
                             if runtime_ok and runtime._llm_config:
                                 source = f"llm:{runtime._llm_config.model}"
-                        memory.add(
+                        _entry = memory.add(
                             combined,
                             score=0.65,
                             prioridade="media",
@@ -1215,6 +1215,17 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             confidence=0.65,
                             epistemic_status="hypothesis",
                         )
+                        # ── exp012 (EDP_WRITE_PROVENANCE, default OFF) ─────
+                        # Default DEFENSIVO: sem runtime/atributo/proveniência,
+                        # nada muda (a Camada B nunca quebra a gravação).
+                        try:
+                            from ...config import EDP_WRITE_PROVENANCE
+                            _prov = getattr(runtime, "_last_ctx_provenance", None) if runtime_ok else None
+                            if EDP_WRITE_PROVENANCE and _prov and isinstance(_entry, dict):
+                                from ...write_provenance import stamp_and_classify
+                                stamp_and_classify(memory, _entry, _prov, msg_capped, full_text)
+                        except Exception as _e12:
+                            logger.debug("[WS] exp012 provenance falhou (não-fatal): %s", _e12)
                         if hasattr(memory.episodic, "flush"):
                             memory.episodic.flush()
                     except TypeError:
