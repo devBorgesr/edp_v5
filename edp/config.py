@@ -75,6 +75,13 @@ EDP_CTX_SLOTS = os.environ.get("EDP_CTX_SLOTS", "1") == "1"
 # estratificada por n_mem_prompt quando exato — ver write_provenance.py.
 EDP_WRITE_PROVENANCE = os.environ.get("EDP_WRITE_PROVENANCE", "0") == "1"
 NOT_FOUND_FLOOR = 0.05
+# exp016 (3ª classe de veneno — desqualificação auto-referente, RELATORIO_
+# ETAPA0_EXP016.md P1): mesmo piso/exclusão do exp012, gate estendido de
+# comparação pontual (== "not_found") para pertencimento a este conjunto.
+# "disqualification" é INCONDICIONAL (decisão do pesquisador, 15/07/2026) —
+# não passa pelos estratos A/B de n_mem_prompt, que continuam valendo só
+# para NEG/KW (write_provenance.classify()).
+TOXIC_ANSWER_CLASSES = {"not_found", "disqualification"}
 # min_score do caminho híbrido: RRF produz scores ~1/(60+rank) (máx ≈0.016).
 # O RETRIEVAL_MIN_SIM (0.20, escala cosine) zeraria TUDO — escala própria.
 HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))

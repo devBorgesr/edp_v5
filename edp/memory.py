@@ -714,9 +714,14 @@ class EpisodicMemory:
             # Backward-compat: campo ausente → False → multiplicador 1.0.
             anchor_boost = 1.20 if e.get("is_epistemic_anchor") else 1.0
 
-            # exp012 (EDP_WRITE_PROVENANCE): peso-piso p/ answer_class=not_found
-            from .config import EDP_WRITE_PROVENANCE as _WP, NOT_FOUND_FLOOR as _NF
-            nf_floor = _NF if (_WP and e.get("answer_class") == "not_found") else 1.0
+            # exp012/exp016 (EDP_WRITE_PROVENANCE): peso-piso p/ answer_class
+            # tóxico (not_found | disqualification — TOXIC_ANSWER_CLASSES,
+            # config.py). Dívida documentada (não mexida nesta mudança):
+            # SemanticMemory.retrieve() não lê answer_class — este piso só
+            # cobre episodic (ver exp012_fase4_backfill_apply.py, achado de
+            # fonte, e RELATORIO_ETAPA0_EXP016.md P1).
+            from .config import EDP_WRITE_PROVENANCE as _WP, NOT_FOUND_FLOOR as _NF, TOXIC_ANSWER_CLASSES as _TAC
+            nf_floor = _NF if (_WP and e.get("answer_class") in _TAC) else 1.0
 
             # ── Commit 3c.β-cal (Renato, 04/06/2026): session_boost calibrado ─
             # Lógica de 3 ramos baseada em session_marker:
@@ -1728,10 +1733,14 @@ class MemoryStore:
                 # governança dura: nunca retornáveis ficam fora do índice
                 if e.get("epistemic_status") in ("contradicted", "quarantined"):
                     continue
-                # exp012: not_found fora do índice híbrido (piso operacional;
-                # a entry NÃO é deletada — segue no store e no cosine com piso)
-                from .config import EDP_WRITE_PROVENANCE as _WP12
-                if _WP12 and e.get("answer_class") == "not_found":
+                # exp012/exp016: answer_class tóxico fora do índice híbrido
+                # (piso operacional; a entry NÃO é deletada — segue no store
+                # e no cosine com piso). TOXIC_ANSWER_CLASSES = {"not_found",
+                # "disqualification"} (config.py) — mesma lacuna documentada
+                # acima (só cobre episodic+semantic AQUI porque este laço
+                # varre as duas; o peso-piso isolado em EpisodicMemory NÃO).
+                from .config import EDP_WRITE_PROVENANCE as _WP12, TOXIC_ANSWER_CLASSES as _TAC12
+                if _WP12 and e.get("answer_class") in _TAC12:
                     continue
                 # filtro_recusa (Dívida #49): recusa alta-confiança não é injetada
                 if _recusa is not None:
