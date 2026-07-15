@@ -1,5 +1,6 @@
 """
-edp.write_provenance — exp012: carimbo + política na gravação (Fase 1 §2).
+edp.write_provenance — exp012/exp016: carimbo + política na gravação
+(Fase 1 §2; exp016 = 3ª classe).
 
 Regra B CONGELADA na Fase 3 (matriz fase 2, N=97 pós-dedup, avaliador_matriz.py):
 R4 (negacao_textual OR kw_continuidade) venceu R1/R2/R3 em F1 (0.78, ZERO FP em
@@ -12,6 +13,21 @@ KEYWORDS E REGEX V1 CONGELADAS — copiadas verbatim de extract_ground_truth.py
 (fonte de verdade; sincronizar manualmente se a extração mudar).
 `eh_recusa_alta`/`classify_v1_refutada` mantidas só para exp012_calibracao.py
 (histórico da regra v1, REFUTADA — ver ESTADO_EXP012.md).
+
+exp016 (3ª classe — desqualificação auto-referente, RELATORIO_ETAPA0_EXP016.md):
+dry-run validado pelo pesquisador em 15/07/2026 (239 entradas, 2 candidatas,
+zero FP — predições P4 100% confirmadas). DISQ_PATTERNS copiados VERBATIM de
+exp016_dryrun.py (fonte de verdade; sincronizar manualmente).
+
+Decisão CONGELADA do pesquisador (15/07/2026, não reabrir): DISQ é
+INCONDICIONAL — sem gate de n_mem_prompt/estrato A-B. Racional: desqualificação
+ataca conteúdo PRESENTE (os 2 exemplares nasceram com n_mem_prompt>0 e já
+tinham passado pelo estrato B — PR-6), então gatear por n_mem_prompt não faz
+sentido semântico para esta classe. Estratos A/B continuam valendo SÓ para
+NEG/KW → "not_found". Precedência em classify(): DISQ primeiro →
+"disqualification"; senão R4 como estava → "not_found". Mesma ação mecânica
+no gate (memory.py: peso-piso + exclusão do híbrido, TOXIC_ANSWER_CLASSES em
+config.py) — a distinção entre os dois valores é só de auditoria/análise.
 """
 from __future__ import annotations
 import json
@@ -33,6 +49,36 @@ NEG = re.compile(r"n[ãa]o (encontro|tenho registro|h[áa] registro|localizo)", 
 
 def negacao_textual(resposta: str) -> bool:
     return bool(NEG.search(resposta or ""))
+
+
+# ── exp016 P3/T2: DISQ v1 CONGELADA — copiada VERBATIM de exp016_dryrun.py ──
+# (fonte de verdade; sincronizar manualmente se a regra mudar). Exemplares-
+# fonte: episodic.json, backup sessions_backup_exp013, ~L61871 e ~L62297
+# (13/07 00h52-56). [ãa]/[óo]/[íi]/[êe] no mesmo padrão de NEG acima —
+# robustez a mangling cp1252 (ver commit df0e3fa). Sem colisão verificada
+# com NEG (nenhum padrão DISQ usa os verbos encontro/tenho/há/localizo).
+DISQ_PATTERNS = [
+    re.compile(r"fabricad[ao]s?\s+por\s+mim", re.I),
+    re.compile(r"eu\s+(a\s+|as\s+)?inventei", re.I),
+    re.compile(
+        r"n[ãa]o\s+(é|são|e|sao)\s+(uma\s+)?"
+        r"mem[óo]ri(a|as)\s+(sua|genu[íi]na|aut[êe]ntica|real)",
+        re.I,
+    ),
+    re.compile(r"n[ãa]o\s+corresponde\w*\s+a\s+nenhuma\s+pergunta\s+sua", re.I),
+]
+
+
+def disq_features(resposta: str) -> dict:
+    """{padrao_idx: bool} — mesma forma de exp016_dryrun.disq_features."""
+    return {i: bool(p.search(resposta or "")) for i, p in enumerate(DISQ_PATTERNS)}
+
+
+def disq_textual(resposta: str) -> bool:
+    """v1: qualquer padrão DISQ bate → desqualificação. INCONDICIONAL —
+    não consulta n_mem_prompt/estrato (decisão congelada do pesquisador,
+    15/07/2026 — ver docstring do módulo)."""
+    return any(disq_features(resposta).values())
 
 
 def kw_continuidade(query: str) -> bool:
@@ -63,15 +109,23 @@ _warned_ctx_slots_off = False  # anti-spam: 1 warning/processo, não por chamada
 
 
 def classify(prov: dict | None, query: str, resposta: str) -> str | None:
-    """Camada B — regra composta CONGELADA (Fase 3). None = não quarentena
-    (default defensivo).
-    Guarda de defesa (achado pós-Fase-3): com EDP_CTX_SLOTS efetivamente OFF,
-    n_mem_prompt existe mas MENTE (Defeito 1 — CP3 morre, tende a 0 sempre).
-    Nesse caso o valor é DESCARTADO (vira None) — NUNCA cai no estrato B com
-    sinal falso; cai no estrato A (R4 puro), o mesmo regime validado no
-    backlog pela matriz."""
+    """Camada B — regra composta CONGELADA (Fase 3) + exp016 (3ª classe).
+    None = não quarentena (default defensivo).
+
+    Precedência (decisão congelada do pesquisador, 15/07/2026): DISQ primeiro
+    → "disqualification", INCONDICIONAL (sem gate de n_mem_prompt/estrato,
+    diferente de NEG/KW abaixo). Só se DISQ não disparar, cai na lógica R4
+    existente (estratos A/B por n_mem_prompt) → "not_found".
+
+    Guarda de defesa (achado pós-Fase-3, vale só para o ramo not_found):
+    com EDP_CTX_SLOTS efetivamente OFF, n_mem_prompt existe mas MENTE
+    (Defeito 1 — CP3 morre, tende a 0 sempre). Nesse caso o valor é
+    DESCARTADO (vira None) — NUNCA cai no estrato B com sinal falso; cai no
+    estrato A (R4 puro), o mesmo regime validado no backlog pela matriz."""
     if not isinstance(prov, dict):
         return None
+    if disq_textual(resposta):
+        return "disqualification"
     sinal = negacao_textual(resposta) or kw_continuidade(query)
     if not sinal:
         return None
@@ -93,7 +147,13 @@ def classify(prov: dict | None, query: str, resposta: str) -> str | None:
 
 def _explain(prov: dict, query: str, resposta: str) -> dict:
     """Features + qual estrato/regra disparou — só para o log de auditoria
-    (recomputo barato: regex + scan de lista, não vale cachear)."""
+    (recomputo barato: regex + scan de lista, não vale cachear).
+    Mesma precedência de classify(): DISQ primeiro (padrões que dispararam,
+    regra="DISQ-v1"), senão explica o ramo R4 como antes."""
+    disq_feats = disq_features(resposta)
+    if any(disq_feats.values()):
+        padroes = [i for i, v in disq_feats.items() if v]
+        return {"regra": "DISQ-v1", "padroes": padroes}
     neg = negacao_textual(resposta)
     kw = kw_continuidade(query)
     n_mem = (prov or {}).get("n_mem_prompt")
@@ -107,14 +167,15 @@ def _audit_path(session_id: str) -> Path:
     return base / "sessions" / f"{session_id}_cognitive" / "quarantine_audit.jsonl"
 
 
-def _log_quarantine(session_id: str, entry_id, prov: dict, query: str, resposta: str) -> None:
+def _log_quarantine(session_id: str, entry_id, cls: str, prov: dict, query: str, resposta: str) -> None:
     """Auditoria append-only da quarentena — reversível (não deleta nada),
     nunca levanta exceção (observabilidade não pode derrubar o turno, mesmo
-    padrão de lineage.persist)."""
+    padrão de lineage.persist). `cls` é o valor REAL retornado por classify()
+    ("not_found" | "disqualification") — exp016 T2: antes hardcoded."""
     try:
         record = {
             "id": entry_id,
-            "answer_class": "not_found",
+            "answer_class": cls,
             "timestamp": time.time(),
             **_explain(prov, query, resposta),
         }
@@ -147,4 +208,4 @@ def stamp_and_classify(memory, entry: dict, prov: dict, query: str, resposta: st
         logger.debug("[exp012] persistencia do carimbo falhou: %s", e)
     if cls:
         logger.info("[exp012] answer_class=%s id=%s prov=%s", cls, str(eid)[:8], prov)
-        _log_quarantine(getattr(memory, "session_id", "default"), eid, prov, query, resposta)
+        _log_quarantine(getattr(memory, "session_id", "default"), eid, cls, prov, query, resposta)
