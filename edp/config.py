@@ -64,16 +64,27 @@ EDP_HYBRID_RETRIEVAL = os.environ.get("EDP_HYBRID_RETRIEVAL", "1") == "1"
 # suite 3/3. Para DESLIGAR (metadados voltam a contagem): EDP_CTX_SLOTS=0.
 EDP_CTX_SLOTS = os.environ.get("EDP_CTX_SLOTS", "1") == "1"
 
-# ── exp012 (write-path): proveniência na gravação — default OFF ───────────────
+# ── exp012 (write-path): proveniência na gravação — PROMOVIDO A DEFAULT ON ────
 # Camada A: carimbo {n_mem_prompt, retrieval_tokens} na memória gravada.
-# Camada B: answer_class=not_found + peso-piso quando proveniência indica falha
-# de recuperação. Sinal EXATO só com EDP_CTX_SLOTS=1 (default pós-promoção; se
-# alguém sobrescrever para 0 em runtime, o sinal volta a ser lista mista — a
-# guarda de defesa de write_provenance.classify() cobre esse caso, descartando
-# n_mem_prompt e caindo no estrato A/backlog). Regra B CONGELADA na Fase 3
-# (matriz fase 2, avaliador_matriz.py): R4 (negacao_textual OR kw_continuidade),
-# estratificada por n_mem_prompt quando exato — ver write_provenance.py.
-EDP_WRITE_PROVENANCE = os.environ.get("EDP_WRITE_PROVENANCE", "0") == "1"
+# Camada B: answer_class={not_found,disqualification} + peso-piso/exclusão do
+# híbrido quando proveniência indica falha de recuperação (R4, exp012) OU
+# desqualificação auto-referente (DISQ-v1, exp016). Sinal EXATO só com
+# EDP_CTX_SLOTS=1 (default; se alguém sobrescrever para 0 em runtime, o sinal
+# volta a ser lista mista — a guarda de defesa de write_provenance.classify()
+# cobre esse caso, descartando n_mem_prompt e caindo no estrato A/backlog).
+# Regra R4 CONGELADA na Fase 3 (matriz fase 2, avaliador_matriz.py):
+# negacao_textual OR kw_continuidade, estratificada por n_mem_prompt quando
+# exato. Regra DISQ-v1 CONGELADA na Etapa 0 do exp016 (dry-run 239/2/0FP,
+# predições 100%) — incondicional, sem estrato. Ver write_provenance.py.
+# PROMOVIDO A DEFAULT ON (Fase 5, 15/07/2026) pós-arco exp012→exp016:
+# auditoria acumulada (matriz N=97, 23 entries carimbadas nos backfills,
+# 3 validações in vivo — Teste vivo pós-Fase-3, rodada de fechamento do
+# exp016 15/07, ciclo de 4 gerações do exp015 quebrado — e DISQ com zero
+# falsos positivos). Ver ESTADO_EXP012.md, seção "FASE 5: fechamento do
+# arco", para o placar completo. ROLLBACK: EDP_WRITE_PROVENANCE=0 (env var
+# — nenhum código precisa mudar, é a mesma rede de segurança usada para
+# promover EDP_HYBRID_RETRIEVAL/EDP_CTX_SLOTS na Fase 1).
+EDP_WRITE_PROVENANCE = os.environ.get("EDP_WRITE_PROVENANCE", "1") == "1"
 NOT_FOUND_FLOOR = 0.05
 # exp016 (3ª classe de veneno — desqualificação auto-referente, RELATORIO_
 # ETAPA0_EXP016.md P1): mesmo piso/exclusão do exp012, gate estendido de
