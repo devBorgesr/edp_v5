@@ -8,10 +8,14 @@ consolidation.py — Consolidação semântica do EDP v3.
 Clustering por cosseno, merge de metadata, threshold dinâmico,
 redundancy collapse, promoção para memória semântica.
 """
+import logging
+
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .config import CONSOLIDATION_SIM_THRESH, CONSOLIDATION_CLUSTER_MIN
+
+logger = logging.getLogger("edp.consolidation")
 
 # ── Clustering ────────────────────────────────────────────────────────────────
 
@@ -235,6 +239,18 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
     Skip: já promovida (entry["layer"] == "semantic" — não acontece na episódica,
           mas check defensivo); duplicação por id na semantic.
 
+    Fase 5 (fix/consolidation-toxicity-guard): entries com answer_class em
+    TOXIC_ANSWER_CLASSES (edp/config.py — not_found | disqualification) NÃO
+    são promovidas, gated por EDP_WRITE_PROVENANCE (mesmo padrão dos outros
+    pontos do gate em edp/memory.py). Racional: conteúdo quarentenado não
+    ganha upgrade de durabilidade — promover elevaria prioridade a "alta" e
+    tiraria a entry do caminho episódico onde o peso-piso a penaliza; a
+    SemanticMemory não tem peso-piso próprio (dívida documentada desde o
+    exp012), então uma entry tóxica promovida só continuaria coberta pela
+    exclusão do índice híbrido, nunca pelo caminho cosine puro. Furo medido
+    em 14/07/2026 (Fase 5): auto_consolidation promoveu entries no meio de
+    uma rodada sem consultar toxicidade nenhuma.
+
     Retorna métricas da operação.
     """
     entries = memory.episodic.entries
@@ -245,15 +261,19 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
             "promoted":      0,
             "skipped":       0,
             "already_promoted": 0,
+            "blocked_toxic": 0,
             "threshold":     promote_threshold,
         }
 
     # IDs já presentes na semantic (evita duplicação)
     semantic_ids = {e.get("id") for e in memory.semantic.entries if e.get("id")}
 
+    from .config import EDP_WRITE_PROVENANCE, TOXIC_ANSWER_CLASSES
+
     promoted_count = 0
     already_count  = 0
     skipped_count  = 0
+    blocked_toxic_count = 0
     promoted_ids:  list[str] = []
 
     for e in entries:
@@ -265,6 +285,15 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
         eid = e.get("id")
         if eid and eid in semantic_ids:
             already_count += 1
+            continue
+
+        if EDP_WRITE_PROVENANCE and e.get("answer_class") in TOXIC_ANSWER_CLASSES:
+            blocked_toxic_count += 1
+            logger.info(
+                "[consolidation] promoção bloqueada (conteúdo quarentenado) "
+                "| id=%s classe=%s",
+                (eid or "")[:8], e.get("answer_class"),
+            )
             continue
 
         # Promove (cópia, mantém episódica intacta)
@@ -283,6 +312,7 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
         "promoted_ids":     promoted_ids,
         "skipped":          skipped_count,
         "already_promoted": already_count,
+        "blocked_toxic":    blocked_toxic_count,
         "threshold":        promote_threshold,
         "semantic_total":   len(memory.semantic.entries),
     }
