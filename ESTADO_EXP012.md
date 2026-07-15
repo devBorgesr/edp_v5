@@ -100,3 +100,66 @@ FN=8 idêntico à matriz fase 2; **ZERO vazamento nos 10 LEGITIMO_META** —
 lógica do dry-run byte-a-byte consistente com R4 congelada. Passada REAL
 (gravar `answer_class` de fato) fica para depois, só com OK explícito do
 pesquisador, script separado, e só sobre cópias — produção jamais.
+
+## FASE 5: fechamento do arco (15-16/07/2026)
+
+Arco exp012→exp016 fechado. Placar final registrado aqui para referência —
+próximos experimentos partem deste estado, não do zero.
+
+**3 classes de veneno cobertas pelo mesmo mecanismo** (`answer_class` →
+peso-piso + exclusão do índice híbrido, `TOXIC_ANSWER_CLASSES` desde o
+exp016):
+- **NEG/CONFAB** (negação textual R1 OR continuidade R4) — regra R4
+  CONGELADA na Fase 3: matriz fase 2, N=97 pós-dedup, P=0.90 R=0.69 F1=0.78,
+  zero FP em LEGITIMO_META. Gatilho → `answer_class="not_found"`, estratos
+  A/B por `n_mem_prompt`.
+- **DISQ** (desqualificação auto-referente, exp016) — regra DISQ-v1
+  CONGELADA na Etapa 0: dry-run 239 entradas, 2 candidatas, **zero falsos
+  positivos**, predições pré-registradas 100% confirmadas. Gatilho →
+  `answer_class="disqualification"`, **incondicional** (sem estrato, decisão
+  do pesquisador — ataca conteúdo presente, não ausência de recuperação).
+
+**23 entradas carimbadas** no total ao longo do arco (backfill exp012 Fase 4
++ backfill exp016).
+
+**exp015 REFUTADO (14/07)** — registrado para não repetir a tentativa:
+cabeçalho de proveniência física + proibição explícita no system prompt NÃO
+impediram o modelo de reafirmar uma desqualificação presente na janela
+imediata. O veneno sequestra o próprio frame da honestidade epistêmica —
+não se vence por prompt, se remove do contexto. Motivou o desenho do exp016.
+
+**11 hipóteses de Claude refutadas** ao longo do arco (classify v1, PR-2,
+polaridade textual isolada nos quadrantes ambíguos, e outras — refutação é
+sinal de disciplina experimental, não de falha do arco).
+
+**Ciclo de 4 gerações quebrado in vivo (15/07):** rodada de fechamento sobre
+store contaminado, pós-backfill exp016 — o ciclo negação → corroboração →
+desqualificação → recusa, observado no exp015, **não se reproduziu**.
+`f623b2ac` foi excluída do retrieval por similaridade apesar de conter a
+query literal no texto (evidência direta da exclusão do híbrido em ação);
+zero desqualificação na resposta.
+
+**Dívidas registradas, NÃO resolvidas neste arco** (candidatas a próximos
+ciclos, cada uma como decisão separada do pesquisador):
+- **NEG v2**: família "não consigo recuperar o conteúdo completo" fora da
+  regex `NEG` atual — vazamento textual já confirmado in vivo (Teste vivo
+  pós-Fase-3 acima) e reobservado como resíduo na rodada de fechamento do
+  exp016 (2 cópias de um FN de 1ª classe nascido 00:47 de 13/07, na janela
+  entre a seleção do dry-run e o apply do exp012).
+- **Dedup do retrieve**: 3ª medição pendente (2 já feitas ao longo do arco).
+- **`SemanticMemory` sem peso-piso**: `SemanticMemory.retrieve()` não lê
+  `answer_class` — o piso isolado (`EpisodicMemory.retrieve()`) só cobre
+  episodic; a exclusão do índice híbrido cobre as duas camadas, mas se
+  `EDP_HYBRID_RETRIEVAL` for desligado essa proteção some para semantic.
+  Fase 5/BRANCH 1 (fix/consolidation-toxicity-guard) reduz a EXPOSIÇÃO
+  (bloqueia a promoção de conteúdo tóxico para semantic) mas não resolve a
+  dívida em si — uma entry semântica ORIGINALMENTE marcada tóxica (não
+  promovida, gravada direto) continua sem piso no cosine puro.
+- **`anchor_boost` polaridade**: registrado como pendência de revisão, não
+  investigado neste arco.
+- **`session_summary` fora do parser**: entries desse `source_type` não são
+  cobertas pelo parser Q/A (`QA` regex) usado pelos dry-runs/backfills —
+  fora do escopo de detecção de veneno atual.
+- **Backfill de produção**: toda a auditoria acima rodou contra cópias
+  (`C:\edp_data_hybrid_test`, `C:\edp_data_exp016`). Rodar o backfill contra
+  o store de produção real é decisão separada, não tomada neste arco.
