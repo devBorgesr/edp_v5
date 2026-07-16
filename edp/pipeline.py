@@ -317,6 +317,13 @@ def run_pipeline(
     query_emb:  np.ndarray = np.zeros(1, dtype=np.float32)
     chunk_embs: np.ndarray = np.zeros((len(chunks), 1), dtype=np.float32)
     line_embs:  np.ndarray = np.array([])
+    # Fase 0.5 (M1, FASE0_5_MEDICAO_SPLITBRAIN.md): mem_results consultava o
+    # split-brain semântico (semantic_memory.py/_concepts.json) mas nunca
+    # alcançava .context/.context_str nem qualquer campo lido pelos
+    # chamadores vivos — morria em retrieval_quality (trace só sob debug=True,
+    # nunca ativo em produção) e em `reflection` (dead store). Removido; os
+    # dois consumidores abaixo (AdaptiveController, MetaReasoner) mantidos
+    # com lista vazia — ESCOPO DURO desta fase não remove esses subsistemas.
     mem_results: list[dict] = []
 
     with M.timer("embed_total"):
@@ -324,8 +331,6 @@ def run_pipeline(
             query_emb  = embed_one(question)
             chunk_embs = embed(chunks)
             line_embs  = embed(linhas_limpas) if linhas_limpas else np.array([])
-            mem_results = semantic_memory.retrieve(question, top_k=3)
-            _trace("semantic_memory", {"retrieved": len(mem_results)})
         except Exception as e:
             logs.append({"stage": "embeddings", "error": str(e)})
             return PipelineResult(
