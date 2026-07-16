@@ -1825,7 +1825,7 @@ REGRAS ABSOLUTAS:
             logger.warning("[EDPRuntime] MemoryStore indisponível: %s", e)
 
         try:
-            from .pipeline import run_pipeline, get_pipeline_memory
+            from .pipeline import run_pipeline
             self._pipeline = run_pipeline
         except Exception as e:
             logger.warning("[EDPRuntime] pipeline indisponível: %s", e)

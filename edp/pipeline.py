@@ -2,23 +2,24 @@
 pipeline.py — Pipeline completo do EDP v3 (PATCHED)
 
 PATCHES APLICADOS:
-  [P13] GLOBAL_MEMORY singleton removido do nível de módulo.
-        Substituído por factory get_pipeline_memory(session_id) com cache
-        protegido por threading.Lock — sem race condition em multi-thread.
   [P14] ADAPTIVE_CONTROLLER mantido como singleton (read-only após init — seguro).
-  [P15] MemoryBridgeV32: envolve SemanticMemory e é detectada via isinstance
-        em pipeline.py:646 para chamar bridge.consolidate() em vez de
-        semantic_memory.consolidate_from_episodes(). Ramo v3.2 interno removido.
   [P16] Import de SemanticMemory lazy (evita falha no import-time se módulo ausente).
   [P17] classify_score não é mais chamado separadamente quando ScoreVector.decision
         já contém a decisão — elimina duplicação de lógica.
+
+HARDENING Fase 1 (T4a/T4b, ver FASE0_5_MEDICAO_SPLITBRAIN.md): [P13]
+(get_pipeline_memory) e [P15] (MemoryBridgeV32) removidos — consultavam e
+gravavam no split-brain semântico (semantic_memory.py/_concepts.json) sem
+que o resultado alcançasse .context/.context_str nem qualquer campo lido
+pelos chamadores vivos (Fase 0.5, M1/M2). O parâmetro `memory_bridge` de
+run_pipeline() foi removido do mesmo corte — zero chamadores no repo
+passavam esse argumento (grep exaustivo, T4c).
 """
 
 from __future__ import annotations
 
 import math
 import re
-import threading
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -34,7 +35,7 @@ from .config import CHUNK_SIZE, DEDUP_THRESH, HIGH_SCORE, MID_SCORE, MIN_WORDS
 from .embeddings import deduplicate, embed, embed_one
 from .clock import now as _now  # Peça 0.2a — relógio interno robusto
 from .filters import preprocessar
-from .learning_gate import gate_info, memory_priority, should_store
+from .learning_gate import gate_info, memory_priority
 from .meta_reasoner import MetaReasoner
 from .cognitive_scheduler import CognitiveScheduler
 from .scoring import classify_score, compute_score
@@ -42,46 +43,6 @@ from . import metrics as M
 
 # ── [P14] AdaptiveController: singleton read-only — seguro em multi-thread ────
 ADAPTIVE_CONTROLLER = AdaptiveController(debug=False)
-
-# ── [P13] MemoryStore com cache thread-safe (substitui GLOBAL_MEMORY) ─────────
-
-_memory_lock:  threading.Lock             = threading.Lock()
-_memory_cache: dict[str, object]          = {}
-
-def get_pipeline_memory(session_id: str = "default") -> object:
-    """
-    [P13] Factory thread-safe para instâncias de SemanticMemory.
-    Uma instância por session_id. Lock evita criação duplicada simultânea.
-    Antes: GLOBAL_MEMORY = SemanticMemory("default") — singleton sem lock.
-    """
-    if session_id in _memory_cache:
-        return _memory_cache[session_id]
-    with _memory_lock:
-        # Double-check após lock
-        if session_id not in _memory_cache:
-            from .semantic_memory import SemanticMemory
-            _memory_cache[session_id] = SemanticMemory(session_id)
-        return _memory_cache[session_id]
-
-
-# ── [P15] Bridge v3.1 → v3.2 ─────────────────────────────────────────────────
-
-class MemoryBridgeV32:
-    """
-    [P15] Envolve SemanticMemory expondo consolidate() e retrieve().
-    Detectada via isinstance em pipeline.py:646 para rotear consolidação.
-    """
-
-    def __init__(self, session_id: str = "default"):
-        self.session_id       = session_id
-        self._semantic_memory = get_pipeline_memory(session_id)
-
-    def consolidate(self, episodes: list[dict]) -> None:
-        self._semantic_memory.consolidate_from_episodes(episodes)
-
-    def retrieve(self, question: str, top_k: int = 3) -> list[dict]:
-        return self._semantic_memory.retrieve(question, top_k=top_k)
-
 
 # ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -237,13 +198,10 @@ def run_pipeline(
     debug: bool = False,
     memory_embeddings: np.ndarray | None = None,
     session_id: str = "default",
-    memory_bridge: MemoryBridgeV32 | None = None,
 ) -> PipelineResult:
     """
     Pipeline EDP v3 completo.
 
-    [P13] session_id agora é parâmetro — sem GLOBAL_MEMORY singleton.
-    [P15] memory_bridge opcional: se fornecido, consolida em v3.1 E v3.2.
     [P17] ScoreVector.decision usado diretamente — não há chamada dupla de classify_score.
     [G-MIN-INPUT] Guard: inputs com < MIN_INPUT_TOKENS pulam compressão para
                   evitar zerar a mensagem (bug crítico de reduction=100%).
@@ -275,10 +233,8 @@ def run_pipeline(
             metrics={"skipped_compression": True, "reason": "min_input"},
         )
 
-    # [P13] sem singleton global — instância por sessão
-    semantic_memory = memory_bridge or get_pipeline_memory(session_id)
-    meta            = MetaReasoner()
-    scheduler       = CognitiveScheduler("default")
+    meta      = MetaReasoner()
+    scheduler = CognitiveScheduler("default")
 
     def _trace(stage: str, data: dict) -> None:
         if debug:
@@ -317,6 +273,13 @@ def run_pipeline(
     query_emb:  np.ndarray = np.zeros(1, dtype=np.float32)
     chunk_embs: np.ndarray = np.zeros((len(chunks), 1), dtype=np.float32)
     line_embs:  np.ndarray = np.array([])
+    # Fase 0.5 (M1, FASE0_5_MEDICAO_SPLITBRAIN.md): mem_results consultava o
+    # split-brain semântico (semantic_memory.py/_concepts.json) mas nunca
+    # alcançava .context/.context_str nem qualquer campo lido pelos
+    # chamadores vivos — morria em retrieval_quality (trace só sob debug=True,
+    # nunca ativo em produção) e em `reflection` (dead store). Removido; os
+    # dois consumidores abaixo (AdaptiveController, MetaReasoner) mantidos
+    # com lista vazia — ESCOPO DURO desta fase não remove esses subsistemas.
     mem_results: list[dict] = []
 
     with M.timer("embed_total"):
@@ -324,8 +287,6 @@ def run_pipeline(
             query_emb  = embed_one(question)
             chunk_embs = embed(chunks)
             line_embs  = embed(linhas_limpas) if linhas_limpas else np.array([])
-            mem_results = semantic_memory.retrieve(question, top_k=3)
-            _trace("semantic_memory", {"retrieved": len(mem_results)})
         except Exception as e:
             logs.append({"stage": "embeddings", "error": str(e)})
             return PipelineResult(
@@ -449,8 +410,7 @@ def run_pipeline(
             focused_idx = list(range(len(chunks)))
 
     # ── Estágio 8: Keep / Summarize / Drop ────────────────────────────────────
-    final:            list[str]  = []
-    learnable_blocks: list[dict] = []
+    final: list[str] = []
 
     for i in focused_idx:
         if i >= len(chunks):
@@ -468,12 +428,6 @@ def run_pipeline(
         # [P17] Usa ScoreVector.decision diretamente — sem classify_score() redundante
         decision = sd.decision
         action   = decision.value.lower()
-
-        should_learn = should_store(
-            score=_safe_attr(sd, "final_score"),
-            confidence=_safe_attr(sd, "confidence_weight"),
-            novelty=_safe_attr(sd, "novelty", 1.0),
-        )
 
         gate_debug = gate_info(
             score=_safe_attr(sd, "final_score"),
@@ -532,14 +486,6 @@ def run_pipeline(
         if result.strip():
             final.append(result)
 
-        if should_learn and result.strip():
-            learnable_blocks.append({
-                "id":        str(time.time_ns()),
-                "text":      result,
-                "embedding": emb,
-                "score":     _safe_attr(sd, "final_score"),
-            })
-
         logs.append({
             "chunk":      i,
             "action":     action,
@@ -592,33 +538,14 @@ def run_pipeline(
     tokens_final = len(tokenize("\n".join(blocos_final)))
     ratio        = M.compression_ratio(tokens_original, tokens_final)
 
-    # ── Persistência — [P15] via bridge (suporta v3.1 e v3.2) ────────────────
-    if learnable_blocks:
-        try:
-            episodes = [
-                {
-                    "id":        item["id"],
-                    "text":      item["text"],
-                    "embedding": item["embedding"],
-                }
-                for item in learnable_blocks
-            ]
-            if isinstance(semantic_memory, MemoryBridgeV32):
-                semantic_memory.consolidate(episodes)   # [P15] bridge v3.1+v3.2
-            else:
-                semantic_memory.consolidate_from_episodes(episodes)
-            _trace("semantic_store", {"stored": len(learnable_blocks)})
-        except Exception as e:
-            logs.append({"stage": "semantic_store", "error": str(e)})
-            # Sprint #43 (11/06/2026): este erro era engolido em logs
-            # internos que ninguém lê (anti-padrão δ). Caminho standalone
-            # (_concepts.json) DEPRECADO em favor do job auto_consolidation;
-            # warning mantém qualquer falha visível até a remoção total.
-            import logging as _logging
-            _logging.getLogger("edp.pipeline").warning(
-                "[pipeline] semantic_store (standalone, deprecado) falhou: %s",
-                str(e)[:120],
-            )
+    # Fase 0.5 (M2, FASE0_5_MEDICAO_SPLITBRAIN.md): a escrita standalone no
+    # split-brain semântico (semantic_memory.consolidate_from_episodes(),
+    # _concepts.json) foi removida daqui — já vinha marcada DEPRECADA
+    # (Sprint #43, 11/06/2026) em favor do job real auto_consolidation
+    # (edp/runtime/auto_consolidation.py, testado na Fase 5). `learnable_blocks`/
+    # `should_learn` (learning_gate.should_store) removidos junto: sua única
+    # finalidade era montar o payload desta escrita (grep exaustivo — zero
+    # outros leitores dentro de run_pipeline).
 
     # Commit A (Sessão 2, 08/06/2026): construir result e agregar scores
     # antes de retornar. chunk_score_vectors pode conter None — filter
@@ -656,7 +583,7 @@ def process_stream(
     session_id: str = "default",
 ) -> Generator[PipelineResult, None, None]:
     """
-    [P13] session_id adicionado — usa get_pipeline_memory() sem singleton global.
+    session_id repassado a cada run_pipeline() do stream.
     """
     buffer: list[str] = []
 
