@@ -30,7 +30,13 @@ def serve():
     Prioridade:
       1. edp.api.main:app     (v3.3 modular - estrutura nova)
       2. edp.api_v2:app       (v3.3 monolito - estrutura atual)
-      3. edp.api:app          (v3.1 legacy)
+
+    Hardening Fase 2 (T1a): fallback 3 (edp.api:app, v3.1 legacy) removido
+    junto com a deleção de edp/api.py — zero importadores fora deste
+    fallback (grep exaustivo, fresco). edp.api.main sempre importou com
+    sucesso em instalação saudável (confirmado Fase 0 e Fase 1); se algum
+    dia falhar, agora cai no fallback 2, não mais numa string apontando
+    para um módulo que não existe mais.
     """
     import uvicorn
     from edp.config import API_HOST, API_PORT
@@ -61,10 +67,13 @@ def serve():
         except Exception as e:
             print(f"[serve] api_v2 indisponivel: {e}")
 
-    # Fallback v3.1 legacy
     if api_module is None:
-        api_module = "edp.api:app"
-        api_label  = "v3.1 legacy"
+        raise RuntimeError(
+            "[serve] nenhuma API disponível — edp.api.main e edp.api_v2 "
+            "falharam ao importar (ver mensagens acima). edp.api:app (v3.1 "
+            "legacy) foi removido na Fase 2 do hardening — não há mais "
+            "fallback além dos dois acima."
+        )
 
     print(f"[serve] usando {api_module} ({api_label})")
     print(f"[serve] http://{API_HOST}:{API_PORT}")
