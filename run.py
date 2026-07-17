@@ -26,17 +26,15 @@ import time
 
 def serve():
     """
-    Inicia servidor FastAPI.
-    Prioridade:
-      1. edp.api.main:app     (v3.3 modular - estrutura nova)
-      2. edp.api_v2:app       (v3.3 monolito - estrutura atual)
+    Inicia servidor FastAPI: edp.api.main:app (v3.3 modular).
 
-    Hardening Fase 2 (T1a): fallback 3 (edp.api:app, v3.1 legacy) removido
-    junto com a deleção de edp/api.py — zero importadores fora deste
-    fallback (grep exaustivo, fresco). edp.api.main sempre importou com
-    sucesso em instalação saudável (confirmado Fase 0 e Fase 1); se algum
-    dia falhar, agora cai no fallback 2, não mais numa string apontando
-    para um módulo que não existe mais.
+    Hardening Fase 2 (T1a): fallbacks para edp.api_v2:app (v3.3 monolito) e
+    edp.api:app (v3.1 legacy) removidos junto com a deleção dos dois
+    arquivos — zero importadores fora deste bloco (grep exaustivo, fresco,
+    reconfirmando o achado da Fase 0). edp.api.main sempre importou com
+    sucesso em instalação saudável (confirmado Fase 0, Fase 1 e nesta
+    sessão); a única superfície de API agora é edp/api/ (pacote modular),
+    sem cascata de fallback para código morto.
     """
     import uvicorn
     from edp.config import API_HOST, API_PORT
@@ -44,36 +42,15 @@ def serve():
     workers   = int(os.environ.get("EDP_WORKERS",  "1"))
     log_level = os.environ.get("EDP_LOG_LEVEL", "info")
 
-    # Detecção automática da melhor API disponível
-    api_module = None
-    api_label  = None
-
-    # Tenta v3.3 modular primeiro
     try:
         from edp.api.main import app as _modular_app
-        if _modular_app is not None:
-            api_module = "edp.api.main:app"
-            api_label  = "v3.3 modular (estrutura nova)"
     except Exception as e:
-        print(f"[serve] api.main indisponivel: {e}")
+        raise RuntimeError(f"[serve] edp.api.main indisponível: {e}") from e
+    if _modular_app is None:
+        raise RuntimeError("[serve] edp.api.main importou, mas app é None")
 
-    # Fallback v3.3 monolito
-    if api_module is None:
-        try:
-            from edp.api_v2 import app as _v2_app
-            if _v2_app is not None:
-                api_module = "edp.api_v2:app"
-                api_label  = "v3.3 monolito (estrutura atual)"
-        except Exception as e:
-            print(f"[serve] api_v2 indisponivel: {e}")
-
-    if api_module is None:
-        raise RuntimeError(
-            "[serve] nenhuma API disponível — edp.api.main e edp.api_v2 "
-            "falharam ao importar (ver mensagens acima). edp.api:app (v3.1 "
-            "legacy) foi removido na Fase 2 do hardening — não há mais "
-            "fallback além dos dois acima."
-        )
+    api_module = "edp.api.main:app"
+    api_label  = "v3.3 modular (estrutura nova)"
 
     print(f"[serve] usando {api_module} ({api_label})")
     print(f"[serve] http://{API_HOST}:{API_PORT}")
