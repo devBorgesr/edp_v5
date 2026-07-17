@@ -781,64 +781,6 @@ def bench_context_builder(runner: BenchmarkRunner) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def bench_belief_graph(runner: BenchmarkRunner) -> None:
-    runner.category("BELIEF GRAPH — Grafo de crenças")
-    from edp.belief_graph import BeliefGraph, build_from_entries
-    import tempfile, shutil
-    from edp.config import MEMORY_DIR
-    import edp.config as cfg_mod
-
-    tmp = Path(tempfile.mkdtemp())
-    orig = cfg_mod.MEMORY_DIR
-    cfg_mod.MEMORY_DIR = tmp
-
-    try:
-        g = BeliefGraph("bench_bg")
-
-        # build_from_entries vetorizado
-        embs = _rand_emb(500)
-        entries = [{"id": str(i), "embedding": embs[i]} for i in range(500)]
-
-        with runner.measure("build_from_entries vetorizado (500 entries)") as r:
-            n = g.build_from_entries(entries, similar_thresh=0.50)
-            r.details["edges_added"] = n
-            r.details["n_entries"]   = 500
-
-        # get_neighbors
-        runner.run("get_neighbors (top_k=10)", n_ops=1, n_samples=200,
-                   fn=lambda: g.get_neighbors("0", top_k=10))
-
-        # Standalone build_from_entries
-        with runner.measure("standalone build_from_entries (200 entries)") as r:
-            entries2 = [{"id": str(uuid.uuid4()), "embedding": _rand_emb(1)[0]}
-                        for _ in range(200)]
-            n2 = build_from_entries(entries2, session_id="bench_standalone")
-            r.details["edges"] = n2
-
-        # Stats
-        with runner.measure("BeliefGraph.stats()") as r:
-            stats = g.stats()
-            r.details.update(stats)
-
-        # apply_decay
-        with runner.measure("apply_decay (remove arestas fracas)") as r:
-            removed = g.apply_decay(min_strength=0.99)
-            r.details["edges_removed"] = removed
-
-    finally:
-        cfg_mod.MEMORY_DIR = orig
-        shutil.rmtree(tmp, ignore_errors=True)
-
-    runner.add_prediction(
-        module="belief_graph.py",
-        operation="build_from_entries",
-        complexity="O(n²) pares via np.triu_indices — mas vetorizado NumPy",
-        threshold_n=10_000,
-        risk="HIGH",
-        recommendation="Para n>2k: usar threshold mais alto ou sampling aleatório de pares"
-    )
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # SUITE 2 — STRESS & CARGA
 # ══════════════════════════════════════════════════════════════════════════════
@@ -962,27 +904,6 @@ def bench_complexity_analysis(runner: BenchmarkRunner) -> None:
             risk="HIGH" if result["exponent"] > 1.5 else "MEDIUM",
             recommendation="Usar FAISS HNSW para escala > 100k documentos"
         )
-
-    # belief_graph build
-    from edp.belief_graph import BeliefGraph
-    import tempfile, shutil
-    import edp.config as cfg_mod
-    tmp = Path(tempfile.mkdtemp())
-    orig = cfg_mod.MEMORY_DIR
-    cfg_mod.MEMORY_DIR = tmp
-    try:
-        def _build_graph(n):
-            g = BeliefGraph(f"complexity_{n}")
-            embs = _rand_emb(n, dim=32)
-            entries = [{"id": str(i), "embedding": embs[i]} for i in range(n)]
-            g.build_from_entries(entries)
-    finally:
-        cfg_mod.MEMORY_DIR = orig
-        shutil.rmtree(tmp, ignore_errors=True)
-
-    with runner.measure("complexidade: belief_graph.build_from_entries") as r:
-        result = _measure_scaling(_build_graph, [50, 100, 200, 500], "belief_graph")
-        r.details.update(result)
 
     # consolidation cluster_entries
     from edp.consolidation import cluster_entries
@@ -1198,7 +1119,6 @@ SUITES = {
     "pipeline":         bench_pipeline,
     "consolidation":    bench_consolidation,
     "context_builder":  bench_context_builder,
-    "belief_graph":     bench_belief_graph,
     "cache":            bench_cache,
     "stress_pipeline":  bench_stress_pipeline,
     "complexity":       bench_complexity_analysis,
