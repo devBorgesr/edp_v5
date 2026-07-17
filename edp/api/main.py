@@ -1,7 +1,9 @@
 """
 edp.api.main — Aplicação FastAPI modular do EDP v3.5
 
-Esta é a aplicação NOVA que substitui gradualmente o monolito api_v2.py.
+Única superfície de API do EDP (Hardening Fase 2, T1a) — os monolitos
+api.py (v3.1 legacy) e api_v2.py (v3.3) foram removidos; nenhum código
+os importava fora do fallback morto de run.py:serve().
 
 Características:
   - Cada responsabilidade em seu router (health, memory, metrics, llm, websocket)

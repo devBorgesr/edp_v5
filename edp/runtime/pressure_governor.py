@@ -1,22 +1,56 @@
 """
 edp.runtime.pressure_governor — Memory Pressure Governor
 
+Mede RAM REAL do host (psutil) — não confundir com edp.pressure
+(StorePressureMonitor: ocupação do store episódico, sem relação com SO).
+Ver cross-reference nos dois módulos.
+
 Princípio operacional:
-  Em hardware modesto (8GB), swap silencioso é o vetor #1 de colapso.
-  Ollama + FastAPI + sentence-transformers + vector store já consomem 3-4GB.
-  Quando RAM livre cai < 1.2GB, qualquer nova carga ativa swap silencioso
-  → latência sobe 10x, WebSocket morre, sistema parece "travado".
+  Swap silencioso é o vetor #1 de colapso. Quando RAM disponível cai abaixo
+  do piso, qualquer nova carga ativa swap silencioso → latência sobe 10x,
+  WebSocket morre, sistema parece "travado".
 
 Estratégia (degradação, não shutdown):
-  ✓ RAM > 2.0GB → NORMAL: tudo liberado
-  ⚠ 1.2GB < RAM < 2.0GB → WARNING: novas inferências limitadas a contexto reduzido
-  🔴 RAM < 1.2GB → CRITICAL: REJEITA novas inferências mas MANTÉM as em andamento
+  ✓ RAM > WARNING_GB              → NORMAL: tudo liberado
+  ⚠ CRITICAL_GB < RAM < WARNING_GB → WARNING: jobs com suspend_on_pressure=True pulam
+  🔴 RAM < CRITICAL_GB             → CRITICAL: REJEITA nova inferência LOCAL,
+                                      pausa TODO o tick do background_loop
 
 NÃO derruba o sistema. NÃO mata inferências ativas.
 Apenas recusa novas requisições até pressure aliviar.
 
 Não usa thread separada para evitar overhead — chamado on-demand
 no início de cada nova inferência.
+
+Hardening Fase 2 (Dívida #41, T2b/T2c): defaults ORIGINAIS (CRITICAL=1.2GB,
+WARNING=2.0GB) foram dimensionados para um cenário que não existe mais —
+docstring histórica assumia "hardware modesto (8GB)" com "Ollama + FastAPI +
+sentence-transformers + vector store já consomem 3-4GB" (inferência LOCAL).
+O deployment real é API-only (Anthropic/OpenAI via rede; único consumidor
+de RAM residente é o modelo de embedding, não um LLM local) rodando numa
+máquina com ~4GB de RAM TOTAL (medido: `benchmark_edp.py` reporta
+RAM=4.1GB), não os 8GB assumidos no design original.
+
+Evidência de runtime acumulada pelo pesquisador (uso normal, sem inferência
+local): `available` oscila 0.28–1.45GB — SEMPRE abaixo do WARNING_GB antigo
+(2.0GB) e quase sempre abaixo do CRITICAL_GB antigo (1.2GB). Resultado
+medido: CRITICAL era o estado PERMANENTE, com 100% dos ticks do
+background_loop pulados por dias (causa raiz do P6/exp016, reobservado no
+smoke de 16/07) — a guarda nunca desliga, então nunca protege nada: RAM
+real nunca chega perto de esgotar (é API-only), mas o sinal fica preso em
+CRITICAL por comparar contra um piso dimensionado pra outra carga de
+trabalho.
+
+Defaults recalibrados para a realidade API-only (0.30GB CRITICAL / 0.60GB
+WARNING — ~7%/15% dos 4.1GB totais observados, cobrindo o modelo de
+embedding residente + FastAPI + folga): decisão do pesquisador, avaliada
+contra a alternativa de threshold percentual do total de RAM (vm.percent)
+e descartada — a pegada de RAM deste processo (embedding model +
+baseline Python/FastAPI) é aproximadamente CONSTANTE, não escala com o
+tamanho da máquina; um piso percentual se tornaria ridiculamente folgado
+em máquinas grandes (15% de 64GB = 9.6GB, muito acima do necessário) e
+apertado demais em máquinas pequenas — GB absoluto continua sendo o
+modelo fisicamente correto aqui, só precisava de outro número.
 """
 from __future__ import annotations
 
@@ -32,8 +66,12 @@ logger = logging.getLogger("edp.runtime.pressure")
 
 
 # ── Thresholds (overridáveis por env) ────────────────────────────────────────
-CRITICAL_GB = float(os.environ.get("EDP_PRESSURE_CRITICAL_GB", "1.2"))
-WARNING_GB  = float(os.environ.get("EDP_PRESSURE_WARNING_GB",  "2.0"))
+# Dívida #41 (Hardening Fase 2): defaults 0.30/0.60GB — ver docstring do
+# módulo para a calibração completa (API-only, ~4.1GB de RAM total medidos).
+# Rollback para os valores antigos (cenário de inferência local, 8GB+):
+# EDP_PRESSURE_CRITICAL_GB=1.2 EDP_PRESSURE_WARNING_GB=2.0
+CRITICAL_GB = float(os.environ.get("EDP_PRESSURE_CRITICAL_GB", "0.30"))
+WARNING_GB  = float(os.environ.get("EDP_PRESSURE_WARNING_GB",  "0.60"))
 CHECK_TTL_S = 5.0   # cache: não consulta psutil mais que 1×/5s
 
 

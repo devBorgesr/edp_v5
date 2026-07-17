@@ -1,6 +1,11 @@
 """
 edp/pressure.py — Store eviction pressure monitor.
 
+Mede ocupação do STORE EPISÓDICO (len(entries)/max_size) — sem relação com
+RAM do sistema operacional. Não confundir com edp.runtime.pressure_governor
+(MemoryPressureGovernor: RAM real do host via psutil, thresholds em GB,
+gateia inferência LOCAL e ticks do background_loop — Dívida #41).
+
 Extracted from pressure_monitor.py @ feb0db9, keeping only the two dimensions
 that have measurable signals in the live EDP:
 
