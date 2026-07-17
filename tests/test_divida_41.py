@@ -40,11 +40,27 @@ def _governor_with_fake_ram(available_gb: float) -> pg.MemoryPressureGovernor:
 
 # ── Env vars respeitadas (defaults recalibrados, Dívida #41) ──────────────────
 
-def test_defaults_recalibrados_api_only():
+def test_defaults_recalibrados_api_only(monkeypatch):
     """Sem env var setada, os defaults são os novos (0.30/0.60), não os
-    antigos (1.2/2.0) dimensionados para inferência local."""
-    assert pg.CRITICAL_GB == 0.30
-    assert pg.WARNING_GB == 0.60
+    antigos (1.2/2.0) dimensionados para inferência local.
+
+    Regra geral (incidente 17/07): teste de DEFAULT constrói o ambiente
+    limpo, nunca o assume. A rodada Windows pós-merge falhou aqui porque a
+    máquina do pesquisador tinha EDP_PRESSURE_CRITICAL_GB=1.0 /
+    WARNING=1.5 persistidas em escopo USER (override fantasma pré-ciclo) —
+    o teste lia o estado do módulo assumindo env limpo, que não é uma
+    premissa válida fora do CI. delenv + reload elimina a dependência do
+    ambiente do host que roda o teste.
+    """
+    monkeypatch.delenv("EDP_PRESSURE_CRITICAL_GB", raising=False)
+    monkeypatch.delenv("EDP_PRESSURE_WARNING_GB", raising=False)
+    importlib.reload(pg)
+    try:
+        assert pg.CRITICAL_GB == 0.30
+        assert pg.WARNING_GB == 0.60
+    finally:
+        monkeypatch.undo()
+        importlib.reload(pg)
 
 
 def test_env_vars_respeitadas(monkeypatch):
@@ -102,12 +118,24 @@ def test_regime_critical(monkeypatch):
     assert reading.level == pg.PressureLevel.CRITICAL
 
 
-def test_regime_critical_nao_e_mais_permanente_com_defaults_novos():
+def test_regime_critical_nao_e_mais_permanente_com_defaults_novos(monkeypatch):
     """Reproduz a faixa de oscilação observada pelo pesquisador
     (0.28-1.45GB) contra os defaults NOVOS (não os antigos 1.2/2.0, que
-    mantinham CRITICAL permanente nessa faixa inteira)."""
-    baixo  = _governor_with_fake_ram(available_gb=0.28).read(force=True).level
-    alto   = _governor_with_fake_ram(available_gb=1.45).read(force=True).level
-    assert baixo == pg.PressureLevel.CRITICAL
-    assert alto == pg.PressureLevel.NORMAL
-    assert baixo != alto  # com os defaults antigos, os dois eram CRITICAL
+    mantinham CRITICAL permanente nessa faixa inteira).
+
+    Regra geral (incidente 17/07): teste de DEFAULT constrói o ambiente
+    limpo, nunca o assume — env limpo via delenv+reload, não herdado do
+    host que roda o teste (ver test_defaults_recalibrados_api_only).
+    """
+    monkeypatch.delenv("EDP_PRESSURE_CRITICAL_GB", raising=False)
+    monkeypatch.delenv("EDP_PRESSURE_WARNING_GB", raising=False)
+    importlib.reload(pg)
+    try:
+        baixo  = _governor_with_fake_ram(available_gb=0.28).read(force=True).level
+        alto   = _governor_with_fake_ram(available_gb=1.45).read(force=True).level
+        assert baixo == pg.PressureLevel.CRITICAL
+        assert alto == pg.PressureLevel.NORMAL
+        assert baixo != alto  # com os defaults antigos, os dois eram CRITICAL
+    finally:
+        monkeypatch.undo()
+        importlib.reload(pg)

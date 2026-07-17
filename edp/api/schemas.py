@@ -80,8 +80,10 @@ class ConnectResponse(BaseModel):
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 class HealthResponse(BaseModel):
-    status:    str
-    version:   str
-    timestamp: float
-    sessions:  List[str]
-    metrics:   dict
+    status:     str
+    version:    str
+    timestamp:  float
+    sessions:   List[str]
+    metrics:    dict
+    boot_state: str  = "unknown"
+    checks:     dict = Field(default_factory=dict)

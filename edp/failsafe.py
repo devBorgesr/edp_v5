@@ -55,7 +55,12 @@ def incremental_backup(memory_store) -> dict:
     for src in [memory_store.episodic.path, memory_store.semantic.path]:
         src = Path(src)
         if not src.exists(): continue
-        dst = backup_dir / f"{src.stem}_{ts}{src.suffix}"
+        # Precisa do prefixo de sessão: restore_backup() busca
+        # "{session}_{layer}_{ts}.json" / glob "*_episodic_*.json" — sem o
+        # prefixo, o backup fica órfão e restore_backup() nunca o acha
+        # (retorna "Backup vazio" mesmo com o arquivo presente em disco;
+        # achado escrevendo o teste de roundtrip, T1 Fase 3).
+        dst = backup_dir / f"{session}_{src.stem}_{ts}{src.suffix}"
         try: shutil.copy2(src, dst); backed.append(str(dst))
         except Exception as e: errors.append({"file": str(src), "error": str(e)})
     _prune_backups(backup_dir)
