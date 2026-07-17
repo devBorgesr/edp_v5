@@ -1,0 +1,24 @@
+# EDP v3.3 — dependências MÍNIMAS para rodar tests/ (CI)
+#
+# NÃO usa requirements.txt (app completo) de propósito: sentence-transformers
+# baixa um modelo (~90MB, precisa de rede na 1ª execução) e faiss-cpu não é
+# necessário para a suite — tests/conftest.py substitui embed()/embed_one()
+# por um fake determinístico (autouse, sem rede, sem torch) para TODA a
+# suite. Verificado empiricamente (Hardening Fase 3, T3): `pytest tests/ -q`
+# passa 100% sem sentence-transformers/torch/faiss instalados no ambiente.
+#
+# Derivado por leitura dos imports reais de tests/*.py e dos módulos edp/
+# que eles exercitam (não é um subconjunto chutado do requirements.txt).
+pytest>=8.0
+numpy>=1.24
+scikit-learn>=1.2      # edp/embeddings.py importa cosine_similarity no
+                        # module-level, mesmo sem o modelo real
+fastapi>=0.100
+pydantic>=1.10          # ambiente de desenvolvimento roda 1.10.x; o
+                        # requirements.txt do app pede >=2.0 — os schemas
+                        # usados pela suite (Field/BaseModel) são
+                        # compatíveis com ambos, não precisa travar aqui
+httpx>=0.24              # fastapi.testclient.TestClient exige
+psutil>=5.9               # pressure_governor real (tests sobrescrevem
+                           # gov._psutil com fake, mas o import inicial de
+                           # psutil roda antes disso)
