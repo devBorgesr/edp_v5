@@ -78,26 +78,29 @@ def test_inercia_conteudo_da_consulta_semantica_nao_afeta_saida(isolated_base_di
     sid_baseline = f"char-baseline-{uuid.uuid4().hex[:8]}"
     baseline = run_pipeline(FIXED_TEXT, FIXED_QUESTION, session_id=sid_baseline)
 
-    import edp.semantic_memory as sm_mod
+    try:
+        import edp.semantic_memory as sm_mod
+    except ModuleNotFoundError:
+        sm_mod = None  # pós-T4d: módulo aposentado — nada para monkeypatchar,
+        # a comparação abaixo continua válida (trivialmente idêntica, já que
+        # run_pipeline não chama mais nada do split-brain semântico).
 
-    def _fabricated_retrieve(self, question, top_k=3):
-        return [
-            {"id": f"fabricado-{i}", "text": "x" * 500, "score": 999.0}
-            for i in range(50)
-        ]
+    if sm_mod is not None:
+        def _fabricated_retrieve(self, question, top_k=3):
+            return [
+                {"id": f"fabricado-{i}", "text": "x" * 500, "score": 999.0}
+                for i in range(50)
+            ]
 
-    consolidate_calls = {"n": 0}
+        def _noop_consolidate(self, episodes):
+            # Deliberadamente NÃO persiste nada — comportamento diferente do
+            # real, para provar que o resultado de run_pipeline não depende disso.
+            return None
 
-    def _noop_consolidate(self, episodes):
-        consolidate_calls["n"] += 1
-        # Deliberadamente NÃO persiste nada — comportamento diferente do real,
-        # para provar que o resultado de run_pipeline não depende disso.
-        return None
-
-    monkeypatch.setattr(sm_mod.SemanticMemory, "retrieve", _fabricated_retrieve, raising=False)
-    monkeypatch.setattr(
-        sm_mod.SemanticMemory, "consolidate_from_episodes", _noop_consolidate, raising=False
-    )
+        monkeypatch.setattr(sm_mod.SemanticMemory, "retrieve", _fabricated_retrieve, raising=False)
+        monkeypatch.setattr(
+            sm_mod.SemanticMemory, "consolidate_from_episodes", _noop_consolidate, raising=False
+        )
 
     sid_patched = f"char-patched-{uuid.uuid4().hex[:8]}"
     patched = run_pipeline(FIXED_TEXT, FIXED_QUESTION, session_id=sid_patched)
