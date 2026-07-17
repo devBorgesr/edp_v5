@@ -16,7 +16,9 @@ Robustez (v3.4 — sprint estabilidade):
   - Inference queue com semáforo
     → 1 inferência por vez em 8GB de RAM (evita contenção CPU)
   - Memory pressure governor
-    → recusa novas inferências se RAM < 1.2GB
+    → recusa novas inferências LOCAIS se RAM < CRITICAL_GB (env
+      EDP_PRESSURE_CRITICAL_GB, default 0.30GB — ver edp/runtime/
+      pressure_governor.py para a calibração completa; Dívida #41)
   - Write-after-confirm
     → memória só persiste se stream completou (sem alucinações órfãs)
 """
@@ -65,7 +67,7 @@ async def _safe_send(ws, payload: dict) -> bool:
 
 
 from ...runtime import get_runtime, get_memory, is_valid, get_error
-from ...runtime.pressure_governor import get_governor, PressureLevel
+from ...runtime.pressure_governor import get_governor, PressureLevel, CRITICAL_GB
 from ...runtime.inference_queue import get_queue, QueueFull, QueueTimeout
 from ...clock import now as _now  # Peça 0.2b — relógio interno robusto
 
@@ -768,7 +770,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             "type":  "warn",
                             "error": (
                                 f"Sistema sob pressão de memória "
-                                f"(RAM livre {pressure.available_gb:.2f}GB < 1.2GB). "
+                                f"(RAM livre {pressure.available_gb:.2f}GB < {CRITICAL_GB:.2f}GB). "
                                 f"Inferência local adiada. Tente conectar Anthropic/OpenAI."
                             ),
                         })
