@@ -181,6 +181,7 @@ _CLOCK_BOUND_MODULES = [
     "edp.cognitive_scheduler",
     "edp.context_builder",
     "edp.echo_chamber",
+    "edp.failsafe",
     "edp.co_occurrence",
     "edp.llm_adapter",
     "edp.meta_reasoner",
