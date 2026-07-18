@@ -27,6 +27,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ..clock import now as _now
+
 logger = logging.getLogger("edp.runtime.queue")
 
 
@@ -209,7 +211,7 @@ class CancelToken:
             return
         self.is_cancelled  = True
         self.cancel_reason = reason
-        self.cancelled_at  = time.time()
+        self.cancelled_at  = _now()
         logger.info(
             "[cancel] session=%s reason=%s",
             self.session_id, reason,

@@ -36,7 +36,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import time
+
+from ..clock import now as _now
 
 logger = logging.getLogger("edp.runtime.auto_consolidation")
 
@@ -143,7 +144,7 @@ def make_auto_consolidation_job(
             return
         with _job_lock:
             last = _last_run.get(session_id, 0.0)
-            now_ts = time.time()
+            now_ts = _now()
             if (now_ts - last) < effective_cooldown:
                 return  # cooldown
             _last_run[session_id] = now_ts
