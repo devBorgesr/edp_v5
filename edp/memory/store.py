@@ -988,9 +988,6 @@ class EpisodicMemory:
         return len(self.entries)
 
 
-from .semantic import SemanticMemory
-
-
 # ── MemoryStore — interface unificada (compatível com v2) ─────────────────────
 # Commit 1 dos Dois Exocórtices (2026-05-31):
 #   MemoryStore agora segura DUAS instâncias internamente — uma para o exocórtex
