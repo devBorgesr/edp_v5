@@ -171,6 +171,8 @@ def entry_factory():
 # `edp.clock.now` não é visto por quem já importou. Lista tirada de
 # `grep -rn "from \.\.\?clock import" edp/` excluindo edp/lab/.
 _CLOCK_BOUND_MODULES = [
+    "edp.api.routes.dashboard_state",
+    "edp.api.routes.health",
     "edp.blocks",
     "edp.analytics",
     "edp.affective_calibration",
