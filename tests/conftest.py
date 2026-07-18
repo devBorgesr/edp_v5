@@ -98,14 +98,18 @@ def isolated_base_dir(tmp_path, monkeypatch):
     import edp.memory as memory_mod
     monkeypatch.setattr(memory_mod, "MEMORY_DIR", sessions, raising=False)
 
-    # Fase 4 T3 (ALERTA δ): edp/memory virou pacote — atomic_io.py não vincula
-    # MEMORY_DIR (não usa), mas semantic.py faz `from ..config import
-    # MEMORY_DIR` no próprio import, nome vinculado no SEU namespace. Patchear
-    # só memory_mod.MEMORY_DIR não é visto por SemanticMemory (que lê
-    # MEMORY_DIR do módulo semantic.py, não do __init__.py do pacote) — sem
-    # isto, SemanticMemory grava fora do tmp_path isolado.
+    # Fase 4 T3 (ALERTA δ, pego 2x neste split — atomic_io.py não vincula
+    # MEMORY_DIR, não usa): tanto semantic.py (`from ..config import
+    # MEMORY_DIR`) quanto store.py (mesmo padrão — WorkingMemory/
+    # EpisodicMemory/MemoryStore leem daqui) vinculam o nome no PRÓPRIO
+    # namespace no momento do import. Patchear só memory_mod.MEMORY_DIR (a
+    # cópia re-exportada em __init__.py) não é visto por quem de fato lê o
+    # valor — sem os dois patches abaixo, SemanticMemory/EpisodicMemory
+    # gravam fora do tmp_path isolado.
     import edp.memory.semantic as memory_semantic_mod
     monkeypatch.setattr(memory_semantic_mod, "MEMORY_DIR", sessions, raising=False)
+    import edp.memory.store as memory_store_mod
+    monkeypatch.setattr(memory_store_mod, "MEMORY_DIR", sessions, raising=False)
 
     # edp.metrics faz `from .config import METRICS_LOG` — nome vinculado no
     # import, não relido a cada chamada. Repatchear o módulo de config sozinho
@@ -196,6 +200,9 @@ _CLOCK_BOUND_MODULES = [
     "edp.meta_reasoner",
     "edp.metrics",
     "edp.memory",
+    # Fase 4 T3: _now vive de fato em edp.memory.store agora (edp.memory é só
+    # re-export) — sem isto, frozen_clock não afeta EpisodicMemory/MemoryStore.
+    "edp.memory.store",
     "edp.types",
     "edp.pipeline",
     "edp.pressure",
