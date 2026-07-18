@@ -9,6 +9,7 @@ docstring de _atomic_write_json abaixo) — não mexido nesta extração.
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
