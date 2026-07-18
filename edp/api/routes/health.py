@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import os
-import time
 from fastapi import APIRouter, Response
 
+from ...clock import now as _now
 from ...runtime import list_sessions, stats as registry_stats
 from ..schemas import HealthResponse
 
@@ -67,7 +67,7 @@ async def health(response: Response):
     return HealthResponse(
         status=status,
         version="3.3.0",
-        timestamp=time.time(),
+        timestamp=_now(),
         sessions=list_sessions(),
         metrics=m,
         boot_state=boot_state.value,

@@ -2164,7 +2164,7 @@ REGRAS ABSOLUTAS:
                         historico_block = _build_historico_cronologico_compacto(
                             real_entries,
                             current_mode,
-                            time.time(),
+                            _now(),
                         )
                         if historico_block:
                             blocks.append(historico_block)
@@ -2198,7 +2198,7 @@ REGRAS ABSOLUTAS:
                     # Internamente o timestamp microssegundos é preservado
                     # nas memórias para uso futuro pelos calibradores
                     # (Pareto/Gauss/Bayes — Commits 3-5).
-                    _now_for_gap = time.time()
+                    _now_for_gap = _now()
                     for i, (entry, label, cap) in enumerate(
                         zip(recent_entries, labels_used, caps_reverse)
                     ):

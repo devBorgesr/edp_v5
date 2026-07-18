@@ -1,9 +1,11 @@
 """
 failsafe.py — Proteção e recovery de memória do EDP v3.
 """
-import json, shutil, time
+import json, shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+from .clock import now as _now
 
 _REQUIRED = {"id", "text", "embedding", "timestamp", "score_inicial"}
 _BACKUP_SUFFIX = "_backups"
@@ -28,7 +30,7 @@ def validate_memory_json(path: str) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 def detect_corruption(memory_store) -> dict:
-    issues: List[dict] = []; now = time.time(); future = now + 86400
+    issues: List[dict] = []; now = _now(); future = now + 86400
     def _check(entries, layer):
         for i, e in enumerate(entries):
             eid = e.get("id", f"idx_{i}")
@@ -51,7 +53,7 @@ def incremental_backup(memory_store) -> dict:
     session    = memory_store.session_id
     backup_dir = MEMORY_DIR / f"{session}{_BACKUP_SUFFIX}"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time()); backed = []; errors = []
+    ts = int(_now()); backed = []; errors = []
     for src in [memory_store.episodic.path, memory_store.semantic.path]:
         src = Path(src)
         if not src.exists(): continue

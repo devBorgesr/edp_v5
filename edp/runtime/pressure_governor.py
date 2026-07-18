@@ -57,10 +57,11 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import time
 from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Optional
+
+from ..clock import now as _now
 
 logger = logging.getLogger("edp.runtime.pressure")
 
@@ -132,7 +133,7 @@ class MemoryPressureGovernor:
         Retorna reading atual. Cacheada por CHECK_TTL_S a menos que force=True.
         """
         with self._lock:
-            now = time.time()
+            now = _now()
             if (not force
                 and self._last_reading is not None
                 and now - self._last_reading.timestamp < CHECK_TTL_S):

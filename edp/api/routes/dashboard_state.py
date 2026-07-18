@@ -8,9 +8,9 @@ v3.4 — sprint estabilidade:
 """
 from __future__ import annotations
 
-import time
 from fastapi import APIRouter
 
+from ...clock import now as _now
 from ...runtime import get_memory, get_runtime, is_valid, list_sessions
 
 router = APIRouter(tags=["dashboard"])
@@ -23,7 +23,7 @@ async def dashboard_state(session_id: str = "default"):
     Substitui polling de /health + /memory + /metrics + /snapshot.
     """
     out = {
-        "timestamp": time.time(),
+        "timestamp": _now(),
         "session_id": session_id,
     }
 

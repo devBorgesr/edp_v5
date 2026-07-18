@@ -1,45 +1,49 @@
 """
-memory.py — Hierarquia de memória cognitiva do EDP v3.
-WorkingMemory: recência, volátil, tamanho fixo pequeno.
-EpisodicMemory: eventos com timestamp, decay temporal.
-SemanticMemory: conhecimento consolidado, alta prioridade.
-MemoryStore: interface unificada compatível com v2.
+edp.memory.store — WorkingMemory, EpisodicMemory, _ScopedView, MemoryStore.
 
-PATCHES APLICADOS:
-  [P5]  reinforce_memory, decay_memory, update_usage_stats movidas para
-        dentro de MemoryStore (eram funções soltas com self — dead code)
-  [P6]  EpisodicMemory.retrieve(): batch cosine O(n) via vstack
-        (era loop com cosine_similarity individual por entry)
-  [P7]  SemanticMemory: _emb_matrix cacheada, invalidada só em promote()
-  [P8]  EpisodicMemory.retrieve(): lock de arquivo para evitar race condition
-        de escrita concorrente no JSON (write-after-write)
-  [P9]  GLOBAL_MEMORY removido de pipeline.py; MemoryStore agora é instanciado
-        por chamada ou passado como argumento (sem singleton de módulo sem lock)
+Fase 4 T3 (extração 3/3, final): extraído verbatim de memory.py
+(WorkingMemory, EpisodicMemory, migração legacy, _ScopedView, MemoryStore —
+posições originais antes do split; MOVE-ONLY, corpos de função byte-
+idênticos ao original — só esta docstring e os imports são novos).
+
+CHOKE-POINT (item G do adendo do pesquisador — desenho intencional, não
+acidente): o piso NOT_FOUND_FLOOR (EDP_WRITE_PROVENANCE, ver
+EpisodicMemory.retrieve() abaixo, import local de NOT_FOUND_FLOOR/
+TOXIC_ANSWER_CLASSES) e a exclusão do índice híbrido (ver
+MemoryStore._hybrid_index(), mesmo import local) SÃO OS DOIS PONTOS ONDE
+answer_class tóxico ("not_found" | "disqualification") é aplicado como
+defesa — e ficam de propósito no MESMO módulo. Separá-los em arquivos
+diferentes é PROIBIDO (por isso EpisodicMemory e MemoryStore NÃO foram
+splitados em episodic.py + store.py separados, ver relato da Fase 4 T3 —
+desvio do corte proposto originalmente). Quando o piso for estendido para
+SemanticMemory (Dívida documentada, ver edp/memory/semantic.py), o
+one-liner equivalente entra em SemanticMemory.retrieve() — módulo
+diferente deste, mas o par piso/exclusão-híbrida que JÁ existe continua
+adjacente aqui.
 """
-import json
-import math
-import os
 import logging
 import threading
-import time
 import uuid
 from pathlib import Path
-
-logger = logging.getLogger("edp.memory")
 from typing import List, Optional
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-from .config import (
+from ..config import (
     MEMORY_DIR, DECAY_LAMBDA, MAX_MEMORY,
     PRIORIDADE_PESO, WORKING_MEM_SIZE, EPISODIC_MEM_SIZE,
 )
-from .embeddings import embed_one
-from .temporal import decay, access_boost, recency_rank
-from .clock import now as _now, is_verified as _clock_verified  # Peça 0.2a — relógio interno robusto
-from . import schema_v1 as _schema  # Peça 0.3 — schema novo
-from . import metrics as M
+from ..embeddings import embed_one
+from ..temporal import decay, access_boost, recency_rank
+from ..clock import now as _now, is_verified as _clock_verified  # Peça 0.2a — relógio interno robusto
+from .. import schema_v1 as _schema  # Peça 0.3 — schema novo
+from .. import metrics as M
+
+from .atomic_io import _atomic_write_json, _safe_load_json, _serialize, _deserialize
+from .semantic import SemanticMemory
+
+logger = logging.getLogger("edp.memory")
 
 # ── Commit 3c.β (Renato, 04/06/2026) ──────────────────────────────────────────
 # Constantes do session_marker persistente.
@@ -95,161 +99,6 @@ OUT_OF_SESSION_PENALTY    = 0.85       # NOVO 04/06/2026 — sessão antiga conh
 # em outros lugares do scoring (semelhante ao min_score=0.20 mas com margem
 # para boost ×1.60 já aplicado, então 0.30 é "score líquido após boost").
 CURRENT_SESSION_TRUST_THRESHOLD = 0.30
-
-# ── Utilitário de serialização ────────────────────────────────────────────────
-
-def _serialize(entries: list[dict]) -> list[dict]:
-    out = []
-    for e in entries:
-        c = dict(e)
-        if isinstance(c.get("embedding"), np.ndarray):
-            c["embedding"] = c["embedding"].tolist()
-        out.append(c)
-    return out
-
-def _deserialize(entries: list[dict]) -> list[dict]:
-    for e in entries:
-        if "embedding" in e and isinstance(e["embedding"], list):
-            e["embedding"] = np.array(e["embedding"], dtype=np.float32)
-    return entries
-
-
-# ── Peça 0.3.1: Write atômico e load tolerante ────────────────────────────────
-
-# Dívida técnica #8: PermissionError [WinError 32] em writes concorrentes no Windows.
-# `os.replace` falha se destino estiver aberto por outro thread (ex: dashboard lendo).
-# Defesas em camadas:
-#   1. Lock global por path (serializa saves do mesmo arquivo)
-#   2. Retry com backoff exponencial em PermissionError/OSError
-#   3. Limpeza de .tmp órfão pré-existente
-
-_WRITE_LOCKS: dict = {}
-_WRITE_LOCKS_GUARD = threading.Lock()
-
-def _get_write_lock(path):
-    """Lock por path (chave = str do path absoluto). Cria lazy."""
-    key = str(Path(path).resolve())
-    with _WRITE_LOCKS_GUARD:
-        lk = _WRITE_LOCKS.get(key)
-        if lk is None:
-            lk = threading.Lock()
-            _WRITE_LOCKS[key] = lk
-        return lk
-
-
-def _atomic_write_json(path, data, *, indent: int = 2) -> None:
-    """
-    Grava JSON de forma atômica: tmp → fsync → rename.
-
-    Se processo for interrompido no meio da gravação, o arquivo original
-    fica intacto (apenas o .tmp pode estar parcial). Próximo boot lê o
-    original sem corrupção.
-
-    Robusto em POSIX e Windows. Em Windows, `os.replace` pode falhar com
-    PermissionError [WinError 32] se o destino estiver aberto por outro
-    thread (ex: dashboard lendo) ou processo (ex: antivírus escaneando).
-    Defesas: lock por path + retry com backoff.
-
-    Args:
-        path: caminho do arquivo final
-        data: dado serializável em JSON
-        indent: indentação do JSON
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-
-    # Serializa saves do mesmo arquivo (evita .tmp órfão por concorrência interna)
-    with _get_write_lock(path):
-        # Limpa .tmp órfão de save anterior que morreu (se houver)
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
-
-        # 1. Escreve no .tmp
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=indent)
-            f.flush()
-            try:
-                # 2. Força sincronização com disco (não só buffer do OS)
-                os.fsync(f.fileno())
-            except (OSError, AttributeError):
-                # Alguns FS não suportam fsync; segue mesmo assim
-                pass
-
-        # 3. Replace atômico com retry — Windows pode falhar transientemente
-        # quando destino está aberto por outro processo (antivírus, dashboard, etc).
-        # Backoff: 50ms, 100ms, 200ms, 400ms, 800ms (total ~1.5s antes de desistir)
-        backoffs = (0.05, 0.10, 0.20, 0.40, 0.80)
-        last_err = None
-        for delay in (0.0,) + backoffs:
-            if delay > 0:
-                time.sleep(delay)
-            try:
-                os.replace(tmp, path)
-                return
-            except (PermissionError, OSError) as e:
-                last_err = e
-                continue
-        # Após todas as tentativas, levanta para o caller decidir
-        # (em threads de save automático, é capturado e logado pelo runtime)
-        raise last_err
-
-
-def _safe_load_json(path):
-    """
-    Carrega JSON tolerando corrupção por write parcial.
-
-    Estratégia:
-      1. Tenta json.load() normal
-      2. Se falhar com 'Extra data' (dados depois do JSON válido):
-         tenta recuperar a parte válida procurando último ']' fechado
-      3. Se ainda falhar, retorna None (caller decide se inicia vazio)
-
-    NÃO modifica o arquivo automaticamente; apenas retorna o conteúdo
-    recuperado para o caller decidir o que fazer.
-
-    Returns:
-        dados (list/dict) ou None se irrecuperável
-    """
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        # Tenta recuperar JSON válido cortando lixo depois do último ']' ou '}'
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            # Busca último fecha-array/fecha-objeto que parsing bem
-            for cut in range(len(content), 0, -1):
-                if content[cut-1] in "]}":
-                    candidate = content[:cut]
-                    try:
-                        data = json.loads(candidate)
-                        # Conseguiu recuperar
-                        import logging
-                        logger = logging.getLogger("edp.memory")
-                        logger.warning(
-                            "[memory] JSON corrompido em %s recuperado por truncamento "
-                            "(perdeu %d bytes de lixo: %r)",
-                            path, len(content) - cut, content[cut:cut+50]
-                        )
-                        return data
-                    except json.JSONDecodeError:
-                        continue
-        except Exception:
-            pass
-
-        # Não recuperou — re-raise o erro original
-        raise
-    except FileNotFoundError:
-        return None
-
-
-# ── Peça 0.4 (reduzida): Lifetime state do EDP ────────────────────────────────
 
 def _edp_lifetime_path() -> Path:
     """Caminho do arquivo que guarda o estado vitalício do EDP."""
@@ -328,7 +177,7 @@ def _new_entry(
     emb_model   = "all-MiniLM-L6-v2"
     emb_version = "1.0.0"
     try:
-        from .config import EMBED_MODEL, EMBED_MODEL_VERSION
+        from ..config import EMBED_MODEL, EMBED_MODEL_VERSION
         emb_model   = EMBED_MODEL
         emb_version = EMBED_MODEL_VERSION
     except Exception:
@@ -336,7 +185,7 @@ def _new_entry(
 
     # Auto-classificação de source_type (governança de retrieval)
     try:
-        from .memory_classifier import classify_memory
+        from ..memory_classifier import classify_memory
         source_type = classify_memory(text, source)
     except Exception:
         source_type = "unknown"
@@ -472,7 +321,7 @@ class EpisodicMemory:
         self._load()
 
         # Store pressure monitor — extracted from feb0db9:pressure_monitor.py
-        from .pressure import StorePressureMonitor
+        from ..pressure import StorePressureMonitor
         self._pressure = StorePressureMonitor()
         self._pressure.update(len(self.entries) / max(self.max_size, 1))
         if len(self.entries) > self.max_size:
@@ -607,7 +456,7 @@ class EpisodicMemory:
         # (atributo direto da EpisodicMemory). Antes pegava do entry, mas
         # entries não carregam campo "scope" — resultava sempre em "unknown".
         try:
-            from .runtime.pareto_store import emit_memory_added
+            from ..runtime.pareto_store import emit_memory_added
             session_id = getattr(self, "session_id", None) or entry.get("session_id", "unknown")
             source_type = entry.get("source_type", "unknown")
             # Scope direto do atributo da EpisodicMemory (set no __init__)
@@ -665,7 +514,7 @@ class EpisodicMemory:
         # ── Sprint v3.6: Source-type weighting + dominance penalty ──────────
         # Penaliza memórias hiperdominantes (top-3 por acessos).
         # Reduz score de meta_conversation (governança anti-loop).
-        from .memory_classifier import get_source_weight
+        from ..memory_classifier import get_source_weight
 
         # Identifica top-3 mais acessadas (dominance penalty)
         # Só penaliza se total_retrievals > 20 (evita penalizar sistema vazio)
@@ -720,7 +569,7 @@ class EpisodicMemory:
             # SemanticMemory.retrieve() não lê answer_class — este piso só
             # cobre episodic (ver exp012_fase4_backfill_apply.py, achado de
             # fonte, e RELATORIO_ETAPA0_EXP016.md P1).
-            from .config import EDP_WRITE_PROVENANCE as _WP, NOT_FOUND_FLOOR as _NF, TOXIC_ANSWER_CLASSES as _TAC
+            from ..config import EDP_WRITE_PROVENANCE as _WP, NOT_FOUND_FLOOR as _NF, TOXIC_ANSWER_CLASSES as _TAC
             nf_floor = _NF if (_WP and e.get("answer_class") in _TAC) else 1.0
 
             # ── Commit 3c.β-cal (Renato, 04/06/2026): session_boost calibrado ─
@@ -857,7 +706,7 @@ class EpisodicMemory:
         # deixam de ser injetadas e de ter acessos incrementados (quebra o
         # reforço). Filtrar ANTES de montar results é o que zera o incremento.
         try:
-            from .echo_chamber import detectar_auto_sinal_de_limite
+            from ..echo_chamber import detectar_auto_sinal_de_limite
             _n_antes = len(scored)
             scored = [
                 (rs, i, bd) for (rs, i, bd) in scored
@@ -898,7 +747,7 @@ class EpisodicMemory:
         # (atributo direto). Heurística substring de session_id era frágil:
         # se session_id="default", nenhum match → scope sempre "unknown".
         try:
-            from .runtime.pareto_store import emit_memory_accessed
+            from ..runtime.pareto_store import emit_memory_accessed
             session_id = getattr(self, "session_id", "unknown")
             n_returned = len(results)
             top_score = results[0].get("ranking_score", 0.0) if results else 0.0
@@ -1139,142 +988,6 @@ class EpisodicMemory:
         return len(self.entries)
 
 
-# ── Semantic Memory ───────────────────────────────────────────────────────────
-
-class SemanticMemory:
-    """
-    Memória semântica: conhecimento consolidado, alta durabilidade.
-    [P7] _emb_matrix cacheada — reconstruída apenas quando entries muda.
-    """
-
-    def __init__(self, session_id: str, scope: str = "cognitive"):
-        """
-        Args:
-            session_id: ID da sessão
-            scope: 'cognitive' (default) ou 'sprint'. Commit 1 dos Dois Exocórtices.
-        """
-        self.session_id  = session_id
-        self.scope       = scope
-        self._lock       = threading.Lock()
-        self._emb_cache: np.ndarray | None = None  # [P7] cache de matrix
-        self._cache_dirty = True
-        # Commit 1: caminhos isolados por scope
-        scope_dir = MEMORY_DIR / f"{session_id}_{scope}"
-        scope_dir.mkdir(parents=True, exist_ok=True)
-        self.path    = scope_dir / "semantic.json"
-        self.entries: list[dict] = []
-        self._load()
-
-    def _load(self) -> None:
-        if self.path.exists():
-            # Peça 0.3.1: usa _safe_load_json
-            data = _safe_load_json(self.path)
-            if data is not None:
-                self.entries = _deserialize(data)
-        self._cache_dirty = True
-
-    def save(self) -> None:
-        # Peça 0.3.1: write atômico
-        with self._lock:
-            _atomic_write_json(self.path, _serialize(self.entries))
-
-    def promote(self, entry: dict) -> None:
-        """Promove uma entrada episódica para memória semântica."""
-        # Dívida #49 (13/06/2026): recusas (frase-gatilho da câmara) NÃO viram
-        # conhecimento consolidado. "Não sei" não é fato semântico, e promovê-lo
-        # daria peso alto (0.85) a uma recusa no retrieval — alimentando o loop.
-        # Mesma confiança "alta" do filtro de retrieval, por consistência.
-        try:
-            from .echo_chamber import detectar_auto_sinal_de_limite
-            if detectar_auto_sinal_de_limite(
-                entry.get("text", "") or ""
-            ).get("confianca") == "alta":
-                logger.info(
-                    "[promote] recusa NÃO promovida à semântica (Dívida #49) "
-                    "| id=%s", (entry.get("id", "") or "")[:8],
-                )
-                return
-        except Exception as e:
-            logger.debug("[promote] checagem de recusa falhou: %s", e)
-        entry = dict(entry)
-        entry["layer"]     = "semantic"
-        entry["prioridade"] = "alta"
-        self.entries.append(entry)
-        self._cache_dirty = True  # [P7] invalida cache
-        self.save()
-
-    def _get_emb_matrix(self) -> np.ndarray | None:
-        """[P7] Retorna matrix cacheada; reconstrói só se dirty."""
-        if not self.entries:
-            return None
-        if self._cache_dirty or self._emb_cache is None:
-            self._emb_cache = np.vstack([
-                np.array(e["embedding"], dtype=np.float32) for e in self.entries
-            ])
-            self._cache_dirty = False
-        return self._emb_cache
-
-    def retrieve(
-        self,
-        query_emb: np.ndarray,
-        top_k: int = 5,
-        min_score: float = 0.30,
-        respect_epistemic: bool = True,
-    ) -> list[dict]:
-        """
-        [P7] Usa matrix cacheada — não reconstrói a cada chamada.
-        [P1-v3.5] respect_epistemic: aplica filtro/penalty igual à episódica.
-        """
-        if not self.entries:
-            return []
-        matrix = self._get_emb_matrix()
-        if matrix is None:
-            return []
-        sims = cosine_similarity([query_emb], matrix)[0]
-
-        scored = []
-        skipped_blocked = 0
-        for i in range(len(self.entries)):
-            e = self.entries[i]
-            sim = float(sims[i])
-
-            # Epistemic governance
-            epi_multiplier = 1.0
-            if respect_epistemic:
-                status = e.get("epistemic_status", "hypothesis")
-                if status in ("contradicted", "quarantined"):
-                    skipped_blocked += 1
-                    continue
-                elif status == "stale":
-                    epi_multiplier = 0.5
-                elif status == "hypothesis":
-                    epi_multiplier = 0.85
-
-            adjusted = sim * epi_multiplier
-            if adjusted >= min_score:
-                scored.append((adjusted, e))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        if skipped_blocked > 0:
-            try:
-                import logging as _lg
-                _lg.getLogger("edp.memory").debug(
-                    "[semantic.retrieve] epistemic | bloqueadas=%d",
-                    skipped_blocked,
-                )
-            except Exception:
-                pass
-
-        return [{**e, "ranking_score": round(s, 4)} for s, e in scored[:top_k]]
-
-    def all_embeddings(self) -> np.ndarray:
-        matrix = self._get_emb_matrix()
-        return matrix if matrix is not None else np.array([])
-
-    def __len__(self) -> int:
-        return len(self.entries)
-
-
 # ── MemoryStore — interface unificada (compatível com v2) ─────────────────────
 # Commit 1 dos Dois Exocórtices (2026-05-31):
 #   MemoryStore agora segura DUAS instâncias internamente — uma para o exocórtex
@@ -1369,7 +1082,7 @@ class _ScopedView:
         self.scope      = scope
         self.episodic   = EpisodicMemory(session_id, scope=scope)
         self.semantic   = SemanticMemory(session_id,  scope=scope)
-        from .blocks import BlockManager
+        from ..blocks import BlockManager
         self.blocks     = BlockManager(session_id, MEMORY_DIR, scope=scope)
 
 
@@ -1578,7 +1291,7 @@ class MemoryStore:
         # Política: NÃO bloqueia, NÃO altera texto. Só marca metadado.
         # Tolerância: falha do classificador não bloqueia gravação.
         try:
-            from .epistemic_classifier import detectar_admissao_em_prosa
+            from ..epistemic_classifier import detectar_admissao_em_prosa
             if detectar_admissao_em_prosa(text):
                 entry["is_epistemic_anchor"] = True
         except Exception:
@@ -1626,7 +1339,7 @@ class MemoryStore:
         min_score: float = 0.20,
         layers: list[str] | None = None,
     ) -> list[dict]:
-        from .embeddings import embed_one as _e1
+        from ..embeddings import embed_one as _e1
         query_emb = _e1(query)
 
         # ── EDP_HYBRID_RETRIEVAL (exp010, 07/2026) — flag DESLIGADA por padrão ─
@@ -1635,7 +1348,7 @@ class MemoryStore:
         # é o mesmo. min_score do chamador (escala cosine) NÃO se aplica ao RRF
         # (escala ~0.016) — o caminho híbrido usa HYBRID_MIN_SCORE (config).
         # Desligada (default), o fluxo abaixo é EXATAMENTE o de antes.
-        from .config import EDP_HYBRID_RETRIEVAL
+        from ..config import EDP_HYBRID_RETRIEVAL
         if EDP_HYBRID_RETRIEVAL:
             return self._retrieve_hybrid(query, query_emb, top_k)
 
@@ -1669,7 +1382,7 @@ class MemoryStore:
 
         # ── P2: Retrieval quality monitor (não-bloqueante) ───────────────────
         try:
-            from .runtime.retrieval_monitor import get_monitor
+            from ..runtime.retrieval_monitor import get_monitor
             top_scores = [r["ranking_score"] for r in final_top]
             top_ids    = [r.get("id", "") for r in final_top]
             get_monitor().record_turn(top_scores=top_scores, result_ids=top_ids)
@@ -1680,7 +1393,7 @@ class MemoryStore:
         # Só executa se top_k >= 2 (precisa pares para comparar)
         if len(final_top) >= 2:
             try:
-                from .runtime.contradiction_flagger import get_flagger
+                from ..runtime.contradiction_flagger import get_flagger
                 get_flagger().scan_results(final_top)
             except Exception:
                 pass  # nunca quebra retrieve
@@ -1714,9 +1427,9 @@ class MemoryStore:
         if cached is not None and cached[0] == key:
             return cached[1]
 
-        from .retrieval_hybrid import HybridRetriever
+        from ..retrieval_hybrid import HybridRetriever
         try:
-            from .echo_chamber import detectar_auto_sinal_de_limite as _recusa
+            from ..echo_chamber import detectar_auto_sinal_de_limite as _recusa
         except Exception:
             _recusa = None
 
@@ -1739,7 +1452,7 @@ class MemoryStore:
                 # "disqualification"} (config.py) — mesma lacuna documentada
                 # acima (só cobre episodic+semantic AQUI porque este laço
                 # varre as duas; o peso-piso isolado em EpisodicMemory NÃO).
-                from .config import EDP_WRITE_PROVENANCE as _WP12, TOXIC_ANSWER_CLASSES as _TAC12
+                from ..config import EDP_WRITE_PROVENANCE as _WP12, TOXIC_ANSWER_CLASSES as _TAC12
                 if _WP12 and e.get("answer_class") in _TAC12:
                     continue
                 # filtro_recusa (Dívida #49): recusa alta-confiança não é injetada
@@ -1777,7 +1490,7 @@ class MemoryStore:
         consumidores de exibição/telemetria veem a escala nova enquanto a flag
         estiver ligada (documentado no commit).
         """
-        from .config import HYBRID_MIN_SCORE
+        from ..config import HYBRID_MIN_SCORE
 
         index = self._hybrid_index()
         if not index:
@@ -1824,7 +1537,7 @@ class MemoryStore:
 
         # telemetria pareto (paridade com episodic.retrieve)
         try:
-            from .runtime.pareto_store import emit_memory_accessed
+            from ..runtime.pareto_store import emit_memory_accessed
             emit_memory_accessed(
                 session_id=str(getattr(self, "session_id", "unknown")),
                 n_returned=len(final_top),
@@ -1836,7 +1549,7 @@ class MemoryStore:
 
         # P2: retrieval monitor (paridade)
         try:
-            from .runtime.retrieval_monitor import get_monitor
+            from ..runtime.retrieval_monitor import get_monitor
             get_monitor().record_turn(
                 top_scores=[r["ranking_score"] for r in final_top],
                 result_ids=[r.get("id", "") for r in final_top],
@@ -1847,7 +1560,7 @@ class MemoryStore:
         # P3: contradiction flagging (paridade)
         if len(final_top) >= 2:
             try:
-                from .runtime.contradiction_flagger import get_flagger
+                from ..runtime.contradiction_flagger import get_flagger
                 get_flagger().scan_results(final_top)
             except Exception:
                 pass

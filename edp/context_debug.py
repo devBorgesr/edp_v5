@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+from .clock import now as _now
 from .config import BASE_DIR
 
 logger = logging.getLogger("edp.context_debug")
@@ -74,7 +75,7 @@ def log_context(
             _rotate_if_needed()
 
             with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ts = datetime.fromtimestamp(_now()).strftime("%Y-%m-%d %H:%M:%S")
                 f.write("\n" + "=" * 78 + "\n")
                 f.write(f"[turno #{turn}] {ts} | session={session_id}\n")
                 f.write("=" * 78 + "\n")

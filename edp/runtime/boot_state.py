@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
+
+from ..clock import now as _now
 
 logger = logging.getLogger("edp.runtime.boot")
 
@@ -65,7 +66,7 @@ class BootStateMachine:
 
     def __init__(self) -> None:
         self._state: RuntimeState = RuntimeState.COLD
-        self._state_since: float  = time.time()
+        self._state_since: float  = _now()
         self._lock = threading.Lock()
         self._components: Dict[str, ComponentHealth] = {}
         self._history: List[dict] = []
@@ -93,7 +94,7 @@ class BootStateMachine:
 
             prev = self._state
             self._state = new_state
-            now = time.time()
+            now = _now()
             duration_s = now - self._state_since
             self._state_since = now
 
@@ -126,13 +127,13 @@ class BootStateMachine:
         with self._lock:
             self._components[name] = ComponentHealth(
                 name=name, healthy=healthy,
-                last_check=time.time(), error=error,
+                last_check=_now(), error=error,
             )
 
             # Re-avalia estado geral
             if not healthy and critical and self._state == RuntimeState.READY:
                 self._state = RuntimeState.DEGRADED
-                self._state_since = time.time()
+                self._state_since = _now()
                 logger.warning(
                     "[boot] DEGRADED por componente critico='%s' erro=%s",
                     name, error,
@@ -144,7 +145,7 @@ class BootStateMachine:
                 )
                 if not any_critical_failing:
                     self._state = RuntimeState.READY
-                    self._state_since = time.time()
+                    self._state_since = _now()
                     logger.info("[boot] recuperado para READY")
 
     def is_ready(self) -> bool:
@@ -162,7 +163,7 @@ class BootStateMachine:
             return {
                 "state":         self._state.value,
                 "state_since":   self._state_since,
-                "uptime_s":      round(time.time() - self._state_since, 1),
+                "uptime_s":      round(_now() - self._state_since, 1),
                 "components":    {
                     name: {
                         "healthy":    c.healthy,

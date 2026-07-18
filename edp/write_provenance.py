@@ -34,8 +34,9 @@ import json
 import logging
 import os
 import re
-import time
 from pathlib import Path
+
+from .clock import now as _now
 logger = logging.getLogger("edp.write_provenance")
 FIELD_PROV = "ctx_provenance"
 FIELD_CLASS = "answer_class"
@@ -176,7 +177,7 @@ def _log_quarantine(session_id: str, entry_id, cls: str, prov: dict, query: str,
         record = {
             "id": entry_id,
             "answer_class": cls,
-            "timestamp": time.time(),
+            "timestamp": _now(),
             **_explain(prov, query, resposta),
         }
         path = _audit_path(session_id)

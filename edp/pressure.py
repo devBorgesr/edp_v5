@@ -19,8 +19,9 @@ Zero dependencies outside stdlib.
 from __future__ import annotations
 
 import threading
-import time
 from dataclasses import dataclass
+
+from .clock import now as _now
 
 
 @dataclass
@@ -88,7 +89,7 @@ class StorePressureMonitor:
                 eviction_alert=self._eviction.is_alert,
                 eviction_critical=self._eviction.is_critical,
                 consolidation_alert=self._consolidation.is_alert,
-                ts=time.time(),
+                ts=_now(),
             )
 
     # ── internal ──────────────────────────────────────────────────────────────

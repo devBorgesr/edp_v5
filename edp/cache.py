@@ -10,10 +10,10 @@ v3: WAL mode, LRU eviction, batch get/set, hit rate,
 """
 import sqlite3
 import hashlib
-import time
 import threading
 import numpy as np
 
+from .clock import now as _now
 from .config import CACHE_DB, CACHE_MAX, EMBED_MODEL_VERSION, EMBED_DIM
 
 _lock = threading.Lock()
@@ -74,7 +74,7 @@ def put(text: str, vector: np.ndarray) -> None:
                    (hash, text, model_ver, vector, dim, created_at)
                    VALUES (?,?,?,?,?,?)""",
                 (h, text[:500], EMBED_MODEL_VERSION,
-                 vec.tobytes(), EMBED_DIM, time.time())
+                 vec.tobytes(), EMBED_DIM, _now())
             )
 
 # ── Batch ops ─────────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ def put_batch(texts: list[str], vectors: list[np.ndarray]) -> None:
             continue  # skip dimensão errada silenciosamente
         rows.append((
             _hash(t), t[:500], EMBED_MODEL_VERSION,
-            vec.tobytes(), EMBED_DIM, time.time()
+            vec.tobytes(), EMBED_DIM, _now()
         ))
     if not rows:
         return

@@ -6,10 +6,10 @@ Regras do escopo (adendo do pesquisador):
     (texto/embeddings fabricados, sem PII, sem stores de produção).
   - markers `windows_only` e `live_store` ficam FORA do default run
     (ver pytest.ini `addopts`); precisam de `-m windows_only` explícito.
-  - `frozen_clock` é só o ESQUELETO (item D do adendo): patcheia
-    `edp.clock.now` diretamente. NÃO re-patcheia os `_now` já vinculados
-    por import (`from .clock import now as _now`) em memory.py/pipeline.py/
-    semantic_memory.py — essa injeção completa fica para fase posterior.
+  - `frozen_clock` (Fase 4, T1b): patcheia `edp.clock.now` E todo `_now`
+    já vinculado por import (`from .clock import now as _now`) nos módulos
+    vivos de edp/ — ver _CLOCK_BOUND_MODULES abaixo. Congela o tempo para
+    todos eles simultaneamente; suporta avanço manual via .advance()/.set().
 """
 from __future__ import annotations
 
@@ -98,6 +98,19 @@ def isolated_base_dir(tmp_path, monkeypatch):
     import edp.memory as memory_mod
     monkeypatch.setattr(memory_mod, "MEMORY_DIR", sessions, raising=False)
 
+    # Fase 4 T3 (ALERTA δ, pego 2x neste split — atomic_io.py não vincula
+    # MEMORY_DIR, não usa): tanto semantic.py (`from ..config import
+    # MEMORY_DIR`) quanto store.py (mesmo padrão — WorkingMemory/
+    # EpisodicMemory/MemoryStore leem daqui) vinculam o nome no PRÓPRIO
+    # namespace no momento do import. Patchear só memory_mod.MEMORY_DIR (a
+    # cópia re-exportada em __init__.py) não é visto por quem de fato lê o
+    # valor — sem os dois patches abaixo, SemanticMemory/EpisodicMemory
+    # gravam fora do tmp_path isolado.
+    import edp.memory.semantic as memory_semantic_mod
+    monkeypatch.setattr(memory_semantic_mod, "MEMORY_DIR", sessions, raising=False)
+    import edp.memory.store as memory_store_mod
+    monkeypatch.setattr(memory_store_mod, "MEMORY_DIR", sessions, raising=False)
+
     # edp.metrics faz `from .config import METRICS_LOG` — nome vinculado no
     # import, não relido a cada chamada. Repatchear o módulo de config sozinho
     # não basta; qualquer M.timer()/M.record() (ex: MemoryStore.add()) grava
@@ -163,17 +176,101 @@ def entry_factory():
     return make_entry
 
 
-# ── frozen_clock — ESQUELETO (item D do adendo, injeção completa depois) ──────
+# ── frozen_clock — injeção completa (Fase 4, T1b) ──────────────────────────────
+
+# Todo módulo vivo de edp/ (exclui edp/lab/ e scripts, mesmo corte do T1a)
+# que faz `from .clock import now as _now` — o nome fica vinculado no
+# namespace do módulo no momento do import, então patchear só
+# `edp.clock.now` não é visto por quem já importou. Lista tirada de
+# `grep -rn "from \.\.\?clock import" edp/` excluindo edp/lab/.
+_CLOCK_BOUND_MODULES = [
+    "edp.api.routes.dashboard_state",
+    "edp.api.routes.health",
+    "edp.blocks",
+    "edp.cache",
+    "edp.context_debug",
+    "edp.analytics",
+    "edp.affective_calibration",
+    "edp.cognitive_scheduler",
+    "edp.context_builder",
+    "edp.echo_chamber",
+    "edp.failsafe",
+    "edp.co_occurrence",
+    "edp.llm_adapter",
+    "edp.meta_reasoner",
+    "edp.metrics",
+    "edp.memory",
+    # Fase 4 T3: _now vive de fato em edp.memory.store agora (edp.memory é só
+    # re-export) — sem isto, frozen_clock não afeta EpisodicMemory/MemoryStore.
+    "edp.memory.store",
+    "edp.types",
+    "edp.pipeline",
+    "edp.pressure",
+    "edp.trajectory",
+    "edp.write_provenance",
+    "edp.temporal",
+    "edp.runtime.auto_consolidation",
+    "edp.runtime.background_loop",
+    "edp.runtime.boot_state",
+    "edp.runtime.inference_queue",
+    "edp.runtime.pressure_governor",
+    "edp.runtime.bayes_calibrator",
+    "edp.runtime.cognitive_decisions",
+    "edp.runtime.contradiction_flagger",
+    "edp.runtime.lineage",
+    "edp.runtime.gauss_calibrator",
+    "edp.runtime.health_index",
+    "edp.runtime.pareto_store",
+    "edp.runtime.retrieval_monitor",
+]
+
+
+class _FrozenClock:
+    """Callable congelado com avanço manual — instância única compartilhada
+    entre `edp.clock.now` e todo `_now` vinculado (ver _CLOCK_BOUND_MODULES),
+    então `.advance()`/`.set()` chamado uma vez move o tempo em todos eles."""
+
+    def __init__(self, initial: float):
+        self._value = initial
+
+    def __call__(self) -> float:
+        return self._value
+
+    def advance(self, seconds: float) -> None:
+        self._value += seconds
+
+    def set(self, value: float) -> None:
+        self._value = value
+
+    def __eq__(self, other):
+        return self._value == other
+
+    def __float__(self) -> float:
+        return self._value
+
+    def __repr__(self) -> str:
+        return f"_FrozenClock({self._value!r})"
+
 
 @pytest.fixture
 def frozen_clock(monkeypatch):
     """
-    Esqueleto: fixa edp.clock.now() num valor constante. NÃO propaga (ainda)
-    para os `_now` já vinculados por `from .clock import now as _now` em
-    memory.py/pipeline.py/semantic_memory.py — cada um desses precisaria de
-    monkeypatch próprio, deixado para a fase de injeção completa.
+    Congela edp.clock.now() e todo `_now` já vinculado por import em
+    módulos vivos (memory.py, pipeline.py, llm_adapter.py, runtime/*, etc.)
+    num valor único e compartilhado. Suporta avanço manual:
+    `frozen_clock.advance(15000)` move o tempo para todos os módulos de uma vez.
     """
-    fixed = 1_800_000_000.0
+    clock = _FrozenClock(1_800_000_000.0)
+
     import edp.clock as clock_mod
-    monkeypatch.setattr(clock_mod, "now", lambda: fixed, raising=False)
-    return fixed
+    monkeypatch.setattr(clock_mod, "now", clock, raising=False)
+
+    for modname in _CLOCK_BOUND_MODULES:
+        try:
+            mod = sys.modules.get(modname) or __import__(modname, fromlist=["_"])
+        except Exception:
+            continue
+        if hasattr(mod, "_now"):
+            monkeypatch.setattr(mod, "_now", clock, raising=False)
+
+    return clock
