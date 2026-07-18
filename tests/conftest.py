@@ -174,6 +174,7 @@ _CLOCK_BOUND_MODULES = [
     "edp.api.routes.dashboard_state",
     "edp.api.routes.health",
     "edp.blocks",
+    "edp.cache",
     "edp.analytics",
     "edp.affective_calibration",
     "edp.cognitive_scheduler",
