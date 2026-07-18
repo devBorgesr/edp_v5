@@ -188,6 +188,7 @@ _CLOCK_BOUND_MODULES = [
     "edp.memory",
     "edp.types",
     "edp.pipeline",
+    "edp.pressure",
     "edp.trajectory",
     "edp.temporal",
     "edp.runtime.background_loop",
