@@ -98,6 +98,15 @@ def isolated_base_dir(tmp_path, monkeypatch):
     import edp.memory as memory_mod
     monkeypatch.setattr(memory_mod, "MEMORY_DIR", sessions, raising=False)
 
+    # Fase 4 T3 (ALERTA δ): edp/memory virou pacote — atomic_io.py não vincula
+    # MEMORY_DIR (não usa), mas semantic.py faz `from ..config import
+    # MEMORY_DIR` no próprio import, nome vinculado no SEU namespace. Patchear
+    # só memory_mod.MEMORY_DIR não é visto por SemanticMemory (que lê
+    # MEMORY_DIR do módulo semantic.py, não do __init__.py do pacote) — sem
+    # isto, SemanticMemory grava fora do tmp_path isolado.
+    import edp.memory.semantic as memory_semantic_mod
+    monkeypatch.setattr(memory_semantic_mod, "MEMORY_DIR", sessions, raising=False)
+
     # edp.metrics faz `from .config import METRICS_LOG` — nome vinculado no
     # import, não relido a cada chamada. Repatchear o módulo de config sozinho
     # não basta; qualquer M.timer()/M.record() (ex: MemoryStore.add()) grava
