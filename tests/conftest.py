@@ -191,6 +191,7 @@ _CLOCK_BOUND_MODULES = [
     "edp.pipeline",
     "edp.pressure",
     "edp.trajectory",
+    "edp.write_provenance",
     "edp.temporal",
     "edp.runtime.auto_consolidation",
     "edp.runtime.background_loop",
