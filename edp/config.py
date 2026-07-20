@@ -97,6 +97,19 @@ TOXIC_ANSWER_CLASSES = {"not_found", "disqualification"}
 # O RETRIEVAL_MIN_SIM (0.20, escala cosine) zeraria TUDO — escala própria.
 HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))
 
+# ── exp017 Fase 0 (07/2026): controle negativo do retrieve (read-side) ────────
+# DESLIGADO por padrão (OFF = byte-idêntico). Ligado, embaralha a ORDEM do
+# conjunto top-k já pronto (edp/llm_adapter.py:2334) antes de entrar no
+# context_builder — ZERO remoção, conjunto intacto. Seed determinística POR
+# QUERY: random.Random(f"{EDP_SHUFFLE_SEED}:{sha256(query)}") — reprodutível
+# entre runs, mas permutações distintas entre queries (seed única global
+# degeneraria no próprio fenômeno C: listas iguais -> permutação igual).
+# Instrumento de MEDIÇÃO (H2, controle negativo do PRE_REGISTRO_EXP017.md) —
+# mutuamente exclusiva com EDP_RETRIEVE_DEDUP (Fase 1, ainda inexistente).
+# SHUFFLE nunca é produção; se ambas as flags ligarem, é erro de configuração.
+EDP_RETRIEVE_SHUFFLE = os.environ.get("EDP_RETRIEVE_SHUFFLE", "0") == "1"
+EDP_SHUFFLE_SEED      = os.environ.get("EDP_SHUFFLE_SEED", "20260719")
+
 # ── Memória ────────────────────────────────────────────────────────────────────
 DECAY_LAMBDA      = float(os.environ.get("EDP_DECAY_LAMBDA",  "0.1"))
 MAX_MEMORY        = int(os.environ.get("EDP_MAX_MEMORY",       "500"))

@@ -2332,6 +2332,28 @@ REGRAS ABSOLUTAS:
 
             # ── Retrieval por similaridade ──────────────────────────────────
             results = self._memory.retrieve(query, top_k=5, min_score=0.20)
+
+            # ── exp017 Fase 0 — EDP_RETRIEVE_SHUFFLE (default OFF) ───────────
+            # Controle negativo (H2, PRE_REGISTRO_EXP017.md): embaralha a
+            # ORDEM do top-k já pronto ANTES do loop abaixo consumi-lo —
+            # ZERO remoção, mesmo conjunto. Ponto fixado no T1b (RELATORIO_
+            # T1_EXP017.md): downstream (ContextWindowManager.build(),
+            # context_window_manager.py:321-327) é guloso e sensível à ordem
+            # — reordenar aqui pode mudar quais itens sobrevivem ao corte de
+            # budget, sem tocar no conjunto retornado pelo retrieve.
+            # Instrumento de MEDIÇÃO — nunca produção; mutuamente exclusiva
+            # com EDP_RETRIEVE_DEDUP (Fase 1, ainda inexistente).
+            try:
+                from .config import EDP_RETRIEVE_SHUFFLE, EDP_SHUFFLE_SEED
+                if EDP_RETRIEVE_SHUFFLE and len(results) > 1:
+                    import hashlib
+                    import random as _random
+                    query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+                    rng = _random.Random(f"{EDP_SHUFFLE_SEED}:{query_hash}")
+                    results = list(results)
+                    rng.shuffle(results)
+            except Exception as _e_shuffle:
+                logger.debug("[exp017] shuffle falhou (ignorado): %s", _e_shuffle)
             # exp011: coleta paralela dos blocos de MEMORIA RECUPERADA (mesmos
             # objetos str de `blocks`) para o split metadados/retrieval no
             # _build_enriched_context. Bookkeeping puro — nao altera `blocks`.

@@ -62,3 +62,50 @@ def test_flag_off_consolidacao_promove_tudo(synthetic_store, entry_factory, monk
     assert result["promoted"] == 3
     semantic_ids = {s.get("id") for s in synthetic_store.semantic.entries}
     assert {e_not_found["id"], e_disq["id"], e_clean["id"]} <= semantic_ids
+
+
+# ── exp017 Fase 0 — EDP_RETRIEVE_SHUFFLE=0 (default) é byte-idêntico ──────────
+# ao comportamento pré-exp017: ordem do top-k entregue ao builder preservada
+# (RELATORIO_T1_EXP017.md, ponto (i) = llm_adapter.py:2334). Mesmo padrão de
+# rede de segurança das flags acima — instrumento de medição, nunca produção.
+
+class _FakeMemory:
+    """Stub mínimo: só o que _retrieve_context toca sem `.episodic`."""
+
+    def __init__(self, results):
+        self._results = results
+        self.calls = 0
+
+    def retrieve(self, query, top_k=5, min_score=0.20):
+        self.calls += 1
+        return list(self._results)
+
+
+def test_flag_off_shuffle_preserva_ordem_do_topk(monkeypatch):
+    from edp.llm_adapter import EDPRuntime
+
+    fixed_order = [
+        {"id": f"id-{i}", "text": f"memoria numero {i} sobre o assunto",
+         "ranking_score": 0.9 - i * 0.01}
+        for i in range(5)
+    ]
+
+    rt = EDPRuntime.__new__(EDPRuntime)
+    rt._memory = _FakeMemory(fixed_order)
+    rt._operational_mode = "cognitive"
+    rt._co_occurrence = None
+    rt.session_id = "test-session"
+
+    blocks, hits = rt._retrieve_context("pergunta sobre o assunto")
+
+    # Sem janela imediata/bloco atual (stub sem .episodic) — só a âncora
+    # temporal + os 5 blocos de retrieval, na MESMA ordem de fixed_order.
+    textos_retrieval = [b for b in blocks if "memoria numero" in b]
+    esperado = [e["text"] for e in fixed_order]
+    obtido = [t.split("] ", 1)[-1] if "] " in t else t for t in textos_retrieval]
+    assert obtido == esperado
+
+
+def test_flag_off_shuffle_e_default():
+    import edp.config as edp_config
+    assert edp_config.EDP_RETRIEVE_SHUFFLE is False
