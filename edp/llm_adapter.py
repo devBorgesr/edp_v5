@@ -2358,6 +2358,12 @@ REGRAS ABSOLUTAS:
             # objetos str de `blocks`) para o split metadados/retrieval no
             # _build_enriched_context. Bookkeeping puro — nao altera `blocks`.
             _sim_blocks: list = []
+            # exp017 Fase 0 (T4): id(bloco) -> entry_id, mesmo par mecânico de
+            # `_sim_blocks` (RELATORIO_T1_EXP017.md, ponto (ii)) — propagação
+            # read-only para resolver IDs do retrieval_kept após o builder
+            # (ctx.retrieval é List[str], sem ID nenhum). Não altera `blocks`
+            # nem nenhum fluxo existente.
+            _sim_id_map: dict = {}
             # PR2: coleta IDs do retrieval por similaridade (exclui janela imediata)
             # para registrar co-ocorrência. Memórias que estão em seen_ids vieram
             # da janela imediata e NÃO contam (D2: excluir janela imediata).
@@ -2390,6 +2396,8 @@ REGRAS ABSOLUTAS:
                 _b = prefix + txt
                 blocks.append(_b)
                 _sim_blocks.append(_b)  # exp011: mesmo objeto, split por id()
+                if eid:
+                    _sim_id_map[id(_b)] = eid  # exp017 T4: propagação read-only
                 # Debug: registra entrada do retrieval
                 _debug_similarity.append({
                     "id":               eid,
@@ -2443,10 +2451,12 @@ REGRAS ABSOLUTAS:
                 logger.debug("[context_debug] log falhou: %s", e)
 
             self._last_similarity_blocks = _sim_blocks  # exp011
+            self._last_similarity_ids = _sim_id_map      # exp017 T4
             return blocks, len(blocks)
         except Exception as e:
             logger.debug("[retrieve_context] erro: %s", e)
             self._last_similarity_blocks = []  # exp011
+            self._last_similarity_ids = {}      # exp017 T4
             return [], 0
 
     def _build_enriched_context(
@@ -2701,6 +2711,62 @@ REGRAS ABSOLUTAS:
             }
         except Exception:
             self._last_ctx_provenance = None
+
+        # ── exp017 Fase 0 (T4) — dup_rate@k no retrieval_kept (log-only) ──────
+        # Ponto (ii) fixado no T1b (RELATORIO_T1_EXP017.md): ctx.retrieval é
+        # List[str] sem ID; resolve via _last_similarity_ids (id(bloco) ->
+        # entry_id, propagado read-only em _retrieve_context). Instrumentação
+        # NUNCA derruba um retrieve — try/except envolve tudo, só loga.
+        try:
+            _sim_id_map = getattr(self, "_last_similarity_ids", None) or {}
+            _kept_all = list(getattr(ctx, "retrieval", None) or [])
+            _kept_sim = [b for b in _kept_all if id(b) in _sim_id_map]
+            _kept_ids = [_sim_id_map[id(b)] for b in _kept_sim]
+
+            import re as _re017
+
+            def _norm017(t: str) -> str:
+                return _re017.sub(r"\s+", " ", (t or "").strip().casefold())
+
+            _kept_hashes = [_norm017(b) for b in _kept_sim]
+
+            _k = len(_kept_sim)
+            if _k:
+                _dup_id   = _k - len(set(_kept_ids))
+                _dup_hash = _k - len(set(_kept_hashes))
+                logger.info(
+                    "[exp017] dup_rate id=%d/%d hash=%d/%d",
+                    _dup_id, _k, _dup_hash, _k,
+                )
+
+            # E3 (emenda): diagnóstico de truncamento — a "oferta" ao build é
+            # sempre len(_sim_blocks) (todo bloco de similaridade está SEMPRE
+            # em _retr_blocks, com ou sem EDP_CTX_SLOTS — ver comentário acima
+            # de `ctx = mgr.build(...)`); o "kept" é quanto sobreviveu ao corte
+            # guloso por budget (context_window_manager.py:320-327).
+            _sim_blocks_snapshot = getattr(self, "_last_similarity_blocks", None) or []
+            _n_offered = len(_sim_blocks_snapshot)
+            _n_kept    = _k
+            logger.info(
+                "[exp017] truncamento kept=%d offered=%d truncado=%s",
+                _n_kept, _n_offered, _n_kept < _n_offered,
+            )
+
+            # E4 (emenda): cobertura de id() — blocos em ctx.retrieval cujo
+            # id() não resolve no mapa. Esperado incluir metadados (âncora
+            # temporal, bloco atual, histórico — nunca tiveram entry_id); um
+            # volume muito acima disso pode indicar que o builder recriou a
+            # string (quebrando a identidade do truque id()).
+            _unmapped = [b for b in _kept_all if id(b) not in _sim_id_map]
+            if _unmapped:
+                logger.debug(
+                    "[exp017] cobertura id(): %d/%d bloco(s) em ctx.retrieval "
+                    "sem entry_id resolvido (metadados esperados) | preview=%s",
+                    len(_unmapped), len(_kept_all),
+                    [b[:40].replace(chr(10), " ") for b in _unmapped[:5]],
+                )
+        except Exception as _e017:
+            logger.debug("[exp017] instrumentacao T4 falhou (ignorada): %s", _e017)
 
         rendered = ctx.to_prompt()
         meta     = {
