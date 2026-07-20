@@ -2730,6 +2730,12 @@ REGRAS ABSOLUTAS:
 
             _kept_hashes = [_norm017(b) for b in _kept_sim]
 
+            # exp017 T5: expõe o retrieval_kept por ID/hash para o script de
+            # medição (scripts/medir_repeat_exp017.py) ler diretamente, sem
+            # parsear log — mesmo espírito read-only do resto do T4.
+            self._last_kept_ids     = list(_kept_ids)
+            self._last_kept_hashes  = list(_kept_hashes)
+
             _k = len(_kept_sim)
             if _k:
                 _dup_id   = _k - len(set(_kept_ids))
@@ -2767,6 +2773,7 @@ REGRAS ABSOLUTAS:
                 )
         except Exception as _e017:
             logger.debug("[exp017] instrumentacao T4 falhou (ignorada): %s", _e017)
+            self._last_kept_ids, self._last_kept_hashes = [], []
 
         rendered = ctx.to_prompt()
         meta     = {

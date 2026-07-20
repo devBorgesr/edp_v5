@@ -58,6 +58,20 @@ def test_dup_rate_zero_quando_tudo_unico(caplog):
     assert "hash=0/5" in lines[-1]
 
 
+def test_last_kept_ids_exposto_para_t5(caplog):
+    results = [
+        {"id": f"id-{i}", "text": f"memoria numero {i} sobre o assunto",
+         "ranking_score": 0.9 - i * 0.01}
+        for i in range(5)
+    ]
+    rt = _make_rt(results)
+    with caplog.at_level(logging.INFO, logger="edp.llm_adapter"):
+        rt._build_enriched_context("pergunta de teste sobre exposicao de ids", "{context}")
+
+    assert sorted(rt._last_kept_ids) == sorted(e["id"] for e in results)
+    assert len(rt._last_kept_hashes) == len(rt._last_kept_ids)
+
+
 def test_dup_rate_detecta_fenomeno_d_por_id(caplog):
     # mesmo ID em duas "entries" do retrieve — fenômeno D reproduzido no resultado
     results = [
