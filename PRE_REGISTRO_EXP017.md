@@ -166,14 +166,14 @@ consolidação; registrado aqui como achado 19/07, ciclo próprio).
 
 ## ERRATA — 20/07/2026 (pré-dado, aditiva; texto original acima intocado)
 
-**E-1. Cláusula "+3pp" do H3 era circular.** O texto original manda
+**ERR-1. Cláusula "+3pp" do H3 era circular.** O texto original manda
 re-registrar o piso como [contagem real + 3pp] se a contagem cruzar 10% —
 por construção, X nunca cruza X+3pp, e a cláusula trava a si mesma.
 CORREÇÃO: o "+3pp" NUNCA se aplica à medição que gerou o número; serve só
 para endurecer o critério de uma REMEDIÇÃO futura do mesmo store. Para o
 veredito desta rodada, o piso operante é o original: 10%.
 
-**E-2. Piso como fórmula (falta do texto original).** "%A" era prosa
+**ERR-2. Piso como fórmula (falta do texto original).** "%A" era prosa
 descritiva e admitia duas leituras que trocam pass/fail na episódica:
   (a) entries em cluster duplicado: %A = Σ n_i / N   [ESTA decide]
   (b) cópias excedentes:            %A = Σ (n_i − 1) / N
@@ -183,7 +183,7 @@ duplicado") e é a que vale. (b) fica registrada para comparação: 12/133 =
 9,0% (episódica) e 6/51 = 11,8% (semântica). Todo piso futuro deve nascer
 como fórmula, não como prosa.
 
-**E-3. Erro de composição do catálogo manual.** O catálogo de 19/07
+**ERR-3. Erro de composição do catálogo manual.** O catálogo de 19/07
 (5×oi + 2×summary + 2×sim ≈ 7%) contou como fenômeno A dois pares que eram
 fenômeno D: f54471a1 e 31162822 têm n=1 em cada camada — não formam
 cluster. O match 7,5% vs 7% foi coincidência aritmética com composição
@@ -217,6 +217,15 @@ determina o que a fórmula de pares consecutivos consegue enxergar.
   13. (N)  pode resumir o que ficou pendente no exp016?
   14. (N)  o que a gente decidiu sobre o calibrador Bayes-vs-Gauss?
 
+- Mesmas 14 queries do T5; nenhuma adicionada ou removida
+- n_pares = 13 (consecutivos), idêntico ao T5
+- Métricas: binário overlap ≥ min(2,k) + contínuo |∩|/k + matriz completa
+- Diagonal da matriz = |set(kept_ids)| / |kept_ids| (fração de únicos por
+  query; complemento do dup_rate) — verificado aritmeticamente em 20/07,
+  NÃO é kept/offered
+- Condições OFF e SHUFFLE em processos separados (env antes do boot)
+- Seed: EDP_SHUFFLE_SEED=20260719, derivada por query (sha256)
+
 - CAVEAT DE DESENHO: só R2 (todas Redis) e R3 (paráfrases de continuidade)
   são blocos TÓPICOS. O pool N é heterogêneo por construção (Mongólia, RRF,
   NOT_FOUND_FLOOR, exp016, calibrador) — agrupá-lo não cria proximidade
@@ -237,26 +246,46 @@ determina o que a fórmula de pares consecutivos consegue enxergar.
   com resolução adequada. Nenhum dos dois foi escolhido após ver
   resultado — ambos fixados aqui, antes da rodada agrupada.
 
-- ACHADO LATERAL A REPORTAR: as 6 queries do R3 têm sobreposição ~0 entre
-  si (matriz T5: q00↔q03, q03↔q06, q06↔q09, q09↔q11 todos 0,00).
-  Paráfrases da mesma intenção recuperam conjuntos diferentes — isso é
-  instabilidade de retrieval, categoria distinta de duplicação. Fora do
-  escopo do exp017; registrar como candidato a ciclo próprio.
-   ... (14 linhas, literais, extraídas de scripts/medir_repeat_exp017.py)
-- Mesmas 14 queries do T5; nenhuma adicionada ou removida
-- n_pares = 13 (consecutivos), idêntico ao T5
-- Métricas: binário overlap ≥ min(2,k) + contínuo |∩|/k + matriz completa
-- Diagonal da matriz = |set(kept_ids)| / |kept_ids| (fração de únicos por
-  query; complemento do dup_rate) — verificado aritmeticamente em 20/07,
-  NÃO é kept/offered
-- Condições OFF e SHUFFLE em processos separados (env antes do boot)
-- Seed: EDP_SHUFFLE_SEED=20260719, derivada por query (sha256)
-
 H2-C (nova, pré-dado): parte do repeat_rate alto em uso real é
 comportamento CORRETO — turnos consecutivos sobre o mesmo tópico devem
 recuperar as mesmas memórias. A rodada agrupada mede quanto do fenômeno é
 topicalidade legítima vs duplicação.
 
-Critério: 15pp continua valendo, agora sobre a rodada AGRUPADA (única em
-que a fórmula tem sinal). A rodada intercalada (T5) fica como controle de
-proximidade temática, não como condição principal.
+- ACHADO LATERAL (corrigido pré-dado, 20/07): a submatriz R3 (6 queries,
+  15 pares) tem 7 pares NÃO-zero: q00↔q06 (0,67/0,40), q03↔q09 (0,40),
+  q00↔q11 (0,33/0,20), q03↔q13 (0,20/0,33), q11↔q13 (0,20/0,33),
+  q03↔q11 (0,20), q06↔q11 (0,20); e 8 pares zero. A versão anterior deste
+  item citava só 4 zeros e generalizava "paráfrases recuperam conjuntos
+  diferentes" — generalização RETIRADA por não sobreviver à matriz
+  completa. Ficam os números, sem leitura. Fora de escopo do exp017.
+
+- REFERÊNCIA NEUTRA — expectativa sob permutação aleatória (calculada da
+  matriz OFF, que é invariante à ordem por causa do restore() por query):
+  pares ordenados que cruzam min(2,k) = 12 de 182 → E[binário] = 6,6%;
+  soma dos m[i][j] fora da diagonal = 11,25 → E[contínuo] = 6,2%.
+  E[eventos] = 0,86 em 13 pares; Poisson: P(0)≈42%, P(2)≈16%.
+  LEITURA: intercalada (0%) e agrupada (15,4% prevista) são ambos
+  sorteios plausíveis da MESMA distribuição — a diferença entre elas é
+  variância de ordenação, não fenômeno distinto.
+
+- NENHUMA ORDEM É PRINCIPAL (revisão externa, 20/07, pré-dado). As duas
+  são leituras complementares com vieses nomeados: intercalada = viés de
+  PISO (dispersão tópica deliberada, abaixo da expectativa aleatória);
+  agrupada = viés de TETO no R2 (0,60 e 0,75 consecutivos), embora o
+  bloco R3 agrupado dê zero eventos. O veredito final reporta AS DUAS
+  mais a referência aleatória. Convergência = achado robusto sob os dois
+  vieses; divergência = o dado mais informativo do experimento.
+
+- H2 INFALSIFICÁVEL COMO DESENHADO (declarado pré-dado): sob qualquer
+  ordenação o baseline fica ≤15,4%, logo uma queda ABSOLUTA de 15pp é
+  aritmeticamente inalcançável exceto por eliminação total. O 15pp foi
+  calibrado contra os 80% históricos, que vêm de sequências de uso real
+  (continuidade tópica), não de listas sintéticas. H2 fecha como
+  INCONCLUSIVO-POR-DESENHO; a rodada agrupada roda como VALIDAÇÃO DE
+  INSTRUMENTO (previsto 15,4%/14,5% vs medido), não como evidência de H2.
+
+- H2-C REFORÇADO: mesma fórmula, 80% no monitor histórico vs 0–15% no
+  sintético; a única variável que difere é a sequência. Candidato a E7
+  (ciclo próprio): reconstruir a sequência real de turnos do store pelos
+  timestamps/markers e medir sobre ela — a condição empírica, em vez de
+  duas sintéticas enviesadas.
