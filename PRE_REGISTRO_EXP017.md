@@ -161,3 +161,131 @@ antes de qualquer benchmark, não é parte deste); calibrador
 Bayes-vs-Gauss (adiado); eco do session_summary promovido à
 semântica (31162822 — o modo de falha exp009 sendo CANONIZADO pela
 consolidação; registrado aqui como achado 19/07, ciclo próprio).
+
+---
+
+## ERRATA — 20/07/2026 (pré-dado, aditiva; texto original acima intocado)
+
+**ERR-1. Cláusula "+3pp" do H3 era circular.** O texto original manda
+re-registrar o piso como [contagem real + 3pp] se a contagem cruzar 10% —
+por construção, X nunca cruza X+3pp, e a cláusula trava a si mesma.
+CORREÇÃO: o "+3pp" NUNCA se aplica à medição que gerou o número; serve só
+para endurecer o critério de uma REMEDIÇÃO futura do mesmo store. Para o
+veredito desta rodada, o piso operante é o original: 10%.
+
+**ERR-2. Piso como fórmula (falta do texto original).** "%A" era prosa
+descritiva e admitia duas leituras que trocam pass/fail na episódica:
+  (a) entries em cluster duplicado: %A = Σ n_i / N   [ESTA decide]
+  (b) cópias excedentes:            %A = Σ (n_i − 1) / N
+Onde n_i = tamanho do cluster i (n_i ≥ 2), N = total de entries da camada.
+(a) é a leitura literal do texto congelado ("em clusters de texto exato
+duplicado") e é a que vale. (b) fica registrada para comparação: 12/133 =
+9,0% (episódica) e 6/51 = 11,8% (semântica). Todo piso futuro deve nascer
+como fórmula, não como prosa.
+
+**ERR-3. Erro de composição do catálogo manual.** O catálogo de 19/07
+(5×oi + 2×summary + 2×sim ≈ 7%) contou como fenômeno A dois pares que eram
+fenômeno D: f54471a1 e 31162822 têm n=1 em cada camada — não formam
+cluster. O match 7,5% vs 7% foi coincidência aritmética com composição
+diferente. Censo cego (autoritativo): episódica 11,3%, semântica 15,7%.
+
+**VEREDITO H3: PASSA** — 11,3% e 15,7% ≥ 10% (piso original, métrica (a)).
+
+---
+
+## E6 — Segunda rodada, ordem AGRUPADA (pré-registrada, antes de rodar)
+
+Motivo: E5 (intercalação) foi decidida durante a Fase 0, fora do texto —
+erro de processo reconhecido. Ordem de execução é PARÂMETRO DE DESENHO:
+determina o que a fórmula de pares consecutivos consegue enxergar.
+
+- Ordem AGRUPADA por pool, relativa interna PRESERVADA da lista congelada
+  do T5 (única dimensão alterada: a intercalação). Lista literal na ordem
+  exata de execução:
+   1. (R2) vamos continuar a conversa sobre Redis e Memcached
+   2. (R2) me lembra o que a gente concluiu sobre cache de sessões web com Redis
+   3. (R2) voltando ao assunto do Redis para sessões web
+   4. (R3) vamos continuar nossa conversa
+   5. (R3) continuando o que falávamos
+   6. (R3) o que a gente tinha concluído mesmo?
+   7. (R3) me lembra o que discutimos
+   8. (R3) voltando ao que estávamos vendo
+   9. (R3) sobre o que conversamos até agora
+  10. (N)  qual é a capital da Mongólia mesmo?
+  11. (N)  me explica de novo como funciona o RRF no retrieval híbrido
+  12. (N)  qual foi a última vez que ajustamos o piso do NOT_FOUND_FLOOR?
+  13. (N)  pode resumir o que ficou pendente no exp016?
+  14. (N)  o que a gente decidiu sobre o calibrador Bayes-vs-Gauss?
+
+- Mesmas 14 queries do T5; nenhuma adicionada ou removida
+- n_pares = 13 (consecutivos), idêntico ao T5
+- Métricas: binário overlap ≥ min(2,k) + contínuo |∩|/k + matriz completa
+- Diagonal da matriz = |set(kept_ids)| / |kept_ids| (fração de únicos por
+  query; complemento do dup_rate) — verificado aritmeticamente em 20/07,
+  NÃO é kept/offered
+- Condições OFF e SHUFFLE em processos separados (env antes do boot)
+- Seed: EDP_SHUFFLE_SEED=20260719, derivada por query (sha256)
+
+- CAVEAT DE DESENHO: só R2 (todas Redis) e R3 (paráfrases de continuidade)
+  são blocos TÓPICOS. O pool N é heterogêneo por construção (Mongólia, RRF,
+  NOT_FOUND_FLOOR, exp016, calibrador) — agrupá-lo não cria proximidade
+  semântica. Pares portadores de sinal esperado: 2 (R2) + 5 (R3) = 7 de 13.
+
+- PREDIÇÃO PRÉ-DADO (calculada da matriz OFF do T5, que é completa e —
+  dado o restore() por query — invariante à ordem): binário = 2/13 = 15,4%;
+  contínuo = 1,88/13 = 14,5%. Pares com sinal: (q04,q01)=0,60 e
+  (q07,q04)=0,75, ambos ≥ min(2,k). Divergência entre o previsto e o
+  medido FALSIFICA a independência de ordem do harness (vazamento de
+  estado entre queries) — nesse caso o achado é sobre o instrumento, não
+  sobre o fenômeno.
+
+- MÉTRICA CO-PRIMÁRIA (registrada pré-dado): o binário permanece o
+  critério formal (espelha retrieval_monitor.py:113-118), mas com baseline
+  previsto de 15,4% e n=13 o critério de 15pp só admite eliminação total
+  dos dois eventos. O contínuo |∩|/k é registrado como métrica de leitura
+  com resolução adequada. Nenhum dos dois foi escolhido após ver
+  resultado — ambos fixados aqui, antes da rodada agrupada.
+
+H2-C (nova, pré-dado): parte do repeat_rate alto em uso real é
+comportamento CORRETO — turnos consecutivos sobre o mesmo tópico devem
+recuperar as mesmas memórias. A rodada agrupada mede quanto do fenômeno é
+topicalidade legítima vs duplicação.
+
+- ACHADO LATERAL (corrigido pré-dado, 20/07): a submatriz R3 (6 queries,
+  15 pares) tem 7 pares NÃO-zero: q00↔q06 (0,67/0,40), q03↔q09 (0,40),
+  q00↔q11 (0,33/0,20), q03↔q13 (0,20/0,33), q11↔q13 (0,20/0,33),
+  q03↔q11 (0,20), q06↔q11 (0,20); e 8 pares zero. A versão anterior deste
+  item citava só 4 zeros e generalizava "paráfrases recuperam conjuntos
+  diferentes" — generalização RETIRADA por não sobreviver à matriz
+  completa. Ficam os números, sem leitura. Fora de escopo do exp017.
+
+- REFERÊNCIA NEUTRA — expectativa sob permutação aleatória (calculada da
+  matriz OFF, que é invariante à ordem por causa do restore() por query):
+  pares ordenados que cruzam min(2,k) = 12 de 182 → E[binário] = 6,6%;
+  soma dos m[i][j] fora da diagonal = 11,25 → E[contínuo] = 6,2%.
+  E[eventos] = 0,86 em 13 pares; Poisson: P(0)≈42%, P(2)≈16%.
+  LEITURA: intercalada (0%) e agrupada (15,4% prevista) são ambos
+  sorteios plausíveis da MESMA distribuição — a diferença entre elas é
+  variância de ordenação, não fenômeno distinto.
+
+- NENHUMA ORDEM É PRINCIPAL (revisão externa, 20/07, pré-dado). As duas
+  são leituras complementares com vieses nomeados: intercalada = viés de
+  PISO (dispersão tópica deliberada, abaixo da expectativa aleatória);
+  agrupada = viés de TETO no R2 (0,60 e 0,75 consecutivos), embora o
+  bloco R3 agrupado dê zero eventos. O veredito final reporta AS DUAS
+  mais a referência aleatória. Convergência = achado robusto sob os dois
+  vieses; divergência = o dado mais informativo do experimento.
+
+- H2 INFALSIFICÁVEL COMO DESENHADO (declarado pré-dado): sob qualquer
+  ordenação o baseline fica ≤15,4%, logo uma queda ABSOLUTA de 15pp é
+  aritmeticamente inalcançável exceto por eliminação total. O 15pp foi
+  calibrado contra os 80% históricos, que vêm de sequências de uso real
+  (continuidade tópica), não de listas sintéticas. H2 fecha como
+  INCONCLUSIVO-POR-DESENHO; a rodada agrupada roda como VALIDAÇÃO DE
+  INSTRUMENTO (previsto 15,4%/14,5% vs medido), não como evidência de H2.
+
+- H2-C REFORÇADO: mesma fórmula, 80% no monitor histórico vs 0–15% no
+  sintético; a única variável que difere é a sequência. Candidato a E7
+  (ciclo próprio): reconstruir a sequência real de turnos do store pelos
+  timestamps/markers e medir sobre ela — a condição empírica, em vez de
+  duas sintéticas enviesadas.
