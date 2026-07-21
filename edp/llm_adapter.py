@@ -2745,18 +2745,34 @@ REGRAS ABSOLUTAS:
                     _dup_id, _k, _dup_hash, _k,
                 )
 
-            # E3 (emenda): diagnóstico de truncamento — a "oferta" ao build é
-            # sempre len(_sim_blocks) (todo bloco de similaridade está SEMPRE
-            # em _retr_blocks, com ou sem EDP_CTX_SLOTS — ver comentário acima
-            # de `ctx = mgr.build(...)`); o "kept" é quanto sobreviveu ao corte
-            # guloso por budget (context_window_manager.py:320-327).
+            # E3 FIX (diagnóstico de truncamento): a versão original comparava
+            # kept contra len(_sim_blocks) — TODO bloco de similaridade,
+            # inclusive os sem `eid` truthy. Mas `_sim_id_map` só recebe
+            # entrada quando `eid` é truthy (linha ~2399-2400) e `_kept_sim`
+            # só conta blocos presentes em `_sim_id_map` — um bloco sem id
+            # NUNCA pode aparecer em "kept" por construção, mas sempre
+            # contava em "offered". Isso inflava truncado=True mesmo sem
+            # nenhum corte real de budget (context_window_manager.py:320-327).
+            # Comparação correta: kept vs offered_mapeado, populações
+            # comensuráveis (ambas via _sim_id_map). offered_total fica só
+            # como dado informativo (cobertura de id(), não decide truncado).
             _sim_blocks_snapshot = getattr(self, "_last_similarity_blocks", None) or []
-            _n_offered = len(_sim_blocks_snapshot)
-            _n_kept    = _k
+            _n_offered_mapeado = len(_sim_id_map)
+            _n_offered_total   = len(_sim_blocks_snapshot)
+            _n_kept            = _k
+            _truncado = _n_kept < _n_offered_mapeado
             logger.info(
-                "[exp017] truncamento kept=%d offered=%d truncado=%s",
-                _n_kept, _n_offered, _n_kept < _n_offered,
+                "[exp017] truncamento kept=%d offered_mapeado=%d offered_total=%d "
+                "truncado=%s",
+                _n_kept, _n_offered_mapeado, _n_offered_total, _truncado,
             )
+            # exp017 Fase 0 (FIX E3, T2): expõe as contagens, mesmo espírito
+            # read-only do _last_kept_ids — script lê direto, sem parsear log.
+            self._last_trunc = {
+                "kept":             _n_kept,
+                "offered_mapeado":  _n_offered_mapeado,
+                "offered_total":    _n_offered_total,
+            }
 
             # E4 (emenda): cobertura de id() — blocos em ctx.retrieval cujo
             # id() não resolve no mapa. Esperado incluir metadados (âncora
@@ -2774,6 +2790,7 @@ REGRAS ABSOLUTAS:
         except Exception as _e017:
             logger.debug("[exp017] instrumentacao T4 falhou (ignorada): %s", _e017)
             self._last_kept_ids, self._last_kept_hashes = [], []
+            self._last_trunc = {}
 
         rendered = ctx.to_prompt()
         meta     = {

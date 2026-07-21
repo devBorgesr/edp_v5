@@ -115,7 +115,56 @@ def test_truncamento_log_kept_igual_offered_sem_pressao_de_budget(caplog):
 
     lines = _truncamento_lines(caplog)
     assert lines
-    assert "kept=3 offered=3 truncado=False" in lines[-1]
+    assert "kept=3 offered_mapeado=3 offered_total=3 truncado=False" in lines[-1]
+    assert rt._last_trunc == {"kept": 3, "offered_mapeado": 3, "offered_total": 3}
+
+
+def test_truncamento_entry_sem_id_nao_e_falso_positivo(caplog):
+    # E3 FIX: entries sem `eid` truthy nunca entram em `_sim_id_map`
+    # (llm_adapter.py ~2399-2400), logo nunca podem aparecer em "kept" — mas
+    # ANTES do fix elas contavam em "offered" (len(_sim_blocks), TODO
+    # bloco), inflando truncado=True sem nenhum corte real de budget. Cenário
+    # motivador do fix: 2 entries com id, 3 sem id, textos curtos (nenhuma
+    # pressão de budget).
+    results = [
+        {"id": "id-1", "text": "memoria com id um", "ranking_score": 0.9},
+        {"id": "id-2", "text": "memoria com id dois", "ranking_score": 0.85},
+        {"id": None, "text": "memoria sem id um", "ranking_score": 0.8},
+        {"id": "", "text": "memoria sem id dois", "ranking_score": 0.75},
+        {"id": None, "text": "memoria sem id tres", "ranking_score": 0.7},
+    ]
+    rt = _make_rt(results)
+    with caplog.at_level(logging.INFO, logger="edp.llm_adapter"):
+        rt._build_enriched_context("pergunta de teste sobre entries sem id", "{context}")
+
+    lines = _truncamento_lines(caplog)
+    assert lines
+    assert "kept=2 offered_mapeado=2 offered_total=5 truncado=False" in lines[-1]
+    assert rt._last_trunc == {"kept": 2, "offered_mapeado": 2, "offered_total": 5}
+
+
+def test_truncamento_real_por_corte_de_budget_da_truncado_true(caplog):
+    # Blocos enormes (muito acima de qualquer janela default local, ver
+    # context_window_manager.py KNOWN_WINDOWS["default"]=4096 tokens) forçam
+    # o corte guloso por budget (context_window_manager.py:320-327). Todos
+    # os 5 têm id válido, então offered_mapeado == offered_total == 5 —
+    # isola o corte real de budget do viés do E3 (id ausente).
+    results = [
+        {"id": f"id-{i}", "text": ("x" * 40000) + f" memoria {i}",
+         "ranking_score": 0.9 - i * 0.01}
+        for i in range(5)
+    ]
+    rt = _make_rt(results)
+    with caplog.at_level(logging.INFO, logger="edp.llm_adapter"):
+        rt._build_enriched_context("pergunta de teste sobre corte real de budget", "{context}")
+
+    lines = _truncamento_lines(caplog)
+    assert lines
+    line = lines[-1]
+    assert "offered_mapeado=5 offered_total=5" in line
+    assert "truncado=True" in line
+    assert rt._last_trunc["offered_mapeado"] == 5
+    assert rt._last_trunc["kept"] < rt._last_trunc["offered_mapeado"]
 
 
 def test_instrumentacao_nunca_quebra_retrieve_com_dados_degenerados(caplog):

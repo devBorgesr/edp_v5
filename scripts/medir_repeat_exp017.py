@@ -17,9 +17,18 @@ pontos por retrieve (emenda E1):
                        efeito (ContextWindowManager.build() é guloso e
                        sensível à ordem, context_window_manager.py:320-327).
 
+Também reporta, por query (E3 FIX, T2/T3): truncamento kept vs
+offered_mapeado — lido direto de rt._last_trunc, sem parsear log.
+
 USO (servidor parado):
   $env:EDP_BASE_DIR = "C:\\edp_data_fase0"
   python scripts/medir_repeat_exp017.py
+  python scripts/medir_repeat_exp017.py --ordem agrupada   # E6
+
+--ordem {intercalada,agrupada}: intercalada é a lista congelada do T5
+(default); agrupada é a lista congelada do E6 (PRE_REGISTRO_EXP017.md
+linhas 202-218) — mesmas 14 queries, reordenadas por pool. Nenhuma query é
+adicionada, removida ou reescrita em nenhuma das duas.
 
 Snapshot/restore por medição — mesmo padrão de suite_regressao_fase1.py:
 restore() ANTES de cada query, para toda medição partir do mesmo estado
@@ -27,6 +36,7 @@ restore() ANTES de cada query, para toda medição partir do mesmo estado
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import shutil
@@ -63,6 +73,34 @@ QUERIES: list[tuple[str, str]] = [
     ("R3", "sobre o que conversamos até agora"),
 ]
 assert len(QUERIES) == 14, "3 (R2) + 6 (R3) + 5 (N) = 14 — lista congelada não bate"
+
+
+# ── Queries — ordem AGRUPADA (E6, PRE_REGISTRO_EXP017.md linhas 202-218) ───
+# Mesmas 14 queries do T5, MESMOS textos, relativa interna PRESERVADA;
+# única dimensão alterada é o agrupamento por pool (R2, depois R3, depois
+# N). Lista literal transcrita do pré-registro — não recalcular em
+# runtime, não reordenar, nenhuma query adicionada/removida/reescrita.
+QUERIES_AGRUPADA: list[tuple[str, str]] = [
+    ("R2", "vamos continuar a conversa sobre Redis e Memcached"),
+    ("R2", "me lembra o que a gente concluiu sobre cache de sessões web com Redis"),
+    ("R2", "voltando ao assunto do Redis para sessões web"),
+    ("R3", "vamos continuar nossa conversa"),
+    ("R3", "continuando o que falávamos"),
+    ("R3", "o que a gente tinha concluído mesmo?"),
+    ("R3", "me lembra o que discutimos"),
+    ("R3", "voltando ao que estávamos vendo"),
+    ("R3", "sobre o que conversamos até agora"),
+    ("N",  "qual é a capital da Mongólia mesmo?"),
+    ("N",  "me explica de novo como funciona o RRF no retrieval híbrido"),
+    ("N",  "qual foi a última vez que ajustamos o piso do NOT_FOUND_FLOOR?"),
+    ("N",  "pode resumir o que ficou pendente no exp016?"),
+    ("N",  "o que a gente decidiu sobre o calibrador Bayes-vs-Gauss?"),
+]
+assert len(QUERIES_AGRUPADA) == 14, "E6 agrupada: lista literal não bate com 14"
+assert sorted(QUERIES_AGRUPADA) == sorted(QUERIES), (
+    "E6 agrupada precisa ser uma REORDENAÇÃO exata das mesmas 14 queries do "
+    "T5 — nenhuma adicionada, removida ou reescrita"
+)
 
 
 # ── Fórmula repeat_rate — espelha retrieval_monitor.py:113-118 (T1a) ──────
@@ -120,6 +158,14 @@ def _fmt_matriz(m: list[list[float]]) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--ordem", choices=["intercalada", "agrupada"], default="intercalada",
+        help="intercalada (T5, default) ou agrupada (E6, PRE_REGISTRO_EXP017.md)",
+    )
+    args = parser.parse_args()
+    queries = QUERIES if args.ordem == "intercalada" else QUERIES_AGRUPADA
+
     base = os.environ.get("EDP_BASE_DIR")
     if not base:
         die("EDP_BASE_DIR não setado (aponte para a cópia fase0)")
@@ -169,9 +215,12 @@ def main() -> int:
 
         topk_seq, kept_seq = [], []
         dup_id_frac, dup_hash_frac = [], []
+        # E3 (FIX): truncamento por query — kept vs offered_mapeado, lido
+        # direto de rt._last_trunc (T2), sem parsear log.
+        trunc_evento, trunc_gap = [], []
 
         print(f"\n== condição {nome} (EDP_RETRIEVE_SHUFFLE={shuffle_on}) ==")
-        for pool, q in QUERIES:
+        for pool, q in queries:
             restore()
 
             topk = [r.get("id") for r in mem.retrieve(q, top_k=5, min_score=0.20)]
@@ -182,6 +231,12 @@ def main() -> int:
             kept_hashes = list(getattr(rt, "_last_kept_hashes", None) or [])
             kept_seq.append(kept)
 
+            trunc = getattr(rt, "_last_trunc", None) or {}
+            t_kept = trunc.get("kept", len(kept))
+            t_offered = trunc.get("offered_mapeado", len(kept))
+            trunc_evento.append(1 if t_kept < t_offered else 0)
+            trunc_gap.append(t_offered - t_kept)
+
             k = len(kept)
             dup_id = (k - len(set(kept))) if k else 0
             dup_hash = (k - len(set(kept_hashes))) if k else 0
@@ -190,12 +245,14 @@ def main() -> int:
 
             print(
                 f"    [{pool}] {q[:48]:48} topk={len(topk):2} kept={k:2} "
-                f"dup_id={dup_id}/{k} dup_hash={dup_hash}/{k}"
+                f"dup_id={dup_id}/{k} dup_hash={dup_hash}/{k} "
+                f"trunc={t_kept}/{t_offered}"
             )
 
         edp_config.EDP_RETRIEVE_SHUFFLE = False  # reset defensivo entre condições
         restore()
 
+        n_q = len(trunc_evento)
         return {
             "topk_seq": topk_seq,
             "kept_seq": kept_seq,
@@ -205,6 +262,8 @@ def main() -> int:
             "matriz_kept": matriz_overlap(kept_seq),
             "dup_id_medio": sum(dup_id_frac) / len(dup_id_frac) if dup_id_frac else 0.0,
             "dup_hash_medio": sum(dup_hash_frac) / len(dup_hash_frac) if dup_hash_frac else 0.0,
+            "trunc_rate": (sum(trunc_evento) / n_q) if n_q else 0.0,
+            "trunc_gap_medio": (sum(trunc_gap) / n_q) if n_q else 0.0,
         }
 
     res_off = rodar_condicao("OFF", False)
@@ -229,6 +288,10 @@ def main() -> int:
         print(
             f"  dup_rate medio (T4, no kept): id={res['dup_id_medio']:.1%}  "
             f"hash={res['dup_hash_medio']:.1%}"
+        )
+        print(
+            f"  truncamento (E3 FIX, kept vs offered_mapeado): "
+            f"taxa={res['trunc_rate']:.1%}  gap_medio={res['trunc_gap_medio']:.2f}"
         )
 
     print("\n-- Matriz de sobreposição par-a-par (retrieval_kept) — OFF --")
