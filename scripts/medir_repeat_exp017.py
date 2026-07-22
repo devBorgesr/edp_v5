@@ -1,21 +1,35 @@
 #!/usr/bin/env python3
 """
-scripts/medir_repeat_exp017.py — T5 (Fase 0): repeat_rate OFF vs SHUFFLE.
+scripts/medir_repeat_exp017.py — T5 (Fase 0) + T6 (Fase 1): repeat_rate em
+TRÊS condições {OFF, SHUFFLE, RESERVA}.
 
 Contra o store real do fase0 (a VM não o enxerga — roda no Windows do
-pesquisador). Mede repeat_rate em DUAS condições {OFF, SHUFFLE} e em DOIS
-pontos por retrieve (emenda E1):
+pesquisador). Mede repeat_rate em TRÊS condições e em DOIS pontos por
+retrieve (emenda E1):
   - top-k BRUTO:      mem.retrieve(q, top_k=5, min_score=0.20) direto —
                        comparável ao histórico do retrieval_monitor (T1a).
                        Por construção, SHUFFLE não toca este ponto
                        (llm_adapter.py:2334, DEPOIS do retrieve) — espera-se
                        repeat(SHUFFLE)==repeat(OFF) aqui (tautológico,
                        PRE_REGISTRO_EXP017.md, seção "PONTO DE MEDIÇÃO").
+                       RESERVA (EDP_RETRIEVE_RANDOM_DROP) NÃO é tautológico
+                       aqui — roda DENTRO de mem.retrieve() (ponto do T1b,
+                       Fase 1 T3), então já afeta o que este ponto mede.
   - retrieval_kept:   rt._build_enriched_context(q, ...) -> rt._last_kept_ids
                        (ponto (ii) do T1b, resolvido via propagação read-only
-                       do T4). Ponto PRIMÁRIO — é aqui que SHUFFLE pode ter
-                       efeito (ContextWindowManager.build() é guloso e
-                       sensível à ordem, context_window_manager.py:320-327).
+                       do T4). Ponto PRIMÁRIO — é aqui que SHUFFLE/RESERVA
+                       podem ter efeito (ContextWindowManager.build() é
+                       guloso e sensível à ordem,
+                       context_window_manager.py:320-327).
+
+T6 (Fase 1) — terceira condição RESERVA (random_pareado): EXP017_FASE0.md
+§3, controle-reserva ATIVADO pelo pesquisador (|diff(OFF,SHUFFLE)|<=5pp no
+kept + truncamento=0% tornam o SHUFFLE tautológico no kept — mecanismo
+confirmado, não amostral). O pré-registro manda reportar os três brutos
+mesmo com H2 inconclusivo-por-desenho (E6); o dado alimenta o E7/H2-C.
+EDP_RETRIEVE_DEDUP fica sempre OFF neste script — dedup remove duplicatas
+de verdade e mudaria repeat_rate por um mecanismo diferente do que H2/E7
+medem (esse é o script calibracao_h1_exp017.py, T5 da Fase 1).
 
 Também reporta, por query (E3 FIX, T2/T3): truncamento kept vs
 offered_mapeado — lido direto de rt._last_trunc, sem parsear log.
@@ -32,7 +46,9 @@ adicionada, removida ou reescrita em nenhuma das duas.
 
 Snapshot/restore por medição — mesmo padrão de suite_regressao_fase1.py:
 restore() ANTES de cada query, para toda medição partir do mesmo estado
-(retrieve muta acessos/ultimo_acesso).
+(retrieve muta acessos/ultimo_acesso). Reset defensivo das três flags
+exp017 (SHUFFLE/RANDOM_DROP/DEDUP) entre condições — mesmo padrão já usado
+na Fase 0.
 """
 from __future__ import annotations
 
@@ -207,8 +223,14 @@ def main() -> int:
     import edp.config as edp_config
     from edp.runtime.registry import get_runtime
 
-    def rodar_condicao(nome: str, shuffle_on: bool) -> dict:
-        edp_config.EDP_RETRIEVE_SHUFFLE = shuffle_on
+    def rodar_condicao(nome: str, modo: str) -> dict:
+        """modo: "off" | "shuffle" | "random_pareado" (T6, Fase 1 — terceira
+        condição RESERVA: EXP017_FASE0.md §3, controle-reserva ATIVADO).
+        DEDUP fica sempre OFF aqui — este script mede os controles do H2
+        (repeat_rate), não o H1 (dup_rate@10, script separado)."""
+        edp_config.EDP_RETRIEVE_SHUFFLE     = (modo == "shuffle")
+        edp_config.EDP_RETRIEVE_RANDOM_DROP = (modo == "random_pareado")
+        edp_config.EDP_RETRIEVE_DEDUP       = False
         restore()
         rt = get_runtime(sid)
         mem = rt._memory
@@ -219,7 +241,11 @@ def main() -> int:
         # direto de rt._last_trunc (T2), sem parsear log.
         trunc_evento, trunc_gap = [], []
 
-        print(f"\n== condição {nome} (EDP_RETRIEVE_SHUFFLE={shuffle_on}) ==")
+        print(
+            f"\n== condição {nome} (EDP_RETRIEVE_SHUFFLE="
+            f"{edp_config.EDP_RETRIEVE_SHUFFLE}, EDP_RETRIEVE_RANDOM_DROP="
+            f"{edp_config.EDP_RETRIEVE_RANDOM_DROP}) =="
+        )
         for pool, q in queries:
             restore()
 
@@ -249,7 +275,10 @@ def main() -> int:
                 f"trunc={t_kept}/{t_offered}"
             )
 
-        edp_config.EDP_RETRIEVE_SHUFFLE = False  # reset defensivo entre condições
+        # reset defensivo entre condições — as três flags voltam a OFF
+        edp_config.EDP_RETRIEVE_SHUFFLE     = False
+        edp_config.EDP_RETRIEVE_RANDOM_DROP = False
+        edp_config.EDP_RETRIEVE_DEDUP       = False
         restore()
 
         n_q = len(trunc_evento)
@@ -266,14 +295,20 @@ def main() -> int:
             "trunc_gap_medio": (sum(trunc_gap) / n_q) if n_q else 0.0,
         }
 
-    res_off = rodar_condicao("OFF", False)
-    res_shuffle = rodar_condicao("SHUFFLE", True)
+    res_off      = rodar_condicao("OFF", "off")
+    res_shuffle  = rodar_condicao("SHUFFLE", "shuffle")
+    # T6 (Fase 1) — terceira condição RESERVA (EXP017_FASE0.md §3, controle-
+    # reserva ATIVADO): o pré-registro manda reportar os três brutos mesmo
+    # com H2 inconclusivo-por-desenho; o dado alimenta o E7/H2-C.
+    res_reserva  = rodar_condicao("RESERVA (random_pareado)", "random_pareado")
     restore()  # deixa o store exatamente como encontrou
+
+    condicoes = (("OFF", res_off), ("SHUFFLE", res_shuffle), ("RESERVA", res_reserva))
 
     print("\n" + "=" * 78)
     print("RESUMO — repeat_rate (binário overlap>=min(2,k) | contínuo médio |∩|/k)")
     print("=" * 78)
-    for nome, res in (("OFF", res_off), ("SHUFFLE", res_shuffle)):
+    for nome, res in condicoes:
         rt_ = res["repeat_topk"]
         rk_ = res["repeat_kept"]
         print(f"\n-- {nome} --")
@@ -294,23 +329,35 @@ def main() -> int:
             f"taxa={res['trunc_rate']:.1%}  gap_medio={res['trunc_gap_medio']:.2f}"
         )
 
-    print("\n-- Matriz de sobreposição par-a-par (retrieval_kept) — OFF --")
-    print(_fmt_matriz(res_off["matriz_kept"]))
-    print("\n-- Matriz de sobreposição par-a-par (retrieval_kept) — SHUFFLE --")
-    print(_fmt_matriz(res_shuffle["matriz_kept"]))
+    for nome, res in condicoes:
+        print(f"\n-- Matriz de sobreposição par-a-par (retrieval_kept) — {nome} --")
+        print(_fmt_matriz(res["matriz_kept"]))
 
-    diff_pp = (res_off["repeat_kept"]["binario"] - res_shuffle["repeat_kept"]["binario"]) * 100
+    diff_pp         = (res_off["repeat_kept"]["binario"] - res_shuffle["repeat_kept"]["binario"]) * 100
+    diff_reserva_pp = (res_off["repeat_kept"]["binario"] - res_reserva["repeat_kept"]["binario"]) * 100
     print("\n" + "=" * 78)
     print("NÚMEROS PARA AS DECISÕES DO PESQUISADOR (EXP017_FASE0.md) — não decide aqui:")
-    print(f"  repeat_OFF (kept, binário)     = {res_off['repeat_kept']['binario']:.1%}")
-    print(f"  repeat_SHUFFLE (kept, binário) = {res_shuffle['repeat_kept']['binario']:.1%}")
-    print(f"  diff (OFF - SHUFFLE)           = {diff_pp:+.1f}pp")
-    print(f"  gate degenerado (diff>=15pp)?    {'SIM — candidato a PARAR' if diff_pp >= 15 else 'não'}")
-    print(f"  controle-reserva (|diff|<=5pp)?  {'SIM — candidato a ativar' if abs(diff_pp) <= 5 else 'não'}")
+    print(f"  repeat_OFF (kept, binário)      = {res_off['repeat_kept']['binario']:.1%}")
+    print(f"  repeat_SHUFFLE (kept, binário)  = {res_shuffle['repeat_kept']['binario']:.1%}")
+    print(f"  repeat_RESERVA (kept, binário)  = {res_reserva['repeat_kept']['binario']:.1%}")
+    print(f"  diff (OFF - SHUFFLE)            = {diff_pp:+.1f}pp")
+    print(f"  diff (OFF - RESERVA)            = {diff_reserva_pp:+.1f}pp")
+    print(f"  gate degenerado (diff>=15pp)?     {'SIM — candidato a PARAR' if diff_pp >= 15 else 'não'}")
+    print(f"  controle-reserva (|diff|<=5pp)?   {'SIM — candidato a ativar' if abs(diff_pp) <= 5 else 'não'}")
     print(
-        "  [tautologia esperada] repeat top-k bruto OFF vs SHUFFLE deveria ser "
-        f"IGUAL (SHUFFLE só atua pós-retrieve): "
-        f"{res_off['repeat_topk']['binario']:.1%} vs {res_shuffle['repeat_topk']['binario']:.1%}"
+        "  [tautologia esperada — só SHUFFLE] repeat top-k bruto OFF vs SHUFFLE "
+        "deveria ser IGUAL (SHUFFLE roda em llm_adapter.py, DEPOIS de "
+        "mem.retrieve() — nunca toca o que este ponto mede): "
+        f"{res_off['repeat_topk']['binario']:.1%} vs "
+        f"{res_shuffle['repeat_topk']['binario']:.1%}"
+    )
+    print(
+        "  [RESERVA NÃO é tautológico aqui] EDP_RETRIEVE_RANDOM_DROP roda "
+        "DENTRO de mem.retrieve() (ponto do T1b, exp017 Fase 1 T3) — o top-k "
+        "bruto medido já reflete a remoção+refill aleatórios, diferente de "
+        "OFF por desenho: "
+        f"{res_off['repeat_topk']['binario']:.1%} vs "
+        f"{res_reserva['repeat_topk']['binario']:.1%}"
     )
 
     shutil.rmtree(tmp, ignore_errors=True)
