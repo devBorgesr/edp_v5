@@ -1135,7 +1135,13 @@ def _dedup_ranked(candidates: list[dict], k: int, mode: str, rng=None) -> list[d
                               mecânico do dedup, critério aleatório em vez de
                               duplicata. `rng` obrigatório (random.Random do
                               chamador — disciplina de seed do
-                              EDP_SHUFFLE_SEED).
+                              EDP_SHUFFLE_SEED). Mesma restrição do "dedup":
+                              se a densidade de duplicatas for tão alta que
+                              nem "dedup" alcançaria `k` (pool sem conteúdo
+                              único suficiente), `d` pode exceder o que sobra
+                              além do top-k bruto — o resultado, como no
+                              "dedup", vem com MENOS que `k` itens (mesma
+                              honestidade de degradação, não um bug).
 
     Não muta `candidates`. Não lê flags/config — a escolha de modo é do
     chamador.
@@ -1448,21 +1454,45 @@ class MemoryStore:
         if EDP_HYBRID_RETRIEVAL:
             return self._retrieve_hybrid(query, query_emb, top_k)
 
+        # ── exp017 Fase 1 (T3) — resolve o modo ANTES de consultar as camadas.
+        # Achado corrigido de RELATORIO_F1T1_EXP017.md (item b): Episodic
+        # Memory.retrieve()/SemanticMemory.retrieve() truncam em `top_k`
+        # INTERNAMENTE (scored[:top_k]) — sem overfetch NA CHAMADA a cada
+        # camada, o refill nunca veria candidatos além do top_k por camada,
+        # mesmo com o merge/dedup correto logo abaixo. OFF pede exatamente
+        # `top_k` por camada — byte-idêntico ao comportamento atual.
+        _mode = "off"
+        try:
+            from ..config import (
+                EDP_RETRIEVE_DEDUP as _dd, EDP_RETRIEVE_SHUFFLE as _sh,
+                EDP_RETRIEVE_RANDOM_DROP as _rd,
+                resolve_retrieve_instrumentation_exp017 as _resolve,
+            )
+            _mode = _resolve(_dd, _sh, _rd)
+        except Exception as _e_dedup0:
+            logger.debug("[exp017] resolucao de modo (cosine) falhou (ignorado): %s", _e_dedup0)
+            _mode = "off"
+
+        _overfetch       = _mode in ("dedup", "random_pareado")
+        _working_top_k   = len(self.working)  if _overfetch else top_k
+        _episodic_top_k  = len(self.episodic) if _overfetch else top_k
+        _semantic_top_k  = len(self.semantic) if _overfetch else top_k
+
         layers    = layers or ["working", "episodic", "semantic"]
         results: list[dict] = []
 
         if "working" in layers:
-            for e in self.working.retrieve(top_k=top_k):
+            for e in self.working.retrieve(top_k=_working_top_k):
                 emb = np.array(e["embedding"], dtype=np.float32)
                 sim = float(cosine_similarity([emb], [query_emb])[0][0])
                 if sim >= min_score:
                     results.append({**e, "ranking_score": round(sim, 4)})
 
         if "episodic" in layers:
-            results.extend(self.episodic.retrieve(query_emb, top_k, min_score))
+            results.extend(self.episodic.retrieve(query_emb, _episodic_top_k, min_score))
 
         if "semantic" in layers:
-            results.extend(self.semantic.retrieve(query_emb, top_k, min_score))
+            results.extend(self.semantic.retrieve(query_emb, _semantic_top_k, min_score))
 
         seen: dict[str, dict] = {}
         for r in results:
@@ -1474,7 +1504,21 @@ class MemoryStore:
         for r in final:
             M.retrieval_score(r["ranking_score"])
 
-        final_top = final[:top_k]
+        # ── exp017 Fase 1 (T3) — aplica o modo já resolvido acima. Ponto
+        # candidato (RELATORIO_F1T1_EXP017.md, T1b): `final` já passou piso/
+        # exclusão (scoring de cada camada) e ainda não foi truncado — refill
+        # seguro. mode="off" preserva o truncamento atual byte-idêntico.
+        _rng = None
+        if _mode == "random_pareado":
+            from ..config import EDP_SHUFFLE_SEED as _seed
+            import hashlib as _hashlib, random as _random
+            _qh = _hashlib.sha256(query.encode("utf-8")).hexdigest()
+            _rng = _random.Random(f"{_seed}:{_qh}")
+        try:
+            final_top = _dedup_ranked(final, top_k, _mode, rng=_rng)
+        except Exception as _e_dedup:
+            logger.debug("[exp017] dedup falhou (ignorado): %s", _e_dedup)
+            final_top = final[:top_k]
 
         # ── P2: Retrieval quality monitor (não-bloqueante) ───────────────────
         try:
@@ -1592,24 +1636,43 @@ class MemoryStore:
         if not index:
             return []
 
+        # ── exp017 Fase 1 (T3) — EDP_RETRIEVE_DEDUP / EDP_RETRIEVE_RANDOM_DROP ─
+        # (default OFF). RELATORIO_F1T1_EXP017.md (T1b): o ranking completo do
+        # híbrido nasce pré-truncado DENTRO de HybridRetriever.search()
+        # (retrieval_hybrid.py:199-202) — pedir top_k=len(corpus) quando a
+        # flag liga expõe o ranking inteiro para o refill (superset monotônico:
+        # ampliar top_k só amplia o pool de candidatos, não reordena os que já
+        # estariam no top-k menor). OFF pede exatamente `top_k`, byte-idêntico.
+        _mode = "off"
+        try:
+            from ..config import (
+                EDP_RETRIEVE_DEDUP as _dd, EDP_RETRIEVE_SHUFFLE as _sh,
+                EDP_RETRIEVE_RANDOM_DROP as _rd,
+                resolve_retrieve_instrumentation_exp017 as _resolve,
+            )
+            _mode = _resolve(_dd, _sh, _rd)
+        except Exception as _e_dedup:
+            logger.debug("[exp017] resolucao de modo (hibrido) falhou (ignorado): %s", _e_dedup)
+            _mode = "off"
+
+        _search_top_k = len(index["entries"]) if _mode in ("dedup", "random_pareado") else top_k
+
         res = index["hr"].search(
             query, query_emb,
-            top_k=top_k, min_score=HYBRID_MIN_SCORE,   # escala RRF, NÃO 0.20
-            method="rrf", mmr=False,                    # exp010: MMR piora aqui
+            top_k=_search_top_k, min_score=HYBRID_MIN_SCORE,  # escala RRF, NÃO 0.20
+            method="rrf", mmr=False,                            # exp010: MMR piora aqui
         )
 
-        agora = _now()
-        final_top: list[dict] = []
-        touched_episodic = False
+        # Candidatos crus (metadado só) — mutação de acessos/ultimo_acesso é
+        # ADIADA para depois do dedup: só a entry que sobrevive ao refill foi
+        # de fato entregue (exp017 é read-side; overfetch não deve inflar
+        # contagem de acesso de candidatos descartados pelo colapso).
+        candidates: list[dict] = []
         for pos, i in enumerate(res.indices):
             if i >= len(index["entries"]):
                 continue
             entry = index["entries"][i]
-            if index["layer_of"][i] == "episodic":
-                entry["acessos"]      = entry.get("acessos", 0) + 1
-                entry["ultimo_acesso"] = agora
-                touched_episodic = True
-            final_top.append({
+            candidates.append({
                 **entry,
                 "ranking_score": res.scores[pos] if pos < len(res.scores) else 0.0,
                 "ranking_breakdown": {
@@ -1617,7 +1680,33 @@ class MemoryStore:
                     "bm25":   res.bm25_scores[pos] if pos < len(res.bm25_scores) else 0.0,
                     "vec":    res.vector_scores[pos] if pos < len(res.vector_scores) else 0.0,
                 },
+                "_exp017_layer":     index["layer_of"][i],
+                "_exp017_entry_ref": entry,
             })
+
+        _rng = None
+        if _mode == "random_pareado":
+            from ..config import EDP_SHUFFLE_SEED as _seed
+            import hashlib as _hashlib, random as _random
+            _qh = _hashlib.sha256(query.encode("utf-8")).hexdigest()
+            _rng = _random.Random(f"{_seed}:{_qh}")
+        try:
+            final_top = _dedup_ranked(candidates, top_k, _mode, rng=_rng)
+        except Exception as _e_dedup2:
+            logger.debug("[exp017] dedup (hibrido) falhou (ignorado): %s", _e_dedup2)
+            final_top = candidates[:top_k]
+
+        agora = _now()
+        touched_episodic = False
+        for r in final_top:
+            layer = r.pop("_exp017_layer", None)
+            orig  = r.pop("_exp017_entry_ref", None)
+            if layer == "episodic" and orig is not None:
+                orig["acessos"]      = orig.get("acessos", 0) + 1
+                orig["ultimo_acesso"] = agora
+                r["acessos"]          = orig["acessos"]
+                r["ultimo_acesso"]    = orig["ultimo_acesso"]
+                touched_episodic = True
 
         # save oportunista — mesma semântica do episodic.retrieve (memory.py:879)
         if touched_episodic:

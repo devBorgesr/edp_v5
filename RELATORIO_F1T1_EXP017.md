@@ -196,3 +196,46 @@ implementação:
 | Exclusão híbrida (toxic) | n/a | `store.py:1455-1457` (ambas as camadas, via campo copiado) |
 | Dedup por ID pré-existente | `store.py:1371-1375` (SIM) | ausente (NÃO) |
 | Governança dura (contradicted/quarantined) | `store.py:540-542` (epi) + `semantic.py:126-129` (sem) | `store.py:1447-1448` |
+
+---
+
+## ERRATA — descoberta durante T3 (implementação), texto original acima intocado
+
+**ERR-T1-1. O achado (b) para o caminho cosine estava incompleto.** O texto
+original afirma que `final` (`store.py:1377`, pré-`:1381`) "não é limitado
+por `top_k`". Isso é verdade APENAS depois do merge — mas cada CAMADA já
+trunca em `top_k` **internamente**, antes de `results.extend(...)` sequer
+rodar:
+
+- `EpisodicMemory.retrieve(query_emb, top_k, min_score)` faz
+  `for rank_score, i, breakdown in scored[:top_k]:` (`store.py:728` — o
+  slice `scored[:top_k]` corta ANTES de retornar).
+- `SemanticMemory.retrieve(query_emb, top_k, min_score)` faz o mesmo
+  (`semantic.py:150`, `scored[:top_k]`).
+- `self.working.retrieve(top_k=top_k)` idem (`recency_rank(..., top_k)`,
+  `temporal.py:78`).
+
+Ou seja: `results` (antes do merge/seen-dict) já chega limitado a, no
+máximo, `top_k` itens POR CAMADA (até 3×`top_k` no total) — não "toda
+entry com `rank_score >= min_score`" como o texto original de (b) afirmou.
+Passar `top_k` inalterado para as três chamadas de camada e só tentar
+overfetch no ponto do merge (como T3 originalmente implementou) deixa o
+refill "cego" a qualquer candidato que a própria camada já descartou —
+reproduzido empiricamente por um teste de integração do T4 que devolvia
+4 itens em vez de 5 com apenas 1 duplicata de hash entre 6 candidatos.
+
+**Correção aplicada no T3:** a resolução do modo (`_resolve_retrieve_
+instrumentation_exp017`) precisa rodar **antes** das três chamadas de
+camada, não só antes do merge. Quando o modo é `dedup`/`random_pareado`,
+cada chamada pede `top_k=len(camada)` (equivalente a "toda a camada") em
+vez do `top_k` do chamador — mesma técnica de overfetch condicional já
+usada no lado híbrido (achado original do item b), aplicada agora também
+por camada no cosine. `mode="off"` continua pedindo exatamente `top_k` por
+camada, preservando o byte-idêntico.
+
+**Consequência para o veredito do gate:** não muda — ainda nenhum dos 4
+gates se confirma de forma absoluta; a correção é de DESENHO (onde o
+overfetch precisa entrar), não uma revogação da premissa de que o ranking
+completo é alcançável. Mas reforça a lição do achado híbrido original: em
+QUALQUER caminho, "ranking completo" tem que ser verificado em CADA ponto
+de truncamento na cadeia (camada → merge → topo), não só no último.

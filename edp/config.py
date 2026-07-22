@@ -110,6 +110,45 @@ HYBRID_MIN_SCORE = float(os.environ.get("EDP_HYBRID_MIN_SCORE", "0.0"))
 EDP_RETRIEVE_SHUFFLE = os.environ.get("EDP_RETRIEVE_SHUFFLE", "0") == "1"
 EDP_SHUFFLE_SEED      = os.environ.get("EDP_SHUFFLE_SEED", "20260719")
 
+# ── exp017 Fase 1 (07/2026): dedup do retrieve (read-side) ────────────────────
+# DESLIGADO por padrão (OFF = byte-idêntico). Ligado, colapsa duplicatas do
+# ranking já filtrado por governança — 1a passada por ID (fenômeno D:
+# duplicação cross-camada por promoção, mesmo ID em episódica+semântica), 2a
+# por hash normalizado (fenômeno A-no-resultado: texto idêntico, IDs
+# distintos) — ANTES do truncamento em top_k, com refill dos próximos do
+# ranking (RELATORIO_F1T1_EXP017.md). Mutuamente exclusiva com
+# EDP_RETRIEVE_SHUFFLE e EDP_RETRIEVE_RANDOM_DROP.
+EDP_RETRIEVE_DEDUP = os.environ.get("EDP_RETRIEVE_DEDUP", "0") == "1"
+
+# Controle-reserva (ativado na Fase 0 — EXP017_FASE0.md §3, condição do Patch
+# D satisfeita + truncamento=0% torna o SHUFFLE tautológico no kept): remove
+# d itens ALEATÓRIOS do top-k bruto (d = quantas duplicatas o EDP_RETRIEVE_
+# DEDUP removeria até k) com refill igual — mesmo par mecânico do dedup,
+# critério aleatório em vez de duplicata. Seed por query = EDP_SHUFFLE_SEED
+# (mesma disciplina do SHUFFLE). Mutuamente exclusiva com as outras duas.
+EDP_RETRIEVE_RANDOM_DROP = os.environ.get("EDP_RETRIEVE_RANDOM_DROP", "0") == "1"
+
+
+def resolve_retrieve_instrumentation_exp017(dedup: bool, shuffle: bool, random_drop: bool) -> str:
+    """exp017 — guard de exclusividade mútua entre EDP_RETRIEVE_DEDUP,
+    EDP_RETRIEVE_SHUFFLE e EDP_RETRIEVE_RANDOM_DROP. Mais de uma ligada ao
+    mesmo tempo é erro de configuração: loga e prioriza OFF (nenhuma se
+    aplica). Retorna "dedup" | "shuffle" | "random_pareado" | "off".
+    """
+    active = [
+        name for name, on in (
+            ("dedup", dedup), ("shuffle", shuffle), ("random_pareado", random_drop),
+        ) if on
+    ]
+    if len(active) > 1:
+        import logging
+        logging.getLogger("edp.memory").error(
+            "[exp017] flags de retrieve mutuamente exclusivas ligadas ao mesmo "
+            "tempo: %s — priorizando OFF", active,
+        )
+        return "off"
+    return active[0] if active else "off"
+
 # ── Memória ────────────────────────────────────────────────────────────────────
 DECAY_LAMBDA      = float(os.environ.get("EDP_DECAY_LAMBDA",  "0.1"))
 MAX_MEMORY        = int(os.environ.get("EDP_MAX_MEMORY",       "500"))
