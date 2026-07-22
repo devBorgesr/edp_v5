@@ -1072,6 +1072,102 @@ def _migrate_legacy_session_files(session_id: str) -> int:
     return migrated
 
 
+# ── exp017 Fase 1 (T2) — dedup do retrieve (read-side) ──────────────────────────
+# Função pura: opera sobre uma lista JÁ ranqueada (ordem = ranking_score desc)
+# e JÁ filtrada por governança — piso NOT_FOUND_FLOOR e exclusão do híbrido
+# rodam durante o scoring de cada camada, antes de qualquer candidato chegar
+# aqui (RELATORIO_F1T1_EXP017.md, item c). Não lê config, não loga, não muta
+# `candidates` — mode="off" é o contrato de compatibilidade byte-idêntica que
+# os call sites (cosine e híbrido) dependem.
+
+def _normalize_text_exp017(text: str | None) -> str:
+    """strip + casefold + colapso de whitespace — MESMA normalização do censo
+    (scripts/censo_exp017.py:39-40)."""
+    import re
+    return re.sub(r"\s+", " ", (text or "").strip().casefold())
+
+
+def _dedup_pass_exp017(candidates: list[dict], k: int) -> tuple[list[dict], int]:
+    """1ª passada por ID (colapsa fenômeno D — determinística, sem
+    normalização), 2ª por hash normalizado (colapsa fenômeno A-no-resultado).
+    Lazy: para assim que `kept` alcança `k`, ou a lista se esgota. Duplicata =
+    item cujo ID ou hash normalizado já apareceu antes no ranking;
+    representante = primeira ocorrência (maior score, já que `candidates`
+    chega ordenado). Retorna (kept, n_removido) — n_removido conta só as
+    duplicatas puladas até `k` ser preenchido.
+    """
+    kept: list[dict] = []
+    seen_ids: set = set()
+    seen_hashes: set = set()
+    n_removed = 0
+    for c in candidates:
+        if len(kept) >= k:
+            break
+        cid = c.get("id")
+        chash = _normalize_text_exp017(c.get("text"))
+        if cid and cid in seen_ids:
+            n_removed += 1
+            continue
+        if chash and chash in seen_hashes:
+            n_removed += 1
+            continue
+        if cid:
+            seen_ids.add(cid)
+        if chash:
+            seen_hashes.add(chash)
+        kept.append(c)
+    return kept, n_removed
+
+
+def _dedup_ranked(candidates: list[dict], k: int, mode: str, rng=None) -> list[dict]:
+    """exp017 Fase 1 (T2) — colapsa duplicatas do ranking ANTES do
+    truncamento em top_k, com refill dos próximos candidatos do ranking.
+
+    mode="off"            -> candidates[:k], byte-idêntico ao truncamento
+                              atual.
+    mode="dedup"           -> 1ª passada por ID, 2ª por hash normalizado
+                              (_dedup_pass_exp017), refill lazy até `k`.
+    mode="random_pareado"   -> controle-reserva (EXP017_FASE0.md §3): d =
+                              quantas duplicatas o modo "dedup" removeria até
+                              `k`; remove d itens ALEATÓRIOS do top-k bruto
+                              (candidates[:k], sem dedup) e faz refill com os
+                              próximos do ranking, na ordem — mesmo par
+                              mecânico do dedup, critério aleatório em vez de
+                              duplicata. `rng` obrigatório (random.Random do
+                              chamador — disciplina de seed do
+                              EDP_SHUFFLE_SEED).
+
+    Não muta `candidates`. Não lê flags/config — a escolha de modo é do
+    chamador.
+    """
+    if not candidates:
+        return []
+
+    if mode == "off":
+        return candidates[:k]
+
+    if mode == "dedup":
+        kept, _ = _dedup_pass_exp017(candidates, k)
+        return kept
+
+    if mode == "random_pareado":
+        if rng is None:
+            raise ValueError("_dedup_ranked: mode='random_pareado' exige rng")
+        base_k = min(k, len(candidates))
+        _, d = _dedup_pass_exp017(candidates, base_k)
+        top_k_raw = list(candidates[:base_k])
+        d = min(d, len(top_k_raw))
+        remove_positions = set(rng.sample(range(len(top_k_raw)), d)) if d > 0 else set()
+        survivors = [c for i, c in enumerate(top_k_raw) if i not in remove_positions]
+        for c in candidates[base_k:]:
+            if len(survivors) >= k:
+                break
+            survivors.append(c)
+        return survivors
+
+    raise ValueError(f"_dedup_ranked: mode desconhecido: {mode!r}")
+
+
 class _ScopedView:
     """
     Agrupa episodic + semantic + blocks de um único scope.
