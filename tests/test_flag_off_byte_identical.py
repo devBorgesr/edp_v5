@@ -109,3 +109,53 @@ def test_flag_off_shuffle_preserva_ordem_do_topk(monkeypatch):
 def test_flag_off_shuffle_e_default():
     import edp.config as edp_config
     assert edp_config.EDP_RETRIEVE_SHUFFLE is False
+
+
+# ── exp017 Fase 1 (T4) — EDP_RETRIEVE_DEDUP=0 / EDP_RETRIEVE_RANDOM_DROP=0 são
+# byte-idênticas ao comportamento pré-exp017 Fase 1, nos DOIS caminhos: cosine
+# preserva duplicatas por hash (o dedup-por-ID pré-existente do merge,
+# store.py, é comportamento ANTERIOR ao exp017 — RELATORIO_F1T1_EXP017.md,
+# item d); híbrido preserva duplicatas por ID (fenômeno D intacto, sem
+# colapso). Mesma rede de segurança das flags acima.
+
+def test_flag_off_dedup_e_random_drop_sao_default():
+    import edp.config as edp_config
+    assert edp_config.EDP_RETRIEVE_DEDUP is False
+    assert edp_config.EDP_RETRIEVE_RANDOM_DROP is False
+
+
+def test_flag_off_dedup_cosine_preserva_duplicata_por_hash(synthetic_store, entry_factory, monkeypatch):
+    import edp.config as edp_config
+    monkeypatch.setattr(edp_config, "EDP_HYBRID_RETRIEVAL", False, raising=False)
+    monkeypatch.setattr(edp_config, "EDP_RETRIEVE_DEDUP", False, raising=False)
+    monkeypatch.setattr(edp_config, "EDP_RETRIEVE_RANDOM_DROP", False, raising=False)
+
+    query_text = "consulta para testar preservacao de duplicatas por hash no cosine"
+    q_emb = embed_one(query_text)
+
+    e1 = entry_factory(embedding=q_emb.copy(), text="Q: oi\nA: oi tudo bem")
+    e2 = entry_factory(embedding=q_emb.copy(), text="q: OI\na: OI TUDO BEM")  # normaliza igual a e1
+    synthetic_store.episodic.entries = [e1, e2]
+
+    results = synthetic_store.retrieve(query_text, top_k=5, min_score=0.0)
+    ids = {r["id"] for r in results}
+    assert ids == {e1["id"], e2["id"]}  # ambos presentes — sem colapso por hash
+
+
+def test_flag_off_dedup_hibrido_preserva_duplicata_por_id(synthetic_store, entry_factory, monkeypatch):
+    import edp.config as edp_config
+    monkeypatch.setattr(edp_config, "EDP_HYBRID_RETRIEVAL", True, raising=False)
+    monkeypatch.setattr(edp_config, "EDP_RETRIEVE_DEDUP", False, raising=False)
+    monkeypatch.setattr(edp_config, "EDP_RETRIEVE_RANDOM_DROP", False, raising=False)
+
+    query_text = "consulta unica para testar fenomeno d preservado no hibrido"
+    q_emb = embed_one(query_text)
+
+    e_epi = entry_factory(embedding=q_emb.copy(), text=query_text)
+    e_sem = dict(e_epi)  # mesma ID — cópia semântica (fenômeno D)
+    synthetic_store.episodic.entries = [e_epi]
+    synthetic_store.semantic.entries = [e_sem]
+
+    results = synthetic_store.retrieve(query_text, top_k=5)
+    ids = [r["id"] for r in results]
+    assert ids.count(e_epi["id"]) == 2  # as duas cópias aparecem — sem colapso
