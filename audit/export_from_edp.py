@@ -40,7 +40,9 @@ def main(argv=None) -> int:
     if not queries_path.exists():
         print(f"[erro] arquivo de queries não encontrado: {args.queries}", file=sys.stderr)
         return 2
-    queries = [ln.strip() for ln in queries_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    # utf-8-sig: mesma origem do defeito do BOM em retrieval_audit.py
+    # (arquivos gerados no Windows via Set-Content -Encoding UTF8).
+    queries = [ln.strip() for ln in queries_path.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
     if not queries:
         print("[erro] arquivo de queries vazio", file=sys.stderr)
         return 2

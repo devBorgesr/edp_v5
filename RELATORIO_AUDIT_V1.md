@@ -31,10 +31,22 @@ export EDP_BASE_DIR=/caminho/para/uma/copia/do/store
 python audit/export_from_edp.py queries.txt -o export.jsonl --top-k 10
 ```
 
+## Correções do dogfood (validação com dado real)
+
+Três defeitos achados ao rodar contra export real (Windows) e corrigidos
+num commit único: leitura de JSONL/queries com `encoding="utf-8-sig"`
+(BOM do `Set-Content -Encoding UTF8` sujava a primeira query do
+relatório); truncamento de query subiu de 50/60/40 chars ad hoc para 80
+chars com corte em fronteira de palavra (`truncate_query`), aplicado em
+todos os pontos que imprimem query; sumário executivo ganhou frase de
+impacto em linguagem de negócio por achado (dup, escala esmagada,
+cross-query acima da referência neutra), condicional — some quando o
+achado não existe.
+
 ## Testes
 
-`tests/test_audit_retrieval_audit.py` — 12 testes, suíte completa do
-repositório verde (124 passed, 1 deselected — marcadores
+`tests/test_audit_retrieval_audit.py` — 16 testes, suíte completa do
+repositório verde (128 passed, 1 deselected — marcadores
 `windows_only`/`live_store` fora do escopo desta máquina):
 
 ```
@@ -44,7 +56,9 @@ python3 -m pytest
 Cobertura: dup por hash, dup por ID, repetição cross-query (valores
 calculados à mão), escala esmagada, fixture limpa sem falsos positivos,
 JSONL malformado, resultado sem `text`, degradação sem `id`/sem
-`score`, truncamento por `--top-k`, ponta a ponta via CLI.
+`score`, truncamento por `--top-k`, ponta a ponta via CLI, BOM UTF-8,
+truncamento de query em fronteira de palavra, fixture limpa sem frase
+de impacto.
 
 ## Escopo
 

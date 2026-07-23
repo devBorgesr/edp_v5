@@ -16,6 +16,7 @@ from audit.retrieval_audit import (
     build_report,
     main,
     parse_jsonl,
+    truncate_query,
 )
 
 
@@ -244,3 +245,58 @@ def test_main_end_to_end_gera_relatorio(tmp_path):
     content = open(output_path, encoding="utf-8").read()
     assert "Sumário executivo" in content
     assert "Limitações deste diagnóstico" in content
+
+
+# ── Dogfood: BOM UTF-8 (exports Windows) ────────────────────────────────────
+
+def test_bom_utf8_primeira_query_sai_limpa(tmp_path):
+    p = tmp_path / "export.jsonl"
+    line = json.dumps({"query": "vamos continuar", "results": [{"id": "1", "text": "t"}]}, ensure_ascii=False)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("﻿" + line + "\n")  # simula Set-Content -Encoding UTF8 do Windows
+
+    parsed = parse_jsonl(str(p))
+    assert parsed.n_malformed_lines == 0
+    assert parsed.records[0]["query"] == "vamos continuar"
+
+
+# ── Dogfood: truncamento em fronteira de palavra ────────────────────────────
+
+def test_truncate_query_corta_em_fronteira_de_palavra():
+    q = "abcde fghij klmno pqrst uvwxy"
+    assert truncate_query(q, max_len=10) == "abcde…"
+
+
+def test_truncate_query_nao_corta_query_curta():
+    assert truncate_query("qual o prazo de reembolso?") == "qual o prazo de reembolso?"
+
+
+# ── Dogfood: fixture limpa não ganha frase de impacto ───────────────────────
+
+def test_fixture_limpa_sem_frase_de_impacto():
+    records = [
+        _rec(f"q{i}", [
+            {"id": f"{i}-1", "text": f"conteudo unico {i} um", "score": 0.9},
+            {"id": f"{i}-2", "text": f"conteudo unico {i} dois", "score": 0.7},
+            {"id": f"{i}-3", "text": f"conteudo unico {i} tres", "score": 0.5},
+            {"id": f"{i}-4", "text": f"conteudo unico {i} quatro", "score": 0.3},
+        ])
+        for i in range(3)
+    ]
+    dup = analyze_intra_query_duplication(records, top_k=None)
+    rep = analyze_cross_query_repetition(records, top_k=None)
+    scale = analyze_score_scale(records, top_k=None)
+
+    class _Parse:
+        records_ = records
+
+        def __init__(self):
+            self.records = records
+            self.n_malformed_lines = 0
+            self.n_dropped_results = 0
+            self.malformed_examples = []
+
+    report = build_report(_Parse(), dup, rep, scale, top_k=None)
+    assert "tokens pagos em dobro" not in report
+    assert "decidindo no escuro" not in report
+    assert "favoritos" not in report

@@ -49,6 +49,19 @@ def text_hash(text) -> str:
     return hashlib.sha256(normalize_text(text).encode("utf-8")).hexdigest()
 
 
+def truncate_query(q: str, max_len: int = 80) -> str:
+    """Trunca para exibição no relatório, cortando em fronteira de palavra
+    (nunca no meio de um token) e marcando o corte com "…"."""
+    q = q.strip()
+    if len(q) <= max_len:
+        return q
+    cut = q[:max_len]
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        cut = cut[:last_space]
+    return cut.rstrip() + "…"
+
+
 # ── T2: parsing tolerante a dado ruim ───────────────────────────────────────
 
 class ParseResult:
@@ -66,7 +79,10 @@ class ParseResult:
 
 def parse_jsonl(path: str) -> ParseResult:
     out = ParseResult()
-    with open(path, "r", encoding="utf-8") as f:
+    # utf-8-sig: exports gerados no Windows (Set-Content -Encoding UTF8)
+    # carregam BOM (﻿) no início do arquivo — sem isso, a primeira
+    # query sai suja no relatório.
+    with open(path, "r", encoding="utf-8-sig") as f:
         for lineno, raw in enumerate(f, start=1):
             raw = raw.strip()
             if not raw:
@@ -133,7 +149,7 @@ def analyze_intra_query_duplication(records: list[dict], top_k: int | None) -> d
         for r, h in zip(results, hashes):
             if h in seen_hash and len(dup_examples) < 5:
                 snippet = r["text"].strip().replace("\n", " ")[:80]
-                dup_examples.append(f'"{snippet}" (query: "{rec["query"][:50]}")')
+                dup_examples.append(f'"{snippet}" (query: "{truncate_query(rec["query"])}")')
             seen_hash.setdefault(h, r["text"])
 
         ids = [r["id"] for r in results if r["id"]]
@@ -310,21 +326,34 @@ def build_report(parse: ParseResult, dup: dict, rep: dict, scale: dict, top_k: i
         )
     if dup["worst_hash"] is not None and dup["worst_hash"]["dup_hash_rate"] > 0:
         w = dup["worst_hash"]
+        impacto = (
+            f" Na pior busca, {w['dup_hash_count']} de cada {w['k']} resultados eram repetição "
+            f"do mesmo texto — tokens pagos em dobro ocupando o lugar de conteúdo novo."
+        )
         achados.append(
-            f"- Pior caso: a busca \"{w['query'][:60]}\" retornou {_pct(w['dup_hash_rate'])} "
-            f"de conteúdo duplicado."
+            f"- Pior caso: a busca \"{truncate_query(w['query'])}\" retornou "
+            f"{_pct(w['dup_hash_rate'])} de conteúdo duplicado.{impacto}"
         )
     if not rep.get("insufficient") and rep["cons_continuous_mean"] is not None:
-        achados.append(
+        linha = (
             f"- Buscas consecutivas no export compartilham em média "
             f"**{_pct(rep['cons_continuous_mean'])}** dos resultados (referência sob "
             f"aleatoriedade: {_pct(rep['ref_continuous_mean'])}) — isso pode ser normal "
             f"quando as buscas são sobre o mesmo assunto, não é necessariamente falha."
         )
+        if (rep["ref_continuous_mean"] is not None
+                and rep["cons_continuous_mean"] > rep["ref_continuous_mean"]):
+            linha += (
+                " Buscas diferentes recebem as mesmas respostas — o sistema tem \"favoritos\" "
+                "independentes da pergunta."
+            )
+        achados.append(linha)
     if scale["flagged"]:
         achados.append(
             "- **Escala de relevância comprometida**: os scores retornados discriminam mal "
-            "entre resultados bons e ruins (muitos empates e/ou pouca variação)."
+            "entre resultados bons e ruins (muitos empates e/ou pouca variação). Os scores não "
+            "distinguem resultado bom de ruim — qualquer corte por relevância que o sistema "
+            "faça está decidindo no escuro."
         )
     if not achados:
         achados.append("- Nenhum padrão de duplicação, repetição ou escala achatada saltou aos olhos nesta amostra.")
@@ -355,11 +384,11 @@ def build_report(parse: ParseResult, dup: dict, rep: dict, scale: dict, top_k: i
     lines.append("|---|---|")
     lines.append(f"| dup_rate@k por hash (média) | {_pct(dup['avg_dup_hash_rate'])} |")
     if dup["worst_hash"]:
-        lines.append(f"| dup_rate@k por hash (pior query) | {_pct(dup['worst_hash']['dup_hash_rate'])} — \"{dup['worst_hash']['query'][:50]}\" |")
+        lines.append(f"| dup_rate@k por hash (pior query) | {_pct(dup['worst_hash']['dup_hash_rate'])} — \"{truncate_query(dup['worst_hash']['query'])}\" |")
     if dup["any_id"]:
         lines.append(f"| dup_rate@k por ID (média, queries com ID) | {_pct(dup['avg_dup_id_rate'])} |")
         if dup["worst_id"]:
-            lines.append(f"| dup_rate@k por ID (pior query) | {_pct(dup['worst_id']['dup_id_rate'])} — \"{dup['worst_id']['query'][:50]}\" |")
+            lines.append(f"| dup_rate@k por ID (pior query) | {_pct(dup['worst_id']['dup_id_rate'])} — \"{truncate_query(dup['worst_id']['query'])}\" |")
         if dup["n_queries_sem_id"]:
             lines.append(f"| queries sem nenhum ID presente | {dup['n_queries_sem_id']} |")
     lines.append("")
@@ -402,7 +431,7 @@ def build_report(parse: ParseResult, dup: dict, rep: dict, scale: dict, top_k: i
                         row.append(f"{rep['matrix'][(i, j)]['frac']*100:.0f}%")
                 lines.append("|" + "|".join(row) + "|")
             lines.append("")
-            lines.append("Legenda: " + "; ".join(f"q{i+1}=\"{q[:40]}\"" for i, q in enumerate(labels)))
+            lines.append("Legenda: " + "; ".join(f"q{i+1}=\"{truncate_query(q)}\"" for i, q in enumerate(labels)))
             lines.append("")
         else:
             lines.append(
