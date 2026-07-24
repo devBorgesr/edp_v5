@@ -46,3 +46,7 @@ env/
 node_modules/
 dist/
 *.tsbuildinfo
+
+export_fase0.jsonl
+queries_exp017.txt
+*.egg-info/
