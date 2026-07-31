@@ -172,6 +172,8 @@ def consolidate(
     if not entries:
         return {"before": 0, "after": 0, "merged": 0, "promoted": 0}
 
+    from .config import EDP_TOXIC_GUARDS, TOXIC_ANSWER_CLASSES
+
     clusters   = cluster_entries(entries, embeddings, threshold)
     new_entries: list[dict] = []
     merged_count   = 0
@@ -183,15 +185,20 @@ def consolidate(
             if merged:
                 new_entries.append(merged)
                 merged_count += 1
-                # promoção para semantic
-                if merged.get("acessos", 0) >= promote_threshold:
+                # promoção para semantic — fix/toxic-guards: conteúdo
+                # quarentenado (answer_class tóxico) não ganha upgrade de
+                # durabilidade, mesma guarda de consolidate_promote_only.
+                if (merged.get("acessos", 0) >= promote_threshold
+                        and not (EDP_TOXIC_GUARDS and merged.get("answer_class") in TOXIC_ANSWER_CLASSES)):
                     memory.semantic.promote(merged)
                     promoted_count += 1
         else:
             entry = entries[cluster[0]]
             new_entries.append(entry)
-            # promoção de entradas individuais muito acessadas
-            if entry.get("acessos", 0) >= promote_threshold:
+            # promoção de entradas individuais muito acessadas — mesma
+            # guarda de toxicidade do branch de merge, acima.
+            if (entry.get("acessos", 0) >= promote_threshold
+                    and not (EDP_TOXIC_GUARDS and entry.get("answer_class") in TOXIC_ANSWER_CLASSES)):
                 memory.semantic.promote(entry)
                 promoted_count += 1
 
