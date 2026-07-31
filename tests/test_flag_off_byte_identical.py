@@ -1,9 +1,15 @@
 """
-Sementes T2 (item C do adendo) — EDP_WRITE_PROVENANCE=0 é byte-idêntico ao
+Sementes T2 (item C do adendo) — EDP_TOXIC_GUARDS=0 é byte-idêntico ao
 comportamento pré-exp012: answer_class tóxico deixa de ter QUALQUER efeito
 no gate (nem piso no cosine, nem exclusão do híbrido, nem bloqueio de
 promoção) — mesmo padrão de rede de segurança usado para EDP_HYBRID_RETRIEVAL/
 EDP_CTX_SLOTS (edp/config.py). Contra MemoryStore real (synthetic_store).
+
+fix/toxic-guards (30/07/2026): as três leituras migraram de EDP_WRITE_PROVENANCE
+para EDP_TOXIC_GUARDS (ACHADO_FLAG_UNICA_TOXICIDADE.md do lab_edp) — os
+testes abaixo migraram o monkeypatch junto. A prova de que EDP_WRITE_
+PROVENANCE=0 NÃO desliga mais estas três leituras está em
+test_toxic_guards_flag_separation.py.
 """
 from __future__ import annotations
 
@@ -13,7 +19,7 @@ from edp.embeddings import embed_one
 
 def test_flag_off_cosine_sem_piso(synthetic_store, entry_factory, monkeypatch):
     import edp.config as edp_config
-    monkeypatch.setattr(edp_config, "EDP_WRITE_PROVENANCE", False, raising=False)
+    monkeypatch.setattr(edp_config, "EDP_TOXIC_GUARDS", False, raising=False)
 
     query_text = "pergunta idêntica para ambas as entradas"
     q_emb = embed_one(query_text)
@@ -32,7 +38,7 @@ def test_flag_off_cosine_sem_piso(synthetic_store, entry_factory, monkeypatch):
 
 def test_flag_off_hibrido_nao_exclui(synthetic_store, monkeypatch):
     import edp.config as edp_config
-    monkeypatch.setattr(edp_config, "EDP_WRITE_PROVENANCE", False, raising=False)
+    monkeypatch.setattr(edp_config, "EDP_TOXIC_GUARDS", False, raising=False)
     monkeypatch.setattr(edp_config, "EDP_HYBRID_RETRIEVAL", True, raising=False)
 
     query_text = "conteudo exclusivo sobre desqualificacao toxica de teste"
@@ -49,7 +55,7 @@ def test_flag_off_hibrido_nao_exclui(synthetic_store, monkeypatch):
 
 def test_flag_off_consolidacao_promove_tudo(synthetic_store, entry_factory, monkeypatch):
     import edp.config as edp_config
-    monkeypatch.setattr(edp_config, "EDP_WRITE_PROVENANCE", False, raising=False)
+    monkeypatch.setattr(edp_config, "EDP_TOXIC_GUARDS", False, raising=False)
 
     e_not_found = entry_factory(acessos=5, answer_class="not_found")
     e_disq = entry_factory(acessos=5, answer_class="disqualification")

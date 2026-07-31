@@ -7,7 +7,9 @@ posições originais antes do split; MOVE-ONLY, corpos de função byte-
 idênticos ao original — só esta docstring e os imports são novos).
 
 CHOKE-POINT (item G do adendo do pesquisador — desenho intencional, não
-acidente): o piso NOT_FOUND_FLOOR (EDP_WRITE_PROVENANCE, ver
+acidente): o piso NOT_FOUND_FLOOR (EDP_TOXIC_GUARDS desde fix/toxic-guards;
+EDP_WRITE_PROVENANCE governa só a escrita do carimbo — ver config.py e
+ACHADO_FLAG_UNICA_TOXICIDADE.md do lab_edp), ver
 EpisodicMemory.retrieve() abaixo, import local de NOT_FOUND_FLOOR/
 TOXIC_ANSWER_CLASSES) e a exclusão do índice híbrido (ver
 MemoryStore._hybrid_index(), mesmo import local) SÃO OS DOIS PONTOS ONDE
@@ -563,13 +565,15 @@ class EpisodicMemory:
             # Backward-compat: campo ausente → False → multiplicador 1.0.
             anchor_boost = 1.20 if e.get("is_epistemic_anchor") else 1.0
 
-            # exp012/exp016 (EDP_WRITE_PROVENANCE): peso-piso p/ answer_class
+            # exp012/exp016 (EDP_TOXIC_GUARDS): peso-piso p/ answer_class
             # tóxico (not_found | disqualification — TOXIC_ANSWER_CLASSES,
             # config.py). Dívida documentada (não mexida nesta mudança):
             # SemanticMemory.retrieve() não lê answer_class — este piso só
             # cobre episodic (ver exp012_fase4_backfill_apply.py, achado de
-            # fonte, e RELATORIO_ETAPA0_EXP016.md P1).
-            from ..config import EDP_WRITE_PROVENANCE as _WP, NOT_FOUND_FLOOR as _NF, TOXIC_ANSWER_CLASSES as _TAC
+            # fonte, e RELATORIO_ETAPA0_EXP016.md P1). fix/toxic-guards:
+            # flag desacoplada de EDP_WRITE_PROVENANCE (só escrita do
+            # carimbo) — ver ACHADO_FLAG_UNICA_TOXICIDADE.md do lab_edp.
+            from ..config import EDP_TOXIC_GUARDS as _WP, NOT_FOUND_FLOOR as _NF, TOXIC_ANSWER_CLASSES as _TAC
             nf_floor = _NF if (_WP and e.get("answer_class") in _TAC) else 1.0
 
             # ── Commit 3c.β-cal (Renato, 04/06/2026): session_boost calibrado ─
@@ -1592,7 +1596,9 @@ class MemoryStore:
                 # "disqualification"} (config.py) — mesma lacuna documentada
                 # acima (só cobre episodic+semantic AQUI porque este laço
                 # varre as duas; o peso-piso isolado em EpisodicMemory NÃO).
-                from ..config import EDP_WRITE_PROVENANCE as _WP12, TOXIC_ANSWER_CLASSES as _TAC12
+                # fix/toxic-guards: flag desacoplada de EDP_WRITE_PROVENANCE
+                # (só escrita do carimbo) — ver ACHADO_FLAG_UNICA_TOXICIDADE.md.
+                from ..config import EDP_TOXIC_GUARDS as _WP12, TOXIC_ANSWER_CLASSES as _TAC12
                 if _WP12 and e.get("answer_class") in _TAC12:
                     continue
                 # filtro_recusa (Dívida #49): recusa alta-confiança não é injetada

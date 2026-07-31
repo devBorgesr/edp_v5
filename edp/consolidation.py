@@ -241,8 +241,10 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
 
     Fase 5 (fix/consolidation-toxicity-guard): entries com answer_class em
     TOXIC_ANSWER_CLASSES (edp/config.py — not_found | disqualification) NÃO
-    são promovidas, gated por EDP_WRITE_PROVENANCE (mesmo padrão dos outros
-    pontos do gate em edp/memory.py). Racional: conteúdo quarentenado não
+    são promovidas, gated por EDP_TOXIC_GUARDS desde fix/toxic-guards (era
+    EDP_WRITE_PROVENANCE — desacoplado porque o rollback de escrita não pode
+    desarmar a defesa sobre carimbos já persistidos, ver
+    ACHADO_FLAG_UNICA_TOXICIDADE.md do lab_edp). Racional: conteúdo quarentenado não
     ganha upgrade de durabilidade — promover elevaria prioridade a "alta" e
     tiraria a entry do caminho episódico onde o peso-piso a penaliza; a
     SemanticMemory não tem peso-piso próprio (dívida documentada desde o
@@ -268,7 +270,7 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
     # IDs já presentes na semantic (evita duplicação)
     semantic_ids = {e.get("id") for e in memory.semantic.entries if e.get("id")}
 
-    from .config import EDP_WRITE_PROVENANCE, TOXIC_ANSWER_CLASSES
+    from .config import EDP_TOXIC_GUARDS, TOXIC_ANSWER_CLASSES
 
     promoted_count = 0
     already_count  = 0
@@ -287,7 +289,7 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
             already_count += 1
             continue
 
-        if EDP_WRITE_PROVENANCE and e.get("answer_class") in TOXIC_ANSWER_CLASSES:
+        if EDP_TOXIC_GUARDS and e.get("answer_class") in TOXIC_ANSWER_CLASSES:
             blocked_toxic_count += 1
             logger.info(
                 "[consolidation] promoção bloqueada (conteúdo quarentenado) "
