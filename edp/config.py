@@ -85,6 +85,15 @@ EDP_CTX_SLOTS = os.environ.get("EDP_CTX_SLOTS", "1") == "1"
 # — nenhum código precisa mudar, é a mesma rede de segurança usada para
 # promover EDP_HYBRID_RETRIEVAL/EDP_CTX_SLOTS na Fase 1).
 EDP_WRITE_PROVENANCE = os.environ.get("EDP_WRITE_PROVENANCE", "1") == "1"
+
+# EDP_TOXIC_GUARDS (fix/toxic-guards, 30/07/2026) — governa a LEITURA das
+# defesas de toxicidade (piso NOT_FOUND_FLOOR, exclusão híbrida, guarda de
+# consolidação). EDP_WRITE_PROVENANCE passa a governar APENAS a escrita do
+# carimbo answer_class. Motivo: rollback de escrita (EDP_WRITE_PROVENANCE=0)
+# desarmava as três defesas de leitura sobre carimbos já persistidos em
+# disco — achado do lab_edp, docs/ACHADO_FLAG_UNICA_TOXICIDADE.md. Default
+# ON: com as duas flags ON (o caso hoje), comportamento byte-idêntico.
+EDP_TOXIC_GUARDS = os.environ.get("EDP_TOXIC_GUARDS", "1") == "1"
 NOT_FOUND_FLOOR = 0.05
 # exp016 (3ª classe de veneno — desqualificação auto-referente, RELATORIO_
 # ETAPA0_EXP016.md P1): mesmo piso/exclusão do exp012, gate estendido de
