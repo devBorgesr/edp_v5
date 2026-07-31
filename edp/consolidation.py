@@ -102,6 +102,7 @@ def merge_cluster(entries: list[dict], cluster: list[int]) -> dict | None:
     - embedding: média normalizada dos embeddings
     - timestamp: mais recente
     - ultimo_acesso: mais recente
+    - answer_class: conservador — qualquer tóxico no cluster ⇒ fundida tóxica
     """
     if not cluster:
         return None
@@ -110,11 +111,22 @@ def merge_cluster(entries: list[dict], cluster: list[int]) -> dict | None:
 
     import time, uuid
     import numpy as np
+    from .config import TOXIC_ANSWER_CLASSES
 
     grupo = [entries[i] for i in cluster]
 
     PRIO_ORDER = {"alta": 3, "media": 2, "baixa": 1}
     melhor_prio = max(grupo, key=lambda e: PRIO_ORDER.get(e.get("prioridade","media"), 2))
+
+    # fix/toxic-guards (VEREDITO_EXP018.md H3): propagação conservadora —
+    # se QUALQUER entry do cluster tem answer_class tóxico, a fundida herda
+    # esse valor. Sem isto, a guarda de promoção em consolidate() é cega:
+    # duas entries com acessos abaixo do threshold podem fundir, somar
+    # acima do threshold, e a fundida promove sem carimbo (medido, exp018 C7).
+    answer_class_merged = next(
+        (e.get("answer_class") for e in grupo if e.get("answer_class") in TOXIC_ANSWER_CLASSES),
+        None,
+    )
 
     total_acessos  = sum(e.get("acessos", 0) for e in grupo)
     total_peso     = max(total_acessos, 1)
@@ -150,6 +162,7 @@ def merge_cluster(entries: list[dict], cluster: list[int]) -> dict | None:
         "prioridade":    melhor_prio.get("prioridade", "media"),
         "layer":         "episodic",
         "merged_from":   len(cluster),
+        "answer_class":  answer_class_merged,
     }
 
 # ── Consolidação completa ─────────────────────────────────────────────────────
