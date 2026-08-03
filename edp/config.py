@@ -194,3 +194,10 @@ API_HOST    = os.environ.get("EDP_API_HOST", "127.0.0.1")
 API_PORT    = int(os.environ.get("EDP_API_PORT", "8000"))
 API_VERSION = "v3"
 
+# ── Live feed / sensor ingest (WEBSOCKET_API.md) ────────────────────────────────
+# Token vazio = aberto (default dev-friendly, igual ao CORS ["*"] acima).
+# Setar EDP_LIVE_FEED_TOKEN para exigir autenticação no WS /stream.
+EDP_LIVE_FEED_TOKEN  = os.environ.get("EDP_LIVE_FEED_TOKEN", "")
+LIVE_FEED_LOG        = BASE_DIR / "live_feed.log"
+LIVE_FEED_INDEX_PATH = BASE_DIR / "live_feed_index.json"
+
