@@ -268,8 +268,16 @@ try:
         health, memory, metrics, llm, websocket, dashboard_state, providers, flags,
         mode,  # Peça 2.6a (2026-05-30): endpoint /mode para modo bimodal
         cognitive_decisions, lineage,  # α (Tier 3, 13/06/2026): leitura REST
+        live_feed,  # Receptor de eventos do sensor: API HTTP de consulta
     )
+    from ..ingest.websocket_receiver import router as live_feed_ws_router
 
+    # live_feed ANTES de memory: GET /memory/sessions (2 segmentos) colide
+    # com o catch-all GET /memory/{entry_id} (também 2 segmentos) de
+    # memory.router — Starlette resolve por ordem de registro no app, não
+    # por especificidade. /memory/session/{id}[/summary] (3-4 segmentos)
+    # não colidem, mas mantemos live_feed antes por consistência.
+    app.include_router(live_feed.router)
     app.include_router(health.router)
     app.include_router(memory.router)
     app.include_router(metrics.router)
@@ -281,6 +289,7 @@ try:
     app.include_router(mode.router)  # Peça 2.6a
     app.include_router(cognitive_decisions.router)  # α
     app.include_router(lineage.router)              # α
+    app.include_router(live_feed_ws_router)          # WS /stream
 
     # ── Dashboard estático ────────────────────────────────────────────────────
     _DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"

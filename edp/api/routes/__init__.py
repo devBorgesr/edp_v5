@@ -12,8 +12,14 @@ import edp.api.routes.websocket as websocket
 import edp.api.routes.dashboard_state as dashboard_state
 import edp.api.routes.providers as providers
 import edp.api.routes.flags as flags
+import edp.api.routes.mode as mode
+import edp.api.routes.cognitive_decisions as cognitive_decisions
+import edp.api.routes.lineage as lineage
+import edp.api.routes.live_feed as live_feed
 
 __all__ = [
     "health", "memory", "metrics", "llm", "websocket",
     "dashboard_state", "providers", "flags",
+    "mode", "cognitive_decisions", "lineage",
+    "live_feed",
 ]

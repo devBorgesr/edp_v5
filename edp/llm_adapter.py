@@ -2342,10 +2342,17 @@ REGRAS ABSOLUTAS:
             # — reordenar aqui pode mudar quais itens sobrevivem ao corte de
             # budget, sem tocar no conjunto retornado pelo retrieve.
             # Instrumento de MEDIÇÃO — nunca produção; mutuamente exclusiva
-            # com EDP_RETRIEVE_DEDUP (Fase 1, ainda inexistente).
+            # com EDP_RETRIEVE_DEDUP / EDP_RETRIEVE_RANDOM_DROP (Fase 1, exp017
+            # T3) — guard compartilhado em
+            # config.resolve_retrieve_instrumentation_exp017.
             try:
-                from .config import EDP_RETRIEVE_SHUFFLE, EDP_SHUFFLE_SEED
-                if EDP_RETRIEVE_SHUFFLE and len(results) > 1:
+                from .config import (
+                    EDP_RETRIEVE_SHUFFLE, EDP_SHUFFLE_SEED,
+                    EDP_RETRIEVE_DEDUP as _dd017, EDP_RETRIEVE_RANDOM_DROP as _rd017,
+                    resolve_retrieve_instrumentation_exp017 as _resolve017,
+                )
+                _mode017 = _resolve017(_dd017, EDP_RETRIEVE_SHUFFLE, _rd017)
+                if _mode017 == "shuffle" and len(results) > 1:
                     import hashlib
                     import random as _random
                     query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()

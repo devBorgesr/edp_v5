@@ -102,6 +102,7 @@ def merge_cluster(entries: list[dict], cluster: list[int]) -> dict | None:
     - embedding: média normalizada dos embeddings
     - timestamp: mais recente
     - ultimo_acesso: mais recente
+    - answer_class: conservador — qualquer tóxico no cluster ⇒ fundida tóxica
     """
     if not cluster:
         return None
@@ -110,11 +111,22 @@ def merge_cluster(entries: list[dict], cluster: list[int]) -> dict | None:
 
     import time, uuid
     import numpy as np
+    from .config import TOXIC_ANSWER_CLASSES
 
     grupo = [entries[i] for i in cluster]
 
     PRIO_ORDER = {"alta": 3, "media": 2, "baixa": 1}
     melhor_prio = max(grupo, key=lambda e: PRIO_ORDER.get(e.get("prioridade","media"), 2))
+
+    # fix/toxic-guards (VEREDITO_EXP018.md H3): propagação conservadora —
+    # se QUALQUER entry do cluster tem answer_class tóxico, a fundida herda
+    # esse valor. Sem isto, a guarda de promoção em consolidate() é cega:
+    # duas entries com acessos abaixo do threshold podem fundir, somar
+    # acima do threshold, e a fundida promove sem carimbo (medido, exp018 C7).
+    answer_class_merged = next(
+        (e.get("answer_class") for e in grupo if e.get("answer_class") in TOXIC_ANSWER_CLASSES),
+        None,
+    )
 
     total_acessos  = sum(e.get("acessos", 0) for e in grupo)
     total_peso     = max(total_acessos, 1)
@@ -150,6 +162,7 @@ def merge_cluster(entries: list[dict], cluster: list[int]) -> dict | None:
         "prioridade":    melhor_prio.get("prioridade", "media"),
         "layer":         "episodic",
         "merged_from":   len(cluster),
+        "answer_class":  answer_class_merged,
     }
 
 # ── Consolidação completa ─────────────────────────────────────────────────────
@@ -172,6 +185,8 @@ def consolidate(
     if not entries:
         return {"before": 0, "after": 0, "merged": 0, "promoted": 0}
 
+    from .config import EDP_TOXIC_GUARDS, TOXIC_ANSWER_CLASSES
+
     clusters   = cluster_entries(entries, embeddings, threshold)
     new_entries: list[dict] = []
     merged_count   = 0
@@ -183,15 +198,20 @@ def consolidate(
             if merged:
                 new_entries.append(merged)
                 merged_count += 1
-                # promoção para semantic
-                if merged.get("acessos", 0) >= promote_threshold:
+                # promoção para semantic — fix/toxic-guards: conteúdo
+                # quarentenado (answer_class tóxico) não ganha upgrade de
+                # durabilidade, mesma guarda de consolidate_promote_only.
+                if (merged.get("acessos", 0) >= promote_threshold
+                        and not (EDP_TOXIC_GUARDS and merged.get("answer_class") in TOXIC_ANSWER_CLASSES)):
                     memory.semantic.promote(merged)
                     promoted_count += 1
         else:
             entry = entries[cluster[0]]
             new_entries.append(entry)
-            # promoção de entradas individuais muito acessadas
-            if entry.get("acessos", 0) >= promote_threshold:
+            # promoção de entradas individuais muito acessadas — mesma
+            # guarda de toxicidade do branch de merge, acima.
+            if (entry.get("acessos", 0) >= promote_threshold
+                    and not (EDP_TOXIC_GUARDS and entry.get("answer_class") in TOXIC_ANSWER_CLASSES)):
                 memory.semantic.promote(entry)
                 promoted_count += 1
 
@@ -241,8 +261,10 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
 
     Fase 5 (fix/consolidation-toxicity-guard): entries com answer_class em
     TOXIC_ANSWER_CLASSES (edp/config.py — not_found | disqualification) NÃO
-    são promovidas, gated por EDP_WRITE_PROVENANCE (mesmo padrão dos outros
-    pontos do gate em edp/memory.py). Racional: conteúdo quarentenado não
+    são promovidas, gated por EDP_TOXIC_GUARDS desde fix/toxic-guards (era
+    EDP_WRITE_PROVENANCE — desacoplado porque o rollback de escrita não pode
+    desarmar a defesa sobre carimbos já persistidos, ver
+    ACHADO_FLAG_UNICA_TOXICIDADE.md do lab_edp). Racional: conteúdo quarentenado não
     ganha upgrade de durabilidade — promover elevaria prioridade a "alta" e
     tiraria a entry do caminho episódico onde o peso-piso a penaliza; a
     SemanticMemory não tem peso-piso próprio (dívida documentada desde o
@@ -268,7 +290,7 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
     # IDs já presentes na semantic (evita duplicação)
     semantic_ids = {e.get("id") for e in memory.semantic.entries if e.get("id")}
 
-    from .config import EDP_WRITE_PROVENANCE, TOXIC_ANSWER_CLASSES
+    from .config import EDP_TOXIC_GUARDS, TOXIC_ANSWER_CLASSES
 
     promoted_count = 0
     already_count  = 0
@@ -287,7 +309,7 @@ def consolidate_promote_only(memory, promote_threshold: int = 3) -> dict:
             already_count += 1
             continue
 
-        if EDP_WRITE_PROVENANCE and e.get("answer_class") in TOXIC_ANSWER_CLASSES:
+        if EDP_TOXIC_GUARDS and e.get("answer_class") in TOXIC_ANSWER_CLASSES:
             blocked_toxic_count += 1
             logger.info(
                 "[consolidation] promoção bloqueada (conteúdo quarentenado) "
