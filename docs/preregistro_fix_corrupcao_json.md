@@ -2,7 +2,7 @@
 
 **Status:** congelado antes da implementação (este documento é commitado
 primeiro; a implementação vem depois, em commits separados).
-**Dívida associada:** [Dívida #53](DIVIDAS.md#dívida-53--crash-ou-perda-silenciosa-em-truncamento-no-meio-de-json-nos-stores)
+**Dívida associada:** Dívida #53, em [`docs/DIVIDAS.md`](DIVIDAS.md)
 (atribuída por este documento).
 **Autor:** Claude (engenharia), a pedido do pesquisador.
 **Data:** 04/08/2026.

@@ -19,7 +19,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ..config import MEMORY_DIR
-from .atomic_io import _atomic_write_json, _safe_load_json, _serialize, _deserialize
+from .atomic_io import _atomic_write_json, _safe_load_json, _load_json_or_quarantine, _serialize, _deserialize
 
 logger = logging.getLogger("edp.memory")
 
@@ -49,8 +49,11 @@ class SemanticMemory:
 
     def _load(self) -> None:
         if self.path.exists():
-            # Peça 0.3.1: usa _safe_load_json
-            data = _safe_load_json(self.path)
+            # Peça 0.3.1 / Dívida #53 (docs/preregistro_fix_corrupcao_json.md):
+            # _load_json_or_quarantine nunca crasha nem perde dado em
+            # silêncio — ver EpisodicMemory._load (store.py) para o
+            # desenho completo, migrado primeiro.
+            data = _load_json_or_quarantine(self.path, store_label="semantic")
             if data is not None:
                 self.entries = _deserialize(data)
         self._cache_dirty = True

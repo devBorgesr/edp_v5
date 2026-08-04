@@ -25,6 +25,7 @@ Peça 2.0 entrega apenas a INFRAESTRUTURA:
 
 from __future__ import annotations
 
+import logging
 import threading
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -32,6 +33,8 @@ from pathlib import Path
 from typing import Optional
 
 from .clock import now as _now
+
+logger = logging.getLogger("edp.blocks")
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -232,18 +235,34 @@ class BlockManager:
         self._load()
 
     def _load(self) -> None:
-        """Carrega blocos do disco (tolerante a corrupção via _safe_load_json)."""
+        """
+        Carrega blocos do disco. Dívida #53
+        (docs/preregistro_fix_corrupcao_json.md): antes,
+        `except Exception: self.blocks = []` engolia QUALQUER falha em
+        silêncio — sem log, sem quarentena, sem rastro dos blocos
+        apagados. _load_json_or_quarantine nunca crasha e nunca perde o
+        dado bruto (quarentena + logger.critical + evento Pareto
+        "store_degraded") — ver EpisodicMemory._load (store.py) para o
+        desenho completo, migrado primeiro. O try/except genérico segue
+        existindo para erros de CONSTRUÇÃO de Block (schema inesperado
+        no JSON válido) — não relacionados a corrupção do arquivo em si.
+        """
         # Import tardio para evitar ciclo memory ↔ blocks
-        from .memory import _safe_load_json
+        from .memory.atomic_io import _load_json_or_quarantine
 
         if not self.path.exists():
             return
         try:
-            data = _safe_load_json(self.path)
+            data = _load_json_or_quarantine(self.path, store_label="blocks")
             if data and isinstance(data, list):
                 self.blocks = [Block.from_dict(b) for b in data]
         except Exception:
-            # Falha de load não bloqueia operação — começa vazio
+            logger.warning(
+                "[blocks] _load falhou por schema inesperado em %s (não é "
+                "corrupção de JSON — essa já é tratada acima); iniciando "
+                "blocks vazio.",
+                self.path, exc_info=True,
+            )
             self.blocks = []
 
     def save(self) -> None:

@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from ..memory.atomic_io import _atomic_write_json, _safe_load_json
+from ..memory.atomic_io import _atomic_write_json, _load_json_or_quarantine
 
 
 class SessionIndex:
@@ -36,8 +36,15 @@ class SessionIndex:
         self._load()
 
     def _load(self) -> None:
+        # Dívida #53 (docs/preregistro_fix_corrupcao_json.md): antes,
+        # JSON truncado no meio derrubava a construção inteira do
+        # SessionIndex (sem try/except ao redor de _safe_load_json).
+        # _load_json_or_quarantine nunca crasha e nunca perde o dado bruto
+        # (quarentena + logger.critical + evento Pareto "store_degraded")
+        # — ver EpisodicMemory._load (store.py) para o desenho completo,
+        # migrado primeiro.
         if self.path.exists():
-            loaded = _safe_load_json(self.path)
+            loaded = _load_json_or_quarantine(self.path, store_label="session_index")
             if isinstance(loaded, dict):
                 self._data = {
                     str(profile_id): {

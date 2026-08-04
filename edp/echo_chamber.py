@@ -638,14 +638,30 @@ class EchoChamber:
         self._load()
 
     def _load(self) -> None:
-        from .memory import _safe_load_json
+        # Dívida #53 (docs/preregistro_fix_corrupcao_json.md): antes,
+        # `except Exception: self.records = []` engolia QUALQUER falha em
+        # silêncio — sem log, sem quarentena, sem rastro do histórico
+        # apagado. _load_json_or_quarantine nunca crasha e nunca perde o
+        # dado bruto (quarentena + logger.critical + evento Pareto
+        # "store_degraded") — ver EpisodicMemory._load (store.py) para o
+        # desenho completo, migrado primeiro. O try/except genérico segue
+        # existindo para erros de CONSTRUÇÃO de CamaraRecord (schema
+        # inesperado no JSON válido) — não relacionados a corrupção do
+        # arquivo em si.
+        from .memory.atomic_io import _load_json_or_quarantine
         if not self.path.exists():
             return
         try:
-            data = _safe_load_json(self.path)
+            data = _load_json_or_quarantine(self.path, store_label="echo_chamber")
             if data and isinstance(data, list):
                 self.records = [CamaraRecord(**r) for r in data]
         except Exception:
+            logger.warning(
+                "[echo_chamber] _load falhou por schema inesperado em %s "
+                "(não é corrupção de JSON — essa já é tratada acima); "
+                "iniciando records vazio.",
+                self.path, exc_info=True,
+            )
             self.records = []
 
     def save(self) -> None:

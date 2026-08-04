@@ -173,7 +173,345 @@ class TestEpisodicMemoryQuarantine:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 2) _safe_load_json — Passo 0.5: cap de candidatos muda o que é
+# 2) Os outros 5 call sites — mesmo padrão do EpisodicMemory acima,
+#    replicado depois que a migração isolada de store.py passou (ordem do
+#    pré-registro: "se o desenho da quarentena tiver problema, aparece em
+#    um arquivo, não em seis"). Cobertura por store: boot sobrevive,
+#    quarentena byte-idêntica, sinal de observabilidade, arquivo válido
+#    intocado. "flag OFF = rollback" já foi provado uma vez para
+#    EpisodicMemory (mecanismo compartilhado em atomic_io.py — não
+#    repetido por store, seria testar o mesmo código seis vezes).
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSemanticMemoryQuarantine:
+    def test_boot_sobrevive_a_truncamento_no_meio(self, isolated_base_dir):
+        import edp.memory.semantic as semantic_mod
+
+        sm = semantic_mod.SemanticMemory("sess-sem-a")
+        sm.entries = [
+            {"id": "1", "text": "fato um", "embedding": [0.1], "timestamp": 1.0},
+            {"id": "2", "text": "fato dois", "embedding": [0.2], "timestamp": 2.0},
+        ]
+        sm.save()
+        _truncate_mid_structure(sm.path)
+
+        sm2 = semantic_mod.SemanticMemory("sess-sem-a")  # não crasha
+        assert sm2.entries == []
+
+    def test_arquivo_de_quarentena_byte_identico(self, isolated_base_dir):
+        import edp.memory.semantic as semantic_mod
+
+        sm = semantic_mod.SemanticMemory("sess-sem-b")
+        sm.entries = [{"id": "1", "text": "fato", "embedding": [0.1], "timestamp": 1.0}]
+        sm.save()
+        corrupted_bytes = _truncate_mid_structure(sm.path)
+
+        semantic_mod.SemanticMemory("sess-sem-b")
+
+        siblings = _quarantine_siblings(sm.path)
+        assert len(siblings) == 1
+        assert siblings[0].read_bytes() == corrupted_bytes
+
+    def test_sinal_de_observabilidade_verificavel_por_assercao(self, isolated_base_dir):
+        import edp.memory.semantic as semantic_mod
+        from edp.runtime.pareto_store import get_pareto_store
+
+        sm = semantic_mod.SemanticMemory("sess-sem-c")
+        sm.entries = [{"id": "1", "text": "fato", "embedding": [0.1], "timestamp": 1.0}]
+        sm.save()
+        _truncate_mid_structure(sm.path)
+
+        semantic_mod.SemanticMemory("sess-sem-c")
+
+        events = [e for e in get_pareto_store().query(event_type="store_degraded")
+                  if e["store_label"] == "semantic"]
+        assert len(events) == 1
+        assert events[0]["error_type"] == "JSONDecodeError"
+        assert events[0]["quarantine_path"] is not None
+
+    def test_arquivo_valido_permanece_intocado(self, isolated_base_dir):
+        import edp.memory.semantic as semantic_mod
+
+        sm = semantic_mod.SemanticMemory("sess-sem-d")
+        sm.entries = [{"id": "1", "text": "fato saudável", "embedding": [0.1], "timestamp": 1.0}]
+        sm.save()
+        original_bytes = sm.path.read_bytes()
+
+        sm2 = semantic_mod.SemanticMemory("sess-sem-d")
+
+        assert [e["id"] for e in sm2.entries] == [e["id"] for e in sm.entries]
+        assert sm.path.read_bytes() == original_bytes
+        assert _quarantine_siblings(sm.path) == []
+
+
+def _dummy_llm_caller(modelo, prompt_system, prompt_user):  # pragma: no cover — nunca chamado nestes testes
+    return {"text": "", "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "latency_ms": 0}
+
+
+def _make_camara_record(i: int):
+    from edp.echo_chamber import CamaraRecord
+    return CamaraRecord(
+        id=f"rec-{i}", timestamp=float(i), edp_session_id="edp-1",
+        block_id=None, entry_id=None, user_message="pergunta de teste",
+        modelo_A="claude-haiku-4-5", modelo_B="claude-sonnet-5",
+        texto_A="resposta A", texto_B_resposta_completa="resposta B",
+        checks_B={}, score_texto_A={}, texto_final="resposta final",
+        concordancia_A_com_B=1, discordancia_principal="", venceu="A",
+        custo_total_usd=0.001, latencia_total_ms=100,
+    )
+
+
+class TestEchoChamberQuarantine:
+    def test_boot_sobrevive_a_truncamento_no_meio(self, isolated_base_dir):
+        from edp.echo_chamber import EchoChamber
+
+        chamber = EchoChamber("sess-ec-a", isolated_base_dir, _dummy_llm_caller)
+        chamber.records = [_make_camara_record(1), _make_camara_record(2)]
+        chamber.save()
+        _truncate_mid_structure(chamber.path)
+
+        chamber2 = EchoChamber("sess-ec-a", isolated_base_dir, _dummy_llm_caller)
+        assert chamber2.records == []
+
+    def test_arquivo_de_quarentena_byte_identico(self, isolated_base_dir):
+        from edp.echo_chamber import EchoChamber
+
+        chamber = EchoChamber("sess-ec-b", isolated_base_dir, _dummy_llm_caller)
+        chamber.records = [_make_camara_record(1)]
+        chamber.save()
+        corrupted_bytes = _truncate_mid_structure(chamber.path)
+
+        EchoChamber("sess-ec-b", isolated_base_dir, _dummy_llm_caller)
+
+        siblings = _quarantine_siblings(chamber.path)
+        assert len(siblings) == 1
+        assert siblings[0].read_bytes() == corrupted_bytes
+
+    def test_sinal_de_observabilidade_verificavel_por_assercao(self, isolated_base_dir):
+        from edp.echo_chamber import EchoChamber
+        from edp.runtime.pareto_store import get_pareto_store
+
+        chamber = EchoChamber("sess-ec-c", isolated_base_dir, _dummy_llm_caller)
+        chamber.records = [_make_camara_record(1)]
+        chamber.save()
+        _truncate_mid_structure(chamber.path)
+
+        EchoChamber("sess-ec-c", isolated_base_dir, _dummy_llm_caller)
+
+        events = [e for e in get_pareto_store().query(event_type="store_degraded")
+                  if e["store_label"] == "echo_chamber"]
+        assert len(events) == 1
+
+    def test_arquivo_valido_permanece_intocado(self, isolated_base_dir):
+        from edp.echo_chamber import EchoChamber
+
+        chamber = EchoChamber("sess-ec-d", isolated_base_dir, _dummy_llm_caller)
+        chamber.records = [_make_camara_record(1)]
+        chamber.save()
+        original_bytes = chamber.path.read_bytes()
+
+        chamber2 = EchoChamber("sess-ec-d", isolated_base_dir, _dummy_llm_caller)
+
+        assert [r.id for r in chamber2.records] == [r.id for r in chamber.records]
+        assert chamber.path.read_bytes() == original_bytes
+        assert _quarantine_siblings(chamber.path) == []
+
+
+class TestBlockManagerQuarantine:
+    def test_boot_sobrevive_a_truncamento_no_meio(self, isolated_base_dir):
+        from edp.blocks import Block, BlockManager
+
+        bm = BlockManager("sess-bm-a", isolated_base_dir)
+        bm.blocks = [
+            Block(id="b1", status="active", created_at=1.0, edp_session_id="edp-1"),
+            Block(id="b2", status="closed", created_at=2.0, edp_session_id="edp-1"),
+        ]
+        bm.save()
+        _truncate_mid_structure(bm.path)
+
+        bm2 = BlockManager("sess-bm-a", isolated_base_dir)
+        assert bm2.blocks == []
+
+    def test_arquivo_de_quarentena_byte_identico(self, isolated_base_dir):
+        from edp.blocks import Block, BlockManager
+
+        bm = BlockManager("sess-bm-b", isolated_base_dir)
+        bm.blocks = [Block(id="b1", status="active", created_at=1.0, edp_session_id="edp-1")]
+        bm.save()
+        corrupted_bytes = _truncate_mid_structure(bm.path)
+
+        BlockManager("sess-bm-b", isolated_base_dir)
+
+        siblings = _quarantine_siblings(bm.path)
+        assert len(siblings) == 1
+        assert siblings[0].read_bytes() == corrupted_bytes
+
+    def test_sinal_de_observabilidade_verificavel_por_assercao(self, isolated_base_dir):
+        from edp.blocks import Block, BlockManager
+        from edp.runtime.pareto_store import get_pareto_store
+
+        bm = BlockManager("sess-bm-c", isolated_base_dir)
+        bm.blocks = [Block(id="b1", status="active", created_at=1.0, edp_session_id="edp-1")]
+        bm.save()
+        _truncate_mid_structure(bm.path)
+
+        BlockManager("sess-bm-c", isolated_base_dir)
+
+        events = [e for e in get_pareto_store().query(event_type="store_degraded")
+                  if e["store_label"] == "blocks"]
+        assert len(events) == 1
+
+    def test_arquivo_valido_permanece_intocado(self, isolated_base_dir):
+        from edp.blocks import Block, BlockManager
+
+        bm = BlockManager("sess-bm-d", isolated_base_dir)
+        bm.blocks = [Block(id="b1", status="active", created_at=1.0, edp_session_id="edp-1")]
+        bm.save()
+        original_bytes = bm.path.read_bytes()
+
+        bm2 = BlockManager("sess-bm-d", isolated_base_dir)
+
+        assert [b.id for b in bm2.blocks] == [b.id for b in bm.blocks]
+        assert bm.path.read_bytes() == original_bytes
+        assert _quarantine_siblings(bm.path) == []
+
+
+class TestSessionIndexQuarantine:
+    """
+    SessionIndex/ProfileRegistry (abaixo) recebem `path` explícito no
+    construtor — não dependem de MEMORY_DIR. Mas get_pareto_store() (usado
+    pelo sinal de observabilidade) lê EDP_BASE_DIR do ambiente por padrão
+    ("data/" relativo ao cwd se não setado) — usa isolated_base_dir (não
+    tmp_path puro) para não vazar eventos de teste num diretório real do
+    projeto. Descoberto describes um bug de isolamento real durante a
+    escrita destes testes: as duas primeiras versões usavam tmp_path puro
+    e escreviam em <cwd>/data/pareto/events.jsonl — corrigido antes do
+    commit.
+    """
+
+    def test_boot_sobrevive_a_truncamento_no_meio(self, isolated_base_dir):
+        from edp.ingest.session_index import SessionIndex
+
+        p = isolated_base_dir / "session_index.json"
+        idx = SessionIndex(p)
+        idx.touch("profile-a", "conv-1", 100.0)
+        idx.touch("profile-a", "conv-2", 200.0)
+        idx.flush()
+        _truncate_mid_structure(p)
+
+        idx2 = SessionIndex(p)  # não crasha
+        assert idx2.list_conversations("profile-a") == []
+
+    def test_arquivo_de_quarentena_byte_identico(self, isolated_base_dir):
+        from edp.ingest.session_index import SessionIndex
+
+        p = isolated_base_dir / "session_index.json"
+        idx = SessionIndex(p)
+        idx.touch("profile-a", "conv-1", 100.0)
+        idx.flush()
+        corrupted_bytes = _truncate_mid_structure(p)
+
+        SessionIndex(p)
+
+        siblings = _quarantine_siblings(p)
+        assert len(siblings) == 1
+        assert siblings[0].read_bytes() == corrupted_bytes
+
+    def test_sinal_de_observabilidade_verificavel_por_assercao(self, isolated_base_dir):
+        from edp.ingest.session_index import SessionIndex
+        from edp.runtime.pareto_store import get_pareto_store
+
+        p = isolated_base_dir / "session_index.json"
+        idx = SessionIndex(p)
+        idx.touch("profile-a", "conv-1", 100.0)
+        idx.flush()
+        _truncate_mid_structure(p)
+
+        SessionIndex(p)
+
+        events = [e for e in get_pareto_store().query(event_type="store_degraded")
+                  if e["store_label"] == "session_index"]
+        assert len(events) == 1
+
+    def test_arquivo_valido_permanece_intocado(self, isolated_base_dir):
+        from edp.ingest.session_index import SessionIndex
+
+        p = isolated_base_dir / "session_index.json"
+        idx = SessionIndex(p)
+        idx.touch("profile-a", "conv-1", 100.0)
+        idx.flush()
+        original_bytes = p.read_bytes()
+
+        idx2 = SessionIndex(p)
+
+        assert idx2.list_conversations("profile-a") == idx.list_conversations("profile-a")
+        assert p.read_bytes() == original_bytes
+        assert _quarantine_siblings(p) == []
+
+
+class TestProfileRegistryQuarantine:
+    def test_boot_sobrevive_a_truncamento_no_meio(self, isolated_base_dir):
+        from edp.profiles.models import Profile
+        from edp.profiles.registry import ProfileRegistry
+
+        p = isolated_base_dir / "profiles.json"
+        reg = ProfileRegistry(p)
+        reg.add(Profile(id="perfil-a", nome="Perfil A"))
+        reg.add(Profile(id="perfil-b", nome="Perfil B"))
+        _truncate_mid_structure(p)
+
+        reg2 = ProfileRegistry(p)  # não crasha
+        assert reg2.list() == []
+
+    def test_arquivo_de_quarentena_byte_identico(self, isolated_base_dir):
+        from edp.profiles.models import Profile
+        from edp.profiles.registry import ProfileRegistry
+
+        p = isolated_base_dir / "profiles.json"
+        reg = ProfileRegistry(p)
+        reg.add(Profile(id="perfil-a", nome="Perfil A"))
+        corrupted_bytes = _truncate_mid_structure(p)
+
+        ProfileRegistry(p)
+
+        siblings = _quarantine_siblings(p)
+        assert len(siblings) == 1
+        assert siblings[0].read_bytes() == corrupted_bytes
+
+    def test_sinal_de_observabilidade_verificavel_por_assercao(self, isolated_base_dir):
+        from edp.profiles.models import Profile
+        from edp.profiles.registry import ProfileRegistry
+        from edp.runtime.pareto_store import get_pareto_store
+
+        p = isolated_base_dir / "profiles.json"
+        reg = ProfileRegistry(p)
+        reg.add(Profile(id="perfil-a", nome="Perfil A"))
+        _truncate_mid_structure(p)
+
+        ProfileRegistry(p)
+
+        events = [e for e in get_pareto_store().query(event_type="store_degraded")
+                  if e["store_label"] == "profiles_registry"]
+        assert len(events) == 1
+
+    def test_arquivo_valido_permanece_intocado(self, isolated_base_dir):
+        from edp.profiles.models import Profile
+        from edp.profiles.registry import ProfileRegistry
+
+        p = isolated_base_dir / "profiles.json"
+        reg = ProfileRegistry(p)
+        reg.add(Profile(id="perfil-a", nome="Perfil A"))
+        original_bytes = p.read_bytes()
+
+        reg2 = ProfileRegistry(p)
+
+        assert [pr.id for pr in reg2.list()] == [pr.id for pr in reg.list()]
+        assert p.read_bytes() == original_bytes
+        assert _quarantine_siblings(p) == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 3) _safe_load_json — Passo 0.5: cap de candidatos muda o que é
 #    recuperável (risco a priori #4 do pré-registro) + performance.
 # ═══════════════════════════════════════════════════════════════════════════
 
