@@ -44,18 +44,24 @@ contém esse substring). Resultado: restore_backup() SEMPRE retornava
 sucedido — restore estava silenciosamente não funcional. Fix: prefixar
 o nome do arquivo de backup com o session_id.
 
-Gap reportado (NÃO corrigido — fora do escopo mexer em
-edp/memory.py/_safe_load_json nesta tarefa, ver T1c do escopo):
-_safe_load_json (edp/memory.py) só recupera corrupção do tipo
+Gap fechado pela Dívida #53 (docs/preregistro_fix_corrupcao_json.md,
+04/08/2026) — histórico do que este módulo documentava antes:
+_safe_load_json (edp/memory.py) só recuperava corrupção do tipo
 "Extra data" (lixo IGUAL/DEPOIS de um array já fechado corretamente —
 o cenário coberto por repair_episodic.py, tipicamente Ctrl+C durante
 save PRÉ write-atômico). Truncamento GENUÍNO no meio de um objeto
-(array nunca fecha) NÃO é recuperável por esse algoritmo — o
-JSONDecodeError original propaga sem ser capturado por _load(), o que
-quebra a CONSTRUÇÃO INTEIRA do MemoryStore (EpisodicMemory.__init__
-chama _load() sem try/except). Verificado abaixo em
-test_reload_apos_truncamento_no_meio_do_objeto_propaga_erro — este
-teste documenta o comportamento ATUAL (crash), não uma correção.
+(array nunca fecha) NÃO era recuperável por esse algoritmo — o
+JSONDecodeError original propagava sem ser capturado por _load(), o que
+quebrava a CONSTRUÇÃO INTEIRA do MemoryStore (EpisodicMemory.__init__
+chama _load() sem try/except). Esse comportamento (crash) era
+documentado por test_reload_apos_truncamento_no_meio_do_objeto_propaga_erro,
+que ESTE COMMIT reescreve com o contrato novo — ver
+test_reload_apos_truncamento_no_meio_do_objeto_quarentena_e_degrada
+abaixo: o boot agora sobrevive, quarentena o arquivo original
+(byte-idêntico, movido via os.replace) e degrada para vazio de forma
+observável (evento Pareto "store_degraded" + logger.critical). Detalhe
+completo do desenho e do critério de decisão em
+docs/preregistro_fix_corrupcao_json.md.
 """
 from __future__ import annotations
 
@@ -163,27 +169,66 @@ def test_restore_backup_recusa_backup_tambem_corrompido(synthetic_store):
     assert live_after == live_before
 
 
-# ── Gap documentado: truncamento genuíno não é recuperável no reload ──────────
+# ── Dívida #53: truncamento genuíno agora é quarentenado, não crasha ──────────
 
-def test_reload_apos_truncamento_no_meio_do_objeto_propaga_erro(synthetic_store):
+def test_reload_apos_truncamento_no_meio_do_objeto_quarentena_e_degrada(synthetic_store):
     """
-    Documenta o comportamento ATUAL (não uma correção — fora do escopo
-    de T1, ver T1c): _safe_load_json só recupera corrupção "Extra data"
-    (lixo depois de um array já fechado). Truncamento genuíno no meio de
-    um objeto faz o array nunca fechar — a recuperação por
-    rfind("]"/"}")  não acha um candidato válido, e o JSONDecodeError
-    original propaga. EpisodicMemory._load() não tem try/except ao redor
-    dessa chamada, então isso quebraria a construção inteira do
-    MemoryStore se acontecesse no boot.
+    Reescrita de test_reload_apos_truncamento_no_meio_do_objeto_propaga_erro
+    (renomeado — contrato antigo documentava um crash; ver
+    docs/preregistro_fix_corrupcao_json.md, critério de decisão (a)/(b)/(c)).
+
+    Contrato NOVO: truncamento genuíno no meio de um objeto (array nunca
+    fecha, irrecuperável por _safe_load_json mesmo após a otimização do
+    Passo 0.5) não derruba mais o reload. EpisodicMemory._load() agora
+    passa por _load_json_or_quarantine (edp/memory/atomic_io.py):
+      (a) não propaga JSONDecodeError — o reload completa;
+      (b) o arquivo corrompido original é preservado, byte-idêntico, em
+          "<path>.corrompido-<timestamp>" (os.replace atômico, nunca
+          apagado);
+      (c) store.episodic.entries fica vazio — degradação EXPLÍCITA
+          (logger.critical + evento Pareto "store_degraded"), nunca
+          confundida com sucesso silencioso.
     """
     store = synthetic_store
     store.add("Q: pergunta\nA: resposta", 0.5)
     store.save()
 
-    _truncate_mid_object(store.episodic.path)
+    original_entries_on_disk = _read_entries(store.episodic.path)
+    assert len(original_entries_on_disk) == 1
 
-    with pytest.raises(json.JSONDecodeError):
-        store.episodic._load()
+    _truncate_mid_object(store.episodic.path)
+    corrupted_bytes = store.episodic.path.read_bytes()
+
+    # Simula o boot real (o cenário do bug original): uma CONSTRUÇÃO NOVA
+    # de EpisodicMemory apontando pro mesmo path, não um _load() reaplicado
+    # sobre um objeto já populado em memória (esse caminho tem uma
+    # propriedade diferente e igualmente correta: data=None não sobrescreve
+    # entries já carregadas — nunca piora um estado bom com um reload ruim;
+    # não é o que este teste documenta). Antes do fix: isto propagava
+    # json.JSONDecodeError na CONSTRUÇÃO (ver histórico do git deste
+    # arquivo) — EpisodicMemory.__init__ chama _load() sem try/except.
+    fresh = type(store.episodic)(store.episodic.session_id, scope=store.episodic.scope)
+
+    assert fresh.entries == [], (
+        "degradação esperada: entries vazio no boot, não uma reconstrução parcial"
+    )
+
+    quarantine_candidates = sorted(
+        store.episodic.path.parent.glob(f"{store.episodic.path.name}.corrompido-*")
+    )
+    assert len(quarantine_candidates) == 1, (
+        f"esperava exatamente 1 arquivo de quarentena, achei {quarantine_candidates}"
+    )
+    assert quarantine_candidates[0].read_bytes() == corrupted_bytes, (
+        "arquivo de quarentena não é byte-idêntico ao conteúdo corrompido original"
+    )
+
+    from edp.runtime.pareto_store import get_pareto_store
+    events = [
+        e for e in get_pareto_store().query(event_type="store_degraded")
+        if e.get("store_label") == "episodic"
+    ]
+    assert len(events) == 1, "evento store_degraded não emitido para o reload corrompido"
 
 
 # ── detect_corruption(): anomalias de CONTEÚDO em entries já carregados ───────

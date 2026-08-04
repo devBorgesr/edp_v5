@@ -77,6 +77,25 @@ def fake_embeddings(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_pareto_store_singleton():
+    """
+    FileParetoStore (edp/runtime/pareto_store.py) é singleton de módulo
+    (`_store`). Sem reset, o primeiro teste da suíte a chamar
+    get_pareto_store() prende o singleton ao EDP_BASE_DIR (ou tmp_path)
+    daquele teste; testes seguintes que usem isolated_base_dir/tmp_path
+    diferentes acabariam lendo/gravando no diretório errado (já removido)
+    em vez do seu próprio. Dívida #53 (docs/preregistro_fix_corrupcao_json.md)
+    é o primeiro uso de pareto_store em testes — reset autouse para que
+    qualquer teste futuro que emita/consulte eventos Pareto também fique
+    isolado, sem precisar lembrar de repetir este fixture por arquivo.
+    """
+    import edp.runtime.pareto_store as pareto_store_mod
+    pareto_store_mod._store = None
+    yield
+    pareto_store_mod._store = None
+
+
 # ── Store isolado em disco (tmp_path) — nunca toca C:\edp_data / produção ─────
 
 @pytest.fixture
