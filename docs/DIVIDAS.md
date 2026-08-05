@@ -55,7 +55,11 @@ confiar em source_type para decidir o que é conversa.
 
 ## Dívida #53 — Crash ou perda silenciosa em truncamento no meio de JSON nos stores
 
-**Status:** FECHADA (04/08/2026, branch `fix/toxic-guards`).
+**Status:** FECHADA COM RESSALVA (04/08/2026, branch `fix/toxic-guards`;
+ressalva registrada em 05/08/2026 — ver "Ressalva" abaixo). 5/6 call sites
+versionados e comprovados; o 6º (`profiles_registry`) tem código e teste
+prontos mas pendurado em módulo WIP não versionado — não roda em clone
+limpo até `edp.profiles` ser commitado por inteiro.
 **Origem:** já citada como risco em auditoria anterior, sem ID formal
 atribuído até este documento. Pré-registro completo (hipóteses, métricas,
 critério de decisão congelado antes da implementação) em
@@ -115,6 +119,26 @@ reescrita de
 `tests/test_failsafe_roundtrip.py::test_reload_apos_truncamento_no_meio_do_objeto_quarentena_e_degrada`
 (contrato antigo documentava o crash; novo contrato documenta a
 quarentena).
+
+### Ressalva (05/08/2026) — `profiles_registry` não fechou junto
+
+`d83503f` versionou `edp/profiles/registry.py` sozinho, sem o resto do
+módulo `edp.profiles` (`models.py`, `__init__.py`, `selector.py`,
+`tools.py`, `tracker.py` — untracked). Clone limpo desta branch quebrava
+em `ModuleNotFoundError` na primeira `import edp`, confirmado com clone
+real. Commit `2467020` destrackeia `registry.py` (preserva a mudança de
+quarentena no working tree) e guarda
+`TestProfileRegistryQuarantine` com `pytest.importorskip`, que pula a
+classe inteira em clone limpo em vez de quebrar a coleta do pytest.
+
+Número real em clone limpo: **202 passed, 4 skipped
+(`TestProfileRegistryQuarantine`), 1 deselected** — não os "28 testes /
+220 passed" citados acima, que foram medidos contra o working tree local
+(que tem `edp/profiles` inteiro no disco, só não versionado). Detalhe
+completo em
+[`docs/VEREDITO_fix_corrupcao_json.md`](VEREDITO_fix_corrupcao_json.md#correção-pós-veredito-05082026--profiles_registry-não-ficou-fechado).
+Reabre quando `edp.profiles` for versionado por inteiro: nesse momento os
+4 testes voltam a rodar sozinhos, sem exigir mudança neste arquivo.
 
 ---
 

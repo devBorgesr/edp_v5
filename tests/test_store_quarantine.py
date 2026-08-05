@@ -450,6 +450,18 @@ class TestSessionIndexQuarantine:
 
 
 class TestProfileRegistryQuarantine:
+    """edp/profiles/registry.py foi untracked por fix(dívida-53): o módulo
+    edp.profiles é WIP (models.py, __init__.py, selector.py, tools.py,
+    tracker.py não versionados) e registry.py sozinho não deve ser
+    congelado nesta branch — clone limpo quebrava com ModuleNotFoundError
+    na importação. Esta classe pula inteira em vez de falhar quando
+    edp.profiles.models não existe (clone limpo de hoje), e volta a rodar
+    sozinha assim que o módulo for versionado — sem exigir que ninguém
+    lembre de reverter este guard."""
+
+    def setup_method(self, method):
+        pytest.importorskip("edp.profiles.models")
+
     def test_boot_sobrevive_a_truncamento_no_meio(self, isolated_base_dir):
         from edp.profiles.models import Profile
         from edp.profiles.registry import ProfileRegistry

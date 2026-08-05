@@ -9,6 +9,48 @@ que não saiu perfeito.
 
 ---
 
+## Correção pós-veredito (05/08/2026) — `profiles_registry` não ficou fechado
+
+O commit que versionou `edp/profiles/registry.py` (`d83503f`, já citado
+abaixo como achado do Passo 0) versionou **só esse arquivo**, sem o resto
+do módulo `edp.profiles` (`models.py`, `__init__.py`, `selector.py`,
+`tools.py`, `tracker.py` — todos permaneceram untracked). Consequência não
+percebida na hora: `registry.py:23` importa `.models`, então **clone limpo
+desta branch quebrava em `ModuleNotFoundError` na primeira `import edp`**
+— confirmado com clone real, não suposição.
+
+Fix (commit `2467020`): `git rm --cached edp/profiles/registry.py`
+(destrackeia, preserva a mudança de quarentena no working tree) +
+`tests/test_store_quarantine.py::TestProfileRegistryQuarantine` ganhou
+`setup_method` com `pytest.importorskip("edp.profiles.models")` — a classe
+pula em clone limpo em vez de quebrar a coleta do pytest, e volta a rodar
+sozinha quando `edp.profiles` for versionado por inteiro.
+
+**Números reais, medidos em clone limpo após o fix** (substituem os
+números abaixo, que foram medidos contra o working tree, não contra um
+clone):
+
+```
+tests/test_store_quarantine.py: 24 passed, 4 skipped (TestProfileRegistryQuarantine)
+suíte completa:                 202 passed, 4 skipped, 1 deselected
+```
+
+A diferença para os "220 passed" originais não é só os 4 agora pulados:
+14 testes a mais (`test_profiles_selector.py`, `test_profiles_tracker.py`)
+existem no working tree local mas são untracked — em clone limpo eles nem
+são coletados (o arquivo não existe), então nunca fizeram parte do que
+esta dívida de fato fecha. `220 − 14 − 4 = 202` reconcilia exato.
+
+**Item (a)/(b)/(c) do critério, revisado:** 5/6 call sites versionados e
+comprovados; o 6º (`profiles_registry`) tem o código e o teste escritos,
+mas **pendurado em módulo WIP não versionado** — não roda em clone limpo
+até `edp.profiles` ser commitado por inteiro. Isto é **não-alcançado**,
+registrado aqui em vez de omitido, seguindo a própria régua deste
+documento ("nada do critério de decisão é omitido, mesmo o que não saiu
+perfeito"). Ver `docs/DIVIDAS.md` #53 para o status atualizado.
+
+---
+
 ## Premissas do Passo 0 — refutadas, registradas, não escondidas
 
 O prompt original assumia `branch main @ 67f2f5b`, 5 call sites, e
@@ -54,7 +96,10 @@ dos 6 stores migrados (`episodic`, `semantic`, `echo_chamber`, `blocks`,
 Suíte completa: **220 passed, 1 deselected** (baseline 192 + 28 novos),
 zero regressão, incluindo `test_flag_off_byte_identical.py` (8/8,
 protege `EDP_TOXIC_GUARDS` — não relacionado a este fix, mas confirma que
-o escopo não vazou).
+o escopo não vazou). **Medido contra o working tree, não contra clone
+limpo — ver "Correção pós-veredito" acima para o número que vale (202
+passed, 4 skipped, 1 deselected) e por que os 6/6 stores citados abaixo
+são, de fato, 5/6 versionados + 1/6 pendurado em WIP.**
 
 ## H2 — CONFIRMADA, com uma nota metodológica registrada
 
@@ -101,16 +146,18 @@ constante (N), não pelo tamanho do arquivo".
 
 | # | Critério | Resultado |
 |---|---|---|
-| (a) | Boot não crasha com JSON truncado no meio, em cada store migrado | **PASS** — 6/6, testado individualmente |
-| (b) | Arquivo corrompido original byte-idêntico em `.corrompido-<ts>` | **PASS** — 6/6, comparação de bytes |
-| (c) | Sinal de observabilidade verificável por asserção | **PASS** — evento Pareto `store_degraded`, 6/6 |
-| (d) | Suíte no baseline do Passo 0, incl. `test_flag_off_byte_identical.py` | **PASS** — 220 passed vs. 192+28 esperado, 8/8 no teste nomeado |
+| (a) | Boot não crasha com JSON truncado no meio, em cada store migrado | **PASS 5/6 versionado**, 1/6 (`profiles_registry`) não-alcançado em clone limpo — ver correção acima |
+| (b) | Arquivo corrompido original byte-idêntico em `.corrompido-<ts>` | **PASS 5/6 versionado**, mesma ressalva |
+| (c) | Sinal de observabilidade verificável por asserção | **PASS 5/6 versionado**, mesma ressalva |
+| (d) | Suíte no baseline do Passo 0, incl. `test_flag_off_byte_identical.py` | **PASS** — 202 passed, 4 skipped, 1 deselected em clone limpo (ver correção acima); 8/8 no teste nomeado |
 | (e) | Nenhum código novo usa `except Exception: <algo> = []` sem log | **PASS** — os 2 sites que já tinham esse padrão (`echo_chamber.py`, `blocks.py`) ganharam log associado ao tocar o código |
 | (f) | Tempo de recuperação em 10 MB abaixo de X=20s | **PASS, margem apertada** (17.927s) — ver nota acima |
 
-**Nenhum item do critério ficou fora — os 6 PASSAM.** O único ponto que
-não saiu "limpo" é a margem de (f), registrado como tal, não como PASS
-silencioso.
+**Dois pontos não saíram "limpos", registrados como tal, não como PASS
+silencioso:** a margem de (f), e o call site `profiles_registry` de
+(a)/(b)/(c), que existe em código e teste mas não roda em clone limpo por
+depender de um módulo (`edp.profiles`) que não foi versionado por inteiro
+— ver "Correção pós-veredito" no topo deste documento.
 
 ---
 
@@ -166,7 +213,11 @@ sendo um bug no MEU código de teste, não no fix em si.
    arquivo.
 3. `tests/test_store_quarantine.py` (28 testes, novo) +
    `tests/test_failsafe_roundtrip.py` (reescrita do teste de truncamento).
-4. [`docs/DIVIDAS.md`](DIVIDAS.md) — Dívida #53, status FECHADA.
+4. [`docs/DIVIDAS.md`](DIVIDAS.md) — Dívida #53, status FECHADA COM RESSALVA
+   (ver correção pós-veredito acima).
 5. Este documento.
+6. Commit `2467020` — destrackeia `edp/profiles/registry.py`, guarda
+   `TestProfileRegistryQuarantine` com `importorskip`, corrige este
+   veredito e a Dívida #53.
 
 Sem push. Implementação parada aqui para validação do pesquisador.
