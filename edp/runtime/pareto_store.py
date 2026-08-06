@@ -84,6 +84,13 @@ EVENT_TYPES = frozenset({
     "mode_switched",
     # Fase 1 — Câmara Adaptativa (12/06/2026)
     "camara_outcome",
+    # Dívida #53 (docs/preregistro_fix_corrupcao_json.md, 04/08/2026):
+    # sinal de observabilidade quando um store degrada para vazio por
+    # corrupção irrecuperável (edp/memory/atomic_io.py::
+    # _load_json_or_quarantine). Reaproveita este event store em vez de
+    # subsistema novo — CognitiveHealthIndex foi avaliado primeiro e não
+    # serve (calculador de score, não event log genérico).
+    "store_degraded",
 })
 
 
@@ -531,3 +538,34 @@ def emit_camara_outcome(
         get_pareto_store().emit(evt)
     except Exception as e:
         logger.warning("[pareto] emit_camara_outcome falhou: %s", e)
+
+
+def emit_store_degraded(
+    store_label:     str,
+    path:            str,
+    quarantine_path: Optional[str],
+    error_type:      str,
+) -> None:
+    """
+    Hook: um store degradou para vazio por corrupção irrecuperável.
+
+    Dívida #53 (docs/preregistro_fix_corrupcao_json.md, 04/08/2026):
+    sinal de observabilidade emitido por
+    edp/memory/atomic_io.py::_load_json_or_quarantine, verificável por
+    asserção de teste via
+    get_pareto_store().query(event_type="store_degraded") — não depende
+    de inspeção visual de log (o log continua existindo em paralelo, via
+    logger.critical no chamador, como segundo canal).
+    """
+    try:
+        evt = {
+            "event":           "store_degraded",
+            "ts":               _now(),
+            "store_label":      store_label,
+            "path":             path,
+            "quarantine_path":  quarantine_path,
+            "error_type":       error_type,
+        }
+        get_pareto_store().emit(evt)
+    except Exception as e:
+        logger.warning("[pareto] emit_store_degraded falhou: %s", e)

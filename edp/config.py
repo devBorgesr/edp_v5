@@ -95,6 +95,25 @@ EDP_WRITE_PROVENANCE = os.environ.get("EDP_WRITE_PROVENANCE", "1") == "1"
 # ON: com as duas flags ON (o caso hoje), comportamento byte-idêntico.
 EDP_TOXIC_GUARDS = os.environ.get("EDP_TOXIC_GUARDS", "1") == "1"
 NOT_FOUND_FLOOR = 0.05
+
+# EDP_STORE_QUARANTINE (Dívida #53, docs/preregistro_fix_corrupcao_json.md,
+# 04/08/2026) — governa edp/memory/atomic_io.py::_load_json_or_quarantine.
+# Default ON: JSON truncado no meio (episodic/semantic/echo_chamber/blocks/
+# ingest.session_index/profiles.registry) é quarentenado (os.replace
+# atômico, byte-idêntico preservado) + logger.critical + evento Pareto
+# "store_degraded", em vez de crashar o boot OU ser engolido em silêncio
+# (`except Exception: self.x = []` sem log — os dois padrões que existiam
+# antes desta dívida, ambos considerados errados no pré-registro).
+# DIFERENTE de EDP_HYBRID_RETRIEVAL/EDP_CTX_SLOTS/EDP_WRITE_PROVENANCE/
+# EDP_TOXIC_GUARDS acima: aqui o estado seguro é o NOVO comportamento —
+# crash-on-corrupt não tem defensor. Esta flag é válvula de emergência
+# só para ESTE mecanismo (ex.: bug não previsto na lógica de quarentena),
+# NÃO um rollback de feature — por isso nome e leitura isolados, nunca
+# perto de EDP_TOXIC_GUARDS/EDP_WRITE_PROVENANCE (o projeto já mediu o
+# antipadrão de flag compartilhada — guarda de toxicidade morrendo junto
+# com EDP_WRITE_PROVENANCE=0 — e não repete aqui). Com "0": comportamento
+# pré-fix (propaga JSONDecodeError/UnicodeDecodeError sem quarentena).
+EDP_STORE_QUARANTINE = os.environ.get("EDP_STORE_QUARANTINE", "1") == "1"
 # exp016 (3ª classe de veneno — desqualificação auto-referente, RELATORIO_
 # ETAPA0_EXP016.md P1): mesmo piso/exclusão do exp012, gate estendido de
 # comparação pontual (== "not_found") para pertencimento a este conjunto.

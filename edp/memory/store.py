@@ -42,7 +42,7 @@ from ..clock import now as _now, is_verified as _clock_verified  # Peça 0.2a �
 from .. import schema_v1 as _schema  # Peça 0.3 — schema novo
 from .. import metrics as M
 
-from .atomic_io import _atomic_write_json, _safe_load_json, _serialize, _deserialize
+from .atomic_io import _atomic_write_json, _safe_load_json, _load_json_or_quarantine, _serialize, _deserialize
 from .semantic import SemanticMemory
 
 logger = logging.getLogger("edp.memory")
@@ -334,8 +334,18 @@ class EpisodicMemory:
 
     def _load(self) -> None:
         if self.path.exists():
-            # Peça 0.3.1: usa _safe_load_json que tolera JSON corrompido por write parcial
-            data = _safe_load_json(self.path)
+            # Peça 0.3.1: usa _safe_load_json que tolera JSON corrompido por
+            # write parcial. Dívida #53 (docs/preregistro_fix_corrupcao_json.md):
+            # truncamento GENUÍNO no meio do objeto (não recuperável por
+            # _safe_load_json) usava a crashar aqui — EpisodicMemory.__init__
+            # chama _load() sem try/except, derrubando a construção inteira
+            # do MemoryStore. _load_json_or_quarantine nunca propaga
+            # JSONDecodeError/UnicodeDecodeError: quarentena o arquivo
+            # original (byte-idêntico, movido — nunca apagado), loga
+            # critical e emite evento store_degraded, retornando None
+            # (mesmo contrato que já tínhamos para FileNotFoundError —
+            # entries fica vazio, degradação explícita, não sucesso).
+            data = _load_json_or_quarantine(self.path, store_label="episodic")
             if data is not None:
                 self.entries = _deserialize(data)
 
