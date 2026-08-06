@@ -4,6 +4,7 @@ from __future__ import annotations
 from edp.ingest.events import (
     extract_ids,
     extract_text,
+    normalize_timestamp,
     registry_key,
     sanitize_id,
     validate_event,
@@ -150,3 +151,78 @@ def test_registry_key_namespaced():
 
 def test_registry_key_nao_colide_com_default():
     assert registry_key("default") != "default"
+
+
+# ── normalize_timestamp (contrato de escala, 06/08/2026) ─────────────────────
+#
+# Contrato: event_timestamp é SEMPRE epoch seconds na memória. O sensor
+# emitiu milissegundos até 06/08 — a coerção existe para não repetir a
+# perda silenciosa de 2026-08-03 (ver docstring de normalize_timestamp).
+
+def test_normalize_timestamp_segundos_passa_intocado():
+    ts, coerced = normalize_timestamp(1_800_000_000.0)
+    assert ts == 1_800_000_000.0
+    assert coerced is False
+
+
+def test_normalize_timestamp_milissegundos_coagido_para_segundos():
+    # Date.now() da extensão pré-06/08: mesma instante, escala 1000x.
+    ts, coerced = normalize_timestamp(1_800_000_000_000.0)
+    assert ts == 1_800_000_000.0
+    assert coerced is True
+
+
+def test_normalize_timestamp_preserva_fracao_de_segundo():
+    ts, coerced = normalize_timestamp(1_800_000_000_123.0)
+    assert ts == 1_800_000_000.123
+    assert coerced is True
+
+
+def test_normalize_timestamp_int_vira_float():
+    ts, coerced = normalize_timestamp(1_800_000_000)
+    assert isinstance(ts, float)
+    assert coerced is False
+
+
+def test_normalize_timestamp_idempotente_no_resultado_coagido():
+    # Coagir duas vezes não pode dividir por 1000 de novo.
+    once, _ = normalize_timestamp(1_800_000_000_000.0)
+    twice, coerced = normalize_timestamp(once)
+    assert twice == once
+    assert coerced is False
+
+
+# ── validate_event: guardas de timestamp adicionadas em 06/08 ────────────────
+
+def test_validate_event_rejeita_timestamp_bool():
+    # bool é subclasse de int — `true` viraria o timestamp 1 (1970).
+    ok, reason = validate_event(_valid_event(timestamp=True))
+    assert ok is False
+    assert "numérico" in reason
+
+
+def test_validate_event_rejeita_timestamp_nan():
+    ok, reason = validate_event(_valid_event(timestamp=float("nan")))
+    assert ok is False
+    assert "finito" in reason
+
+
+def test_validate_event_rejeita_timestamp_infinito():
+    ok, reason = validate_event(_valid_event(timestamp=float("inf")))
+    assert ok is False
+    assert "finito" in reason
+
+
+def test_validate_event_rejeita_timestamp_negativo_ou_zero():
+    for bad in (-1.0, 0):
+        ok, reason = validate_event(_valid_event(timestamp=bad))
+        assert ok is False, f"timestamp {bad} deveria ser rejeitado"
+        assert "positivo" in reason
+
+
+def test_validate_event_aceita_timestamp_em_milissegundos():
+    # NÃO rejeita: a coerção acontece no receptor, não na validação —
+    # rejeitar aqui seria perda silenciosa (comunicação unidirecional).
+    ok, reason = validate_event(_valid_event(timestamp=1_800_000_000_000.0))
+    assert ok is True
+    assert reason is None

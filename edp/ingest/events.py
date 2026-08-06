@@ -9,11 +9,19 @@ em websocket_receiver.py.
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any, Optional
 
 # Campos obrigatórios do envelope (LIVE_EVENTS.md / WEBSOCKET_API.md).
 REQUIRED_FIELDS = ("type", "timestamp", "conversation_id", "data")
+
+# Limiar de escala para `timestamp` (ver normalize_timestamp).
+# A convenção do contrato é epoch SECONDS (WEBSOCKET_API.md), mas o sensor
+# emitiu epoch MILLISECONDS até 06/08/2026 (interceptor.js: Date.now()).
+# 1e12 separa as duas escalas com folga enorme: hoje, segundos ~1.8e9 e
+# milissegundos ~1.8e12 — a ambiguidade só voltaria no ano ~33658.
+_MS_THRESHOLD = 1_000_000_000_000
 
 # Allow-list estrita: conversation_id/session_id/profile_id viram nomes de
 # diretório (MEMORY_DIR/<key>_<scope>/...) rio abaixo em MemoryStore. O
@@ -68,8 +76,18 @@ def validate_event(raw: Any) -> tuple[bool, Optional[str]]:
     if not isinstance(raw["type"], str) or not raw["type"].strip():
         return False, "campo 'type' deve ser string não-vazia"
 
-    if not isinstance(raw["timestamp"], (int, float)):
+    # bool é subclasse de int em Python — `"timestamp": true` passaria no
+    # isinstance abaixo e viraria o timestamp 1 (1970). Excluído aqui.
+    if isinstance(raw["timestamp"], bool) or not isinstance(raw["timestamp"], (int, float)):
         return False, "campo 'timestamp' deve ser numérico"
+
+    # NaN/inf passam no isinstance e envenenam qualquer sort/comparação rio
+    # abaixo (live_feed.py ordena por event_timestamp) — barrados na porta.
+    if not math.isfinite(raw["timestamp"]):
+        return False, "campo 'timestamp' deve ser finito (NaN/inf rejeitados)"
+
+    if raw["timestamp"] <= 0:
+        return False, "campo 'timestamp' deve ser positivo"
 
     if not isinstance(raw["data"], dict):
         return False, "campo 'data' deve ser um objeto"
@@ -86,6 +104,29 @@ def validate_event(raw: Any) -> tuple[bool, Optional[str]]:
         return False, "profile_id inválido (esperado [A-Za-z0-9_-]{1,128})"
 
     return True, None
+
+
+def normalize_timestamp(ts: float) -> tuple[float, bool]:
+    """
+    Normaliza `ts` para epoch SECONDS, a convenção única do EDP.
+
+    Aceita as duas escalas de propósito, em vez de rejeitar milissegundos:
+    a comunicação do /stream é unidirecional e a extensão descarta toda
+    mensagem do servidor que não seja `pong` (LIVE_EVENTS.md § Transmissão
+    unidirecional). Rejeitar um evento por escala errada seria, do lado do
+    sensor, indistinguível de sucesso — exatamente o modo de falha do
+    incidente de 2026-08-03 (`toISOString()` -> rejeição -> perda de 100%
+    dos eventos, sem ninguém perceber). Coagir + logar preserva o dado e
+    torna o desalinhamento observável.
+
+    Espera-se `ts` já validado por validate_event() (numérico, finito,
+    positivo) — esta função não revalida.
+
+    Retorna (timestamp_em_segundos, foi_coagido).
+    """
+    if ts > _MS_THRESHOLD:
+        return ts / 1000.0, True
+    return float(ts), False
 
 
 def extract_text(event: dict) -> str:

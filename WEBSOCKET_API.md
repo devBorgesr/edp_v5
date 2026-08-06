@@ -57,6 +57,34 @@ conexão fechada com código `4401`.
 ```
 
 Campos obrigatórios: `type`, `timestamp`, `conversation_id`, `data`.
+
+#### Escala do `timestamp` (contrato + tolerância)
+
+**A convenção é epoch SECONDS** — a mesma do `timestamp` interno do EDP,
+do dashboard e dos testes. Um `timestamp` numérico acima de `1e12` é
+interpretado como epoch **milissegundos** e **convertido para segundos**
+na recepção (`normalize_timestamp`, `edp/ingest/events.py`), com um
+`logger.warning` em `live_feed.log` identificando a conversa e o tipo de
+evento.
+
+O EDP **não rejeita** milissegundos, de propósito: o `/stream` é
+unidirecional e o sensor descarta toda resposta do servidor que não seja
+`pong`, então uma rejeição seria — do lado do emissor — indistinguível de
+sucesso. É exatamente o modo de falha do incidente de 2026-08-03
+(`toISOString()` → rejeição → perda de 100% dos eventos sem ninguém
+perceber). Coagir preserva o dado; o warning torna o desalinhamento
+mensurável em vez de invisível.
+
+O limiar `1e12` separa as duas escalas com folga: hoje, segundos ≈ 1,8e9
+e milissegundos ≈ 1,8e12 — a ambiguidade só reapareceria no ano ~33658.
+
+Rejeitados (com `{"type":"error"}`, conexão mantida): `timestamp`
+não-numérico, booleano, `NaN`/infinito, ou ≤ 0.
+
+Histórico: o sensor emitiu milissegundos (`Date.now()`) até 06/08/2026;
+a partir dessa data emite segundos (`Date.now() / 1000`). A tolerância
+acima cobre versões antigas da extensão e eventos que ficaram no buffer
+local dela antes da atualização.
 `session_id`/`profile_id`, se presentes, podem estar no nível superior do
 evento OU dentro de `data` — o EDP procura nos dois lugares.
 
