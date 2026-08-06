@@ -45,8 +45,23 @@ dentro do prazo?"**
   (refutado com dado em 22/07 — não reabrir sem dado novo)
 - Refactors do EDP não exigidos por entrega a cliente
 - Perfeccionismo no script além do que o relatório pago exige
+- Arquitetura "plataforma enterprise" (K8s, OpenTelemetry, Protobuf,
+  blue-green deploy), agente autônomo de experimentação sem gate
+  humano, e qualquer forma de streaming/observação entre contas —
+  ideias registradas em FILA_FUTURO.md (06/08), não descartadas, só
+  fora do prazo. Nenhuma dessas precisa de "plataforma vendável" para
+  o cliente de R$3k/mês: é acumular escopo antes de ter 1 cliente.
 EXCEÇÕES PERMANENTES (não precisam passar no teste): correção de perda
-de dados em produção; segurança; obrigação legal.
+de dados em produção; segurança; obrigação legal. Aplicam-se aos TRÊS
+repositórios do ecossistema (`edp_v5_main`, `lab_edp_novo`,
+`sf_exportador`), não só a este — este arquivo foi escrito quando só
+`edp_v5_main` existia e nunca foi atualizado para os outros dois.
+Exemplo concreto vivo (06/08): dado de conversa real commitado sem
+`.gitignore` em repositório público (`sf_exportador`) é "perda de
+dados"/"segurança" — cai na exceção sem discussão. Um bug de unidade
+de timestamp que hoje não tem consumidor de aritmética ativo (só
+ordenação, verificado em código) NÃO cai na exceção — é dívida
+técnica normal, passa pelo teste de escopo como qualquer outra.
 
 ## PAPÉIS (inalterados)
 Claude desenha e audita · Agente executa · Daniel valida, envia as
