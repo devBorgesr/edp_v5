@@ -1,0 +1,34 @@
+# edp/profiles/config/profiles.example.yaml
+#
+# Exemplo de seed para ProfileRegistry.load_seed_yaml(). 3 perfis fictícios
+# representando credenciais/API keys distintas da mesma organização, usados
+# para balancear custo/quota manualmente — nenhuma delas contém segredos.
+#
+# Carregar com:
+#   from edp.profiles import get_registry
+#   get_registry().load_seed_yaml("edp/profiles/config/profiles.example.yaml")
+
+profiles:
+  - id: perfil_A
+    nome: "Perfil A — conta principal"
+    status: ativo
+    data_ultimo_uso: null
+    contador_uso_diario: 0
+    contador_uso_semanal: 0
+    observacoes: "Perfil fictício de exemplo."
+
+  - id: perfil_B
+    nome: "Perfil B — conta secundária"
+    status: ativo
+    data_ultimo_uso: null
+    contador_uso_diario: 0
+    contador_uso_semanal: 0
+    observacoes: "Perfil fictício de exemplo."
+
+  - id: perfil_C
+    nome: "Perfil C — conta reserva"
+    status: pausado
+    data_ultimo_uso: null
+    contador_uso_diario: 0
+    contador_uso_semanal: 0
+    observacoes: "Pausado por padrão neste exemplo — ilustra um perfil fora de rotação."
