@@ -333,6 +333,34 @@ try:
             logger.warning(f"[dashboard] falha ao injetar sidebar: {e}")
             return FileResponse(str(html_file), media_type="text/html")
 
+    # ── Grafo de conhecimento (graphify) ──────────────────────────────────────
+    # Serve o graph.html que o graphify já gera na raiz do repo. Não há
+    # geração aqui — se o arquivo não existe, o endpoint explica como criá-lo.
+    # Flag EDP_GRAPH_VIEWER (config.py) governa a exposição; ver a nota lá
+    # sobre a dependência do .graphifyignore.
+    _GRAPH_HTML = Path(__file__).parent.parent.parent / "graphify-out" / "graph.html"
+
+    @app.get("/graph", response_class=HTMLResponse)
+    async def graph_page():
+        """Grafo de conhecimento interativo do repositório (graphify)."""
+        from .. import config as _config
+        if not _config.EDP_GRAPH_VIEWER:
+            return HTMLResponse(
+                "<h1>Visualizador de grafo desabilitado</h1>"
+                "<p>Defina <code>EDP_GRAPH_VIEWER=1</code> para habilitar.</p>",
+                status_code=404,
+            )
+        if not _GRAPH_HTML.exists():
+            return HTMLResponse(
+                "<h1>Grafo ainda não gerado</h1>"
+                f"<p>Esperado em: <code>{_GRAPH_HTML}</code></p>"
+                "<p>Gere com <code>graphify update .</code> na raiz do repositório.</p>",
+                status_code=404,
+            )
+        # FileResponse (não read_text): o graph.html passa de 3 MB e é servido
+        # em stream, sem carregar tudo em memória a cada request.
+        return FileResponse(str(_GRAPH_HTML), media_type="text/html")
+
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
         return HTMLResponse("", status_code=204)

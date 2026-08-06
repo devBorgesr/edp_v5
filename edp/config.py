@@ -220,3 +220,19 @@ EDP_LIVE_FEED_TOKEN  = os.environ.get("EDP_LIVE_FEED_TOKEN", "")
 LIVE_FEED_LOG        = BASE_DIR / "live_feed.log"
 LIVE_FEED_INDEX_PATH = BASE_DIR / "live_feed_index.json"
 
+# ── Visualizador do grafo de conhecimento (GET /graph) ──────────────────────────
+# Serve graphify-out/graph.html, gerado pelo graphify a partir do repositório.
+#
+# Default ON porque o conteúdo é derivado do próprio código do projeto — mas
+# esta flag existe porque o conteúdo do grafo depende do que o graphify indexa,
+# e isso é governado por .graphifyignore, não por este módulo. Se algum dia o
+# ignore for removido/afrouxado, um arquivo de conversa ou ground-truth pode
+# entrar no grafo e passaria a ser servido por este endpoint — numa API que
+# roda com CORS ["*"] e EDP_LIVE_FEED_TOKEN vazio por padrão (acima).
+# Desligue antes de expor o EDP fora de localhost.
+#
+# Verificado em 06/08/2026: grafo com 3.868 nós, zero vindos de arquivo de
+# dado; detect() com o .graphifyignore em vigor exclui os 6 arquivos sensíveis
+# (248 -> 246 detectados).
+EDP_GRAPH_VIEWER = os.environ.get("EDP_GRAPH_VIEWER", "1") == "1"
+

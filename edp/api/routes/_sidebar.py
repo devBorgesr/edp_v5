@@ -185,6 +185,7 @@ def render_sidebar(current_page: str = "") -> str:
         ("dashboard", "/dashboard",      "Dashboard",      "📊"),
         ("memory",    "/memory/review",  "Memory Review",  "🧠"),
         ("flags",     "/flags/review",   "Flags Review",   "🚩"),
+        ("graph",     "/graph",          "Grafo",          "🕸️"),
     ]
 
     nav_items = []
