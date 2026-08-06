@@ -55,11 +55,10 @@ confiar em source_type para decidir o que é conversa.
 
 ## Dívida #53 — Crash ou perda silenciosa em truncamento no meio de JSON nos stores
 
-**Status:** FECHADA COM RESSALVA (04/08/2026, branch `fix/toxic-guards`;
-ressalva registrada em 05/08/2026 — ver "Ressalva" abaixo). 5/6 call sites
-versionados e comprovados; o 6º (`profiles_registry`) tem código e teste
-prontos mas pendurado em módulo WIP não versionado — não roda em clone
-limpo até `edp.profiles` ser commitado por inteiro.
+**Status:** FECHADA (06/08/2026, commit `2524c55`, branch `fix/toxic-guards`
+— ver "Correção pós-ressalva" abaixo). 6/6 call sites versionados e
+comprovados em clone limpo real (não só working tree). Histórico da
+ressalva de 04–05/08 preservado abaixo, não apagado.
 **Origem:** já citada como risco em auditoria anterior, sem ID formal
 atribuído até este documento. Pré-registro completo (hipóteses, métricas,
 critério de decisão congelado antes da implementação) em
@@ -120,7 +119,27 @@ reescrita de
 (contrato antigo documentava o crash; novo contrato documenta a
 quarentena).
 
-### Ressalva (05/08/2026) — `profiles_registry` não fechou junto
+### Correção pós-ressalva (06/08/2026) — `edp.profiles` versionado por inteiro
+
+Commit `2524c55` (branch `fix/toxic-guards`) versiona o resto do módulo
+(`models.py`, `__init__.py`, `selector.py`, `tools.py`, `tracker.py`,
+`README.md`, `config/profiles.example.yaml`). Verificado em **clone limpo
+de verdade** (`git clone` fresco do remote público, não o working tree
+local — é exatamente a checagem que faltou em 05/08): **206 passed, 1
+deselected, 0 skipped**. `TestProfileRegistryQuarantine` (4 testes) roda
+normalmente, sem `pytest.importorskip` mais acionando. Item (a)/(b)/(c)
+do critério original passa de "5/6 versionado" para **6/6**.
+
+Achado adjacente durante esta verificação, não escondido: a diferença
+entre 206 e os 220 medidos no working tree local **não fechou** —
+`tests/test_profiles_selector.py` e `tests/test_profiles_tracker.py`
+continuam untracked (confirmado via `git status` em 06/08). Isso é um
+gap separado desta dívida (cobre `ProfileSelector`/`UsageTracker`, não
+o mecanismo de quarentena), não reaberto aqui, só registrado para não
+virar "achado perdido" — mesmo padrão do WIP não versionado que gerou
+esta ressalva originalmente, em escopo menor.
+
+### Ressalva (05/08/2026) — `profiles_registry` não fechou junto (histórico)
 
 `d83503f` versionou `edp/profiles/registry.py` sozinho, sem o resto do
 módulo `edp.profiles` (`models.py`, `__init__.py`, `selector.py`,
