@@ -175,16 +175,27 @@ def varredura_bruta(textos: list[tuple[str, str]]
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--store", type=Path, required=True,
-                    help="raiz do store (pasta que contém sessions/) — use uma CÓPIA")
+    ap.add_argument("--store", type=Path, default=None,
+                    help="raiz do store (pasta que contém sessions/). "
+                         "Produção é C:\\edp_data (RUNBOOK.md:138) — prefira uma CÓPIA.")
     ap.add_argument("--exports", type=Path, default=None,
-                    help="arquivo ou pasta de exports do sensor (opcional)")
+                    help="arquivo ou pasta de exports do sensor. Varre subpastas.")
     ap.add_argument("--out", type=Path,
                     default=Path("resultado_precondicao_wiki.json"))
     args = ap.parse_args()
 
-    entries = carregar_entries(args.store)
-    print(f"entries carregadas: {len(entries)}")
+    if not args.store and not args.exports:
+        ap.error("informe --store, --exports, ou os dois. "
+                 "Só exports é válido: a Wiki é sobre conversas (design §2).")
+
+    entries = carregar_entries(args.store) if args.store else []
+    if args.store:
+        print(f"entries carregadas: {len(entries)}")
+    else:
+        print("sem --store: rodando só sobre exports (a pré-condição congelada "
+              "depende de cognitive_decisions, que só existe no store — ela sai "
+              "0/5 por ausência de fonte, não por ausência de conteúdo; o que "
+              "vale nesta modalidade é o DIAGNÓSTICO de texto cru lá embaixo)")
 
     # ── E1: cobertura de cognitive_decisions ─────────────────────────────────
     com_cd = [e for e in entries if isinstance(e.get(FIELD), dict)]
@@ -229,43 +240,54 @@ def main() -> int:
     print("E1+E3 — PRÉ-CONDIÇÃO DA WIKI DE CONVERSAS (sem LLM, sem custo)")
     print("=" * 88)
 
-    print(f"\n[E1] cobertura de cognitive_decisions: {len(com_cd)}/{len(entries)} "
-          f"= {cobertura:.1%}")
-    if cobertura < 0.50:
-        falta = len(entries) - len(com_cd)
-        print(f"  → {falta} entries precisariam de extração. O §7 do design")
-        print(f"     calculou US$0,29 assumindo reuso; com esta cobertura o")
-        print(f"     custo real sobe e a afirmação do §2 enfraquece.")
+    modo_store = bool(entries)
 
-    print(f"\n[E3] conceitos distintos: {len(ocorr)} | domínios: {len(dominios)}")
-    print(f"     passam o piso de {PISO_OCORRENCIAS} ocorrências: "
-          f"{len(passam)}  ← nº de páginas de conceito")
-    if dist:
-        print("     distribuição de ocorrências:")
-        for n in sorted(dist)[:8]:
-            print(f"       {n:>3} ocorrência(s): {dist[n]:>4} conceito(s)")
-        if len(dist) > 8:
-            print(f"       ... (máx: {max(dist)} ocorrências)")
+    if not modo_store:
+        print("\n[E1/E3] pulados — não há store. cognitive_decisions só existe")
+        print("        em entries do EDP; exports do sensor são texto cru.")
+        print("        A pré-condição CONGELADA não é avaliável nesta modalidade.")
+    else:
+        print(f"\n[E1] cobertura de cognitive_decisions: {len(com_cd)}/{len(entries)} "
+              f"= {cobertura:.1%}")
+        if cobertura < 0.50:
+            falta = len(entries) - len(com_cd)
+            print(f"  → {falta} entries precisariam de extração. O §7 do design")
+            print(f"     calculou US$0,29 assumindo reuso; com esta cobertura o")
+            print(f"     custo real sobe e a afirmação do §2 enfraquece.")
 
-    if dominios:
-        print("\n     top domínios:")
-        for d, n in dominios.most_common(8):
-            print(f"       {n:>4}  {d}")
+        print(f"\n[E3] conceitos distintos: {len(ocorr)} | domínios: {len(dominios)}")
+        print(f"     passam o piso de {PISO_OCORRENCIAS} ocorrências: "
+              f"{len(passam)}  ← nº de páginas de conceito")
+        if dist:
+            print("     distribuição de ocorrências:")
+            for n in sorted(dist)[:8]:
+                print(f"       {n:>3} ocorrência(s): {dist[n]:>4} conceito(s)")
+            if len(dist) > 8:
+                print(f"       ... (máx: {max(dist)} ocorrências)")
 
-    print("\n" + "-" * 88)
-    print("PRÉ-CONDIÇÃO — as 5 queries [N] do EXP017 têm conteúdo no corpus?")
-    print("-" * 88)
-    for query, termos, achou in presentes:
-        marca = "SIM" if achou else "não"
-        print(f"  [{marca:>3}] {query[:58]:<60}")
-        print(f"        termos aceitos: {termos}")
-        if achou:
-            print(f"        encontrado: {achou}")
+        if dominios:
+            print("\n     top domínios:")
+            for d, n in dominios.most_common(8):
+                print(f"       {n:>4}  {d}")
 
-    print("-" * 88)
-    print(f"presentes: {n_presentes}/5   corte: <= {CORTE_PARAR} -> PARAR")
+        print("\n" + "-" * 88)
+        print("PRÉ-CONDIÇÃO — as 5 queries [N] do EXP017 têm conteúdo no corpus?")
+        print("-" * 88)
+        for query, termos, achou in presentes:
+            marca = "SIM" if achou else "não"
+            print(f"  [{marca:>3}] {query[:58]:<60}")
+            print(f"        termos aceitos: {termos}")
+            if achou:
+                print(f"        encontrado: {achou}")
 
-    if n_presentes <= CORTE_PARAR:
+        print("-" * 88)
+        print(f"presentes: {n_presentes}/5   corte: <= {CORTE_PARAR} -> PARAR")
+
+    if not modo_store:
+        veredito = "NAO_AVALIAVEL"
+        print("\nVEREDITO congelado: NÃO AVALIÁVEL sem store.")
+        print("  Ver o diagnóstico de texto cru abaixo — é ele que vale aqui.")
+    elif n_presentes <= CORTE_PARAR:
         veredito = "PARAR"
         print(f"\nVEREDITO: **PARAR** (§11)")
         print("  A Wiki não pode bater o baseline de 0/14 neste corpus por")
