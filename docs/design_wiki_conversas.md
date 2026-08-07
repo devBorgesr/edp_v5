@@ -250,9 +250,38 @@ que recuperar não entregava, e a camada 3 cai antes de custar semanas.
 
 ## 11. Sequência de construção sugerida
 
-1. E1+E3 (inventário + agregação) — **sem LLM, sem custo**. Já revela
-   quantos conceitos passam do piso de 3 e se o corpus sustenta uma Wiki.
-   **É o teste mais barato de todos e vem primeiro.**
+1. **E1+E3 como teste de PRÉ-CONDIÇÃO** — sem LLM, sem custo, minutos.
+
+   A versão anterior desta linha dizia "revela se o corpus sustenta uma
+   Wiki". **"Sustenta" não tem limiar** — critério mole, do tipo que o
+   `NORTE.md` §4.3 manda declarar em vez de deixar passar. Contar
+   conceitos mede tamanho de corpus, não valor de Wiki. Substituído por:
+
+   **Critério congelado (pré-dado).** As 5 queries `[N]` do EXP017
+   perguntam sobre `RRF`, `NOT_FOUND_FLOOR`, `exp016`, `calibrador
+   Bayes-vs-Gauss` e capital da Mongólia. Conta-se quantas têm seu termo
+   central presente no conjunto de conceitos extraídos.
+
+   - **≤1 de 5 presentes → PARAR.** A Wiki não pode bater o baseline de
+     0/14 neste corpus, por ausência de conteúdo — não por desenho.
+     Camada 3 cai sem gastar um centavo de LLM.
+   - **≥2 de 5 → segue** para o passo 2.
+
+   *Predição pré-dado do arquiteto:* 2 ou 3 presentes. `RRF`, `exp016` e
+   `Bayes-vs-Gauss` são termos do próprio trabalho e devem aparecer;
+   `NOT_FOUND_FLOOR` é parâmetro de código e pode não ter virado conceito
+   extraído; Mongólia quase certamente não está.
+
+   **O que este teste NÃO decide**, e nenhuma contagem decidirá: se uma
+   página compilada vale mais que os turnos crus (precisa de E2+E4 e do
+   julgamento humano), e se o roteamento por `concepts[]` funciona
+   (precisa dos conceitos existirem primeiro). É assimétrico de propósito:
+   pode refutar, não pode confirmar.
+
+   **Subproduto obrigatório:** a cobertura de `cognitive_decisions` no
+   corpus. O §7 calculou US$0,29 assumindo reuso; se a cobertura for
+   baixa, o custo real é proporcionalmente maior e a afirmação do §2 ("a
+   Wiki não cria camada de extração nova") enfraquece. Reportar junto.
 2. Pré-registro com o §9 congelado.
 3. E2+E4 numa fatia (um domínio só), medindo custo real contra o §7.
 4. Julgamento das 14 queries.
