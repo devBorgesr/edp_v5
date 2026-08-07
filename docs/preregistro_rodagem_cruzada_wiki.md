@@ -168,3 +168,75 @@ saber se a wiki é útil; a diferencial, para saber qual corpus a alimenta.
 Se a nota bruta for alta e a diferencial ~zero, a conclusão é que o valor
 veio de compilar a sessão de trabalho, não de compilar conversas — que é
 um achado, não um fracasso.
+
+---
+
+## RESULTADO PARCIAL — condição W, 07/08/2026
+
+**Orçamento usado: 99 de ~200 turnos** (E-1.1). Parei abaixo do teto por
+limite de contexto da sessão, não por ter esgotado material.
+
+Fontes compiladas (4 conversas):
+
+| fonte | turnos | páginas geradas |
+|---|---|---|
+| `conv:8c2ef23e` Monetizar avaliação de RAG | 7 | `mercado-de-auditoria-de-rag` |
+| `conv:7ef32b9e` Originalidade e ferramentas similares | 68 | `exportador-e-85-por-cento-commodity`, `key-assertion-truncado-em-80-chars` |
+| `conv:ac7e0a89` Validação de memória persistente | 14 | `compressao-zero-e-loops-abertos` (parcial) |
+| `conv:adcdbb9e` Memória e tokenização em IA | 10 | `como-os-grandes-fazem-memoria`, `compressao-zero-e-loops-abertos` (parcial) |
+
+**5 páginas** classificadas como `W`. As outras 9 seguem `base`.
+
+**Limitação declarada:** `opus copiloto principal` (3.748 turnos, **56% do
+corpus W**) não foi compilado — estouraria o orçamento em 18×. A maior
+fonte da condição ficou de fora por regra.
+
+**Custo de API: zero.** Compilação é leitura e escrita em sessão. Isto
+mede o item "custo não medido" do §8 e o resolve: o recurso escasso é
+contexto, não dólar.
+
+---
+
+## EMENDA E-2 — fatia da condição C, congelada 07/08 ANTES de ler
+
+### E-2.1 — Teto real, não nominal
+
+O W usou **99** turnos, não 200. Congelado: **C usa no máximo 99
+mensagens de fonte**. Comparar 99 contra 200 mediria esforço, que é o que
+a E-1.1 existe para impedir.
+
+### E-2.2 — Mesmo método de seleção nos dois
+
+**Risco identificado antes de agir:** escolher as sessões do Code
+grepando pelos termos de Q2–Q7 entregaria as respostas de bandeja ao C,
+enquanto o W foi escolhido só por metadado (turnos × densidade de
+thinking), sem grep por termo-alvo. Isso enviesaria a comparação.
+
+**Congelado: seleção por metadado apenas.** Nenhum grep por termo das
+perguntas antes de escolher. Critério, na ordem:
+
+1. projeto `-media-sf-edp-v5-main` — é o assunto das perguntas
+2. maior número de mensagens (proxy de substância, análogo a "turnos" no W)
+3. **excluir `3c8c2ac3`** — é esta sessão, já contabilizada como `base`
+
+### E-2.3 — As sessões escolhidas (congeladas)
+
+| sessão | data | msgs | acumulado |
+|---|---|---|---|
+| `155d4c62` | 2026-07-16 | 820 | — |
+| `1f1c6a32` | 2026-07-12 | 712 | — |
+| `d12c4706` | 2026-07-18 | 709 | — |
+
+As três maiores após excluir esta. Como cada uma excede sozinha o teto de
+99, a leitura será **amostrada dentro delas**, não integral: as primeiras
+~33 mensagens de cada, em ordem cronológica, totalizando 99.
+
+*Por que o início e não o meio:* início de sessão carrega o enquadramento
+do problema e a decisão, que é o que Q2–Q7 pedem. Escolha declarada antes
+de ler; se o início se revelar só setup, isso é reportado como defeito da
+regra, não corrigido no meio.
+
+**Predição pré-dado:** o C produz **menos páginas** que o W com o mesmo
+orçamento, porque 99 mensagens de Code cobrem menos assunto que 99 turnos
+de conversa web — sessão de trabalho é densa em execução e repetitiva em
+tema. Mas as páginas do C devem responder **mais** perguntas de Q1–Q7.
