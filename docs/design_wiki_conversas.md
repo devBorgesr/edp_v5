@@ -609,3 +609,77 @@ US$0,14 e ~6 minutos de LLM, mais dois testes sem custo nenhum
 (pré-condição e varredura bruta). Contra a alternativa de compilar 3.748
 turnos e descobrir depois que as páginas não têm `exp016` nem
 `NOT_FOUND_FLOOR`.
+
+---
+
+## ERRATA — 07/08/2026: o design contradiz o método que diz seguir
+
+Fui ler a fonte primária, que eu nunca tinha lido: o gist
+`karpathy/442a6bf555914893e9891c11519de94f`. Todo o design acima foi
+escrito a partir da descrição de segunda mão em `conversa_importante1.txt`
+(que citava "Memoriki" e "MemPalace" como o método). **Passo 0 nunca
+feito** — `NORTE.md` §4.1, violado na peça mais estruturante.
+
+### O que o método REALMENTE é
+
+Três camadas: **raw sources** (imutáveis, o LLM lê e nunca modifica) ·
+**wiki** (markdown gerado pelo LLM) · **schema** (documento de
+convenções, ex. `CLAUDE.md`).
+
+Três fluxos, todos **conversacionais**:
+- **ingest** — discutir os takeaways, escrever resumos, atualizar as
+  páginas afetadas, manter as referências cruzadas
+- **query** — buscar na wiki, sintetizar com citação; *"good answers can
+  be filed back into the wiki as new pages"*
+- **lint** — varredura periódica de contradições, afirmações obsoletas,
+  páginas órfãs, referências faltando
+
+Dois arquivos essenciais: `index.md` (catálogo por categoria) e
+**`log.md`** (append-only, cronológico) — este último não existia no meu
+design.
+
+Divisão de trabalho: *"The human curates sources and asks questions; the
+LLM handles all bookkeeping, cross-referencing, and maintenance that
+typically causes wikis to decay."*
+
+### O que eu inventei e não está no método
+
+| minha peça | está no método? |
+|---|---|
+| extração estruturada `{key_assertion, concepts[], domain}` | **não** |
+| piso de 3 ocorrências por conceito | **não** |
+| agregação estatística conceito → ocorrências | **não** |
+| `cognitive_decisions` como espinha dorsal | **não** |
+| `log.md` | faltou no meu |
+| lint como fluxo | faltou no meu |
+
+O método é **um protocolo conversacional**, não um pipeline ETL. Karpathy
+publicou um *gist* — uma convenção — não um repositório de software.
+
+### Consequência sobre o resultado E-2
+
+O E-2 não está errado: ele mediu corretamente que `cognitive_decisions`
+não recupera entidades. **Ele é irrelevante** — mediu uma peça que o
+método não tem, e que eu introduzi porque `cognitive_decisions` existia e
+parecia reaproveitável.
+
+O veredito "camada 3 cai" **é anulado**, não por resultado novo, mas
+porque o objeto testado não era a camada 3. Anular veredito depois do
+dado exige justificativa forte; a justificativa aqui é documental e
+verificável: o gist não contém a etapa que o teste mediu.
+
+**O que continua de pé do E-2:** `cognitive_decisions` extrai conceitos
+gerais, não entidades específicas (`exp016` 0/20, `NOT_FOUND_FLOOR` 0/20,
+`Mongólia` 0/8, controle 0/20 FP). Isso é fato medido sobre aquele
+subsistema e vale por si — só não decide nada sobre a Wiki.
+
+### O que o EDP já tem, contra as 3 camadas reais
+
+| camada | estado |
+|---|---|
+| raw sources | ✅ 3.748 turnos exportados, imutáveis |
+| schema | ✅ `CLAUDE.md` já existe e já é usado assim pelo graphify |
+| wiki | ✗ não existe para conversas |
+
+Faltam um diretório, um `index.md`, um `log.md` e as convenções escritas.
+Os fluxos são **prompts**, não código.
