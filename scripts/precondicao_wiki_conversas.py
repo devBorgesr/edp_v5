@@ -93,20 +93,83 @@ def carregar_entries(base: Path) -> list[dict]:
     return entries
 
 
-def turnos_de_exports(path: Path) -> int:
-    """Conta turnos de usuário/assistente nos exports (para dimensionar E2)."""
-    arquivos = ([path] if path.is_file() else sorted(path.glob("*.json")))
-    total = 0
+def textos_de_exports(path: Path) -> tuple[list[tuple[str, str]], int, int]:
+    """
+    Extrai o texto de cada turno dos exports do sensor.
+
+    Inclui raw_text, blocos de texto E thinking (thinking_blocks +
+    thinking_summaries, disponíveis desde a v4.9.0 do exportador) — o
+    thinking é onde o raciocínio técnico costuma estar por extenso.
+
+    Retorna (textos, n_turnos, n_conversas).
+    """
+    arquivos = ([path] if path.is_file()
+                else sorted(p for p in path.rglob("*.json")))
+    textos: list[tuple[str, str]] = []
+    n_turnos = n_conv = 0
+
     for arq in arquivos:
         try:
             doc = json.loads(arq.read_text(encoding="utf-8"))
         except Exception as e:
-            print(f"  AVISO: {arq.name} não parseou ({type(e).__name__})")
+            print(f"  AVISO: {arq.name} não parseou ({type(e).__name__}: {e})"
+                  f" — NÃO contabilizado")
             continue
         turns = doc.get("turns")
-        if isinstance(turns, list):
-            total += len(turns)
-    return total
+        if not isinstance(turns, list):
+            continue
+        n_conv += 1
+        titulo = str(doc.get("title") or arq.stem)[:60]
+        for i, t in enumerate(turns):
+            if not isinstance(t, dict):
+                continue
+            n_turnos += 1
+            partes: list[str] = []
+            if t.get("raw_text"):
+                partes.append(str(t["raw_text"]))
+            for b in (t.get("blocks") or []):
+                if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
+                    partes.append(str(b["text"]))
+            # thinking — v4.9.0 (commit 3bddd29 do exportador)
+            for b in (t.get("thinking_blocks") or []):
+                if isinstance(b, dict) and b.get("thinking"):
+                    partes.append(str(b["thinking"]))
+                elif isinstance(b, str):
+                    partes.append(b)
+            for s in (t.get("thinking_summaries") or []):
+                if isinstance(s, str):
+                    partes.append(s)
+            if partes:
+                textos.append((f"{titulo}#t{i}", "\n".join(partes)))
+    return textos, n_turnos, n_conv
+
+
+def varredura_bruta(textos: list[tuple[str, str]]
+                    ) -> list[tuple[str, list[str], int, str | None]]:
+    """
+    DIAGNÓSTICO SEPARADO — não é o critério congelado.
+
+    Procura os termos-alvo no TEXTO CRU, com 100% de cobertura do corpus.
+    Existe porque a pré-condição congelada só enxerga entries que já têm
+    `cognitive_decisions` — na rodada de 07/08 isso foi 40% do store, e os
+    outros 60% ficaram invisíveis.
+
+    Responde uma pergunta a MONTANTE: o conteúdo está no corpus? Se um
+    termo não aparece em texto nenhum, nenhuma extração vai fazê-lo
+    aparecer. Se aparece, a extração provavelmente o alcança.
+    """
+    saida = []
+    for query, termos in ALVOS:
+        n = 0
+        amostra = None
+        for fonte, txt in textos:
+            tn = normalizar(txt)
+            if any(normalizar(t) in tn for t in termos):
+                n += 1
+                if amostra is None:
+                    amostra = fonte
+        saida.append((query, sorted(termos), n, amostra))
+    return saida
 
 
 def main() -> int:
@@ -215,10 +278,46 @@ def main() -> int:
         print("  mais que o turno cru, e se o roteamento por concepts[] funciona.")
         print("  Ambos exigem E2+E4 e julgamento humano.")
 
+    # ── DIAGNÓSTICO (não é o critério): varredura de texto cru ───────────────
+    # Cobertura 100%. A pré-condição acima só enxerga entries com
+    # cognitive_decisions — na rodada de 07/08 isso foi 40% do store.
+    textos: list[tuple[str, str]] = [
+        (str(e.get("id", "?")), str(e.get("text") or "")) for e in entries
+    ]
+    n_turnos_exp = n_conv_exp = 0
     if args.exports:
-        n_turnos = turnos_de_exports(args.exports)
-        print(f"\n[exports] {n_turnos} turnos fora do store — precisariam de")
-        print(f"          extração no E2 (não entram na cobertura acima).")
+        t_exp, n_turnos_exp, n_conv_exp = textos_de_exports(args.exports)
+        textos.extend(t_exp)
+        print(f"\n[exports] {n_conv_exp} conversas, {n_turnos_exp} turnos "
+              f"(raw_text + blocks + thinking v4.9.0)")
+
+    bruta = varredura_bruta(textos)
+    n_bruta = sum(1 for _, _, n, _ in bruta if n > 0)
+
+    print("\n" + "-" * 88)
+    print(f"DIAGNÓSTICO — varredura de TEXTO CRU ({len(textos)} textos, "
+          f"cobertura 100%)")
+    print("  NÃO é o critério congelado. Responde a pergunta a montante:")
+    print("  o conteúdo está no corpus, independentemente de ter sido extraído?")
+    print("-" * 88)
+    for query, termos, n, amostra in bruta:
+        marca = f"{n:>4}x" if n else "   —"
+        print(f"  [{marca}] {query[:58]}")
+        if amostra:
+            print(f"          1ª ocorrência: {amostra}")
+    print("-" * 88)
+    print(f"presentes em texto cru: {n_bruta}/5   "
+          f"(pré-condição congelada: {n_presentes}/5)")
+
+    if n_bruta > n_presentes:
+        print(f"\n  LEITURA: {n_bruta - n_presentes} alvo(s) EXISTEM no corpus mas")
+        print( "  não foram alcançados pela extração de conceitos. Isso não muda")
+        print( "  o veredito congelado — muda o diagnóstico: o problema seria de")
+        print( "  COBERTURA da extração, não de ausência de conteúdo.")
+    elif n_bruta == 0:
+        print("\n  LEITURA: os alvos não existem nem em texto cru. Ausência de")
+        print("  conteúdo confirmada com cobertura total — nenhuma extração")
+        print("  resolveria.")
 
     args.out.write_text(json.dumps({
         "contrato": "docs/design_wiki_conversas.md §11",
@@ -236,6 +335,16 @@ def main() -> int:
         ],
         "presentes": n_presentes,
         "veredito": veredito,
+        "diagnostico_texto_cru": {
+            "n_textos": len(textos),
+            "exports_conversas": n_conv_exp,
+            "exports_turnos": n_turnos_exp,
+            "presentes": n_bruta,
+            "por_alvo": [
+                {"query": q, "termos": t, "ocorrencias": n, "amostra": a}
+                for q, t, n, a in bruta
+            ],
+        },
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nJSON: {args.out}")
     return 0
