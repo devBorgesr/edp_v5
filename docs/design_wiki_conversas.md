@@ -424,6 +424,59 @@ substituição é **mais restritiva**, não menos:
 > verificada, não por corpus errado.
 > Custo da amostra: ~200 × 800 tok ≈ US$0,20.
 
+##### EMENDA E-2.1 — 07/08/2026, PRÉ-DADO (nenhuma extração rodou ainda)
+
+A E-2 acima tem defeito **estatístico**, não de conveniência. Amostra
+aleatória de 200 em 3.748 é 5,3% do corpus. Esperado de cada alvo na
+amostra, pelas contagens já medidas:
+
+| alvo | ocorrências | esperado em 200 |
+|---|---|---|
+| bayes/gauss | 275 | 14,7 |
+| RRF | 93 | 5,0 |
+| exp016 | 72 | 3,8 |
+| NOT_FOUND_FLOOR | 58 | 3,1 |
+| **Mongólia** | **8** | **0,43** |
+
+Mongólia provavelmente **nem entraria na amostra**. O critério "≥3 de 5"
+falharia por amostragem, não por defeito de extração — mediria outra
+coisa, exatamente o erro do pool anafórico do Degrau 1 se repetindo.
+
+**Desenho corrigido — amostragem ESTRATIFICADA por alvo:**
+
+- Para cada um dos 5 alvos, sorteia até **20 turnos que contêm o termo**
+  (ou todos, se houver menos — Mongólia tem 8). Seed fixa `20260807`.
+- **Controle negativo obrigatório** (`NORTE.md` §4.5): 20 turnos que não
+  contêm alvo nenhum. Mede falso positivo do extrator.
+- Cada turno vai ao LLM no formato que o prompt espera —
+  `Q: <turno humano anterior>\nA: <turno>` — usando
+  `EXTRACT_PROMPT_SYSTEM` e `CognitiveDecisions.from_json_str` **sem
+  alteração**. Prompt novo invalidaria a medição.
+
+Isto não é amostragem enviesada a favor: a pergunta de E-2 é
+**condicional** — *dado que o texto contém o termo, a extração o
+recupera?* Amostra aleatória mediria "turnos aleatórios mencionam meus 5
+alvos?", pergunta diferente e já respondida (5/5, §diagnóstico).
+
+**Critério congelado (substitui o de E-2):**
+
+- **PASSA** se, para **≥3 dos 5 alvos**, o termo aparece em
+  `concepts[]`/`domain` em **pelo menos 1** dos turnos amostrados daquele
+  alvo.
+- **FALHA** caso contrário → camada 3 cai por defeito do pipeline.
+
+*Por que "≥1" e não uma taxa:* o que a Wiki precisa é que o conceito
+exista para virar página. Com RRF em 93 turnos, mesmo 20% de recall dá
+~19 ocorrências — muito acima do piso de 3 do §3. A taxa de recall é
+reportada como **diagnóstico** (projeta o nº de páginas), não como corte.
+
+*Predição pré-dado do arquiteto:* 4 ou 5 alvos recuperados; recall médio
+entre 40% e 70%. `NOT_FOUND_FLOOR` é o mais provável de falhar — é
+identificador de código, e o prompt pede "conceitos técnicos", o que pode
+levar o modelo a generalizar para "configuração" ou "threshold".
+
+*Custo:* até 108 chamadas × ~900 tok ≈ **US$0,15**.
+
 #### O achado que ninguém procurava: a memória do EDP não contém o EDP
 
 Produção (222 entries) e fase0 (210) têm **o mesmo perfil de domínios** —
