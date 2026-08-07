@@ -1,5 +1,10 @@
 # DESIGN — Wiki de conversas (Palácio da Memória)
 
+> **STATUS: CAMADA 3 CAIU EM 07/08/2026.** Regra E-2/E-2.1 aplicada:
+> 2 de 5 alvos recuperados, critério era ≥3. Ver `## RESULTADO E-2` no
+> fim. O documento fica como registro do desenho e da refutação — não
+> como plano ativo.
+
 Idealização completa. **Não é pré-registro e não autoriza implementação** —
 o critério falsificável do §9 precisa virar pré-registro próprio antes de
 qualquer código, conforme `NORTE.md` §4.2.
@@ -516,3 +521,91 @@ segunda rodada — **não ajustar o piso agora.**
 3. E2+E4 numa fatia (um domínio só), medindo custo real contra o §7.
 4. Julgamento das 14 queries.
 5. Se H1: E5+E6+E7 e a Wiki completa. Se H0: relatório e a camada 3 cai.
+
+---
+
+## RESULTADO E-2 — 07/08/2026. VEREDITO: FALHA. Camada 3 cai.
+
+108 chamadas Haiku, 386s, US$0,14. Script `4ae8abe`, seed `20260807`.
+
+| alvo | candidatos | amostrados | recuperado | recall |
+|---|---|---|---|---|
+| RRF | 93 | 20 | **5** | 25% |
+| bayes/gauss/calibrador | 269 | 20 | **2** | 10% |
+| NOT_FOUND_FLOOR | 58 | 20 | 0 | **0%** |
+| exp016 | 72 | 20 | 0 | **0%** |
+| Mongólia | 8 | **8 (todos)** | 0 | **0%** |
+
+**Alvos recuperados: 2 de 5. Critério: ≥3. FALHA.**
+
+Controle negativo: **0/20 falsos positivos.** Falhas de parse: **0/108.**
+
+### Por que este negativo é sólido
+
+Nas rodadas anteriores sempre houve um defeito de instrumento a
+identificar — pool errado (Degrau 1), corpus errado (pré-condição),
+amostragem errada (E-2 original). Aqui não há:
+
+- **corpus certo** — os 5 alvos estão no texto, medido com cobertura 100%
+- **amostragem corrigida** — estratificada, e Mongólia usou 8 de 8, sem
+  margem de sorteio; 0/8 é sinal, não azar
+- **controle limpo** — 0 falsos positivos, o extrator não inventa
+- **pipeline íntegro** — 108/108 JSON válidos, zero erro técnico
+- **predição registrada e refutada** — eu previ 4-5 alvos e recall 40-70%
+
+Terceira predição minha errada seguidas. Registrado.
+
+### O mecanismo: o extrator não está quebrado — faz outro trabalho
+
+Os conceitos que ele produz são bons no que se propõem:
+
+```
+['BM25', 'RRF', 'MMR', 'embedding retrieval', 'retrieval_monitor']
+['RRF', 'min_score filtering', 'score normalization', 'hybrid retrieval']
+['conditional_probability', 'correlation_id', 'cache_hit_rate', 'bayes...']
+```
+
+O prompt (`cognitive_decisions.py:81`) pede **"conceitos técnicos"**. E é
+exatamente por cumprir isso que ele descarta o que a Wiki precisa:
+
+| alvo | por que não é "conceito técnico" |
+|---|---|
+| `Mongólia` | substantivo próprio, geografia — 0% de 8 |
+| `exp016` | identificador de experimento, não conceito |
+| `NOT_FOUND_FLOOR` | nome de parâmetro; generaliza p/ "threshold" |
+| `RRF` | **é** conceito técnico → 25%, o melhor da lista |
+
+Ou seja: a Wiki precisa de **entidades específicas** (parâmetros,
+identificadores, nomes próprios, arquivos); `cognitive_decisions` extrai
+**conceitos gerais** para refinar retrieval. Alvos diferentes.
+
+### O que isto refuta no próprio design
+
+**§2 está refutado por medição.** A afirmação central era:
+
+> *"a Wiki não cria camada de extração. Ela dá consumidor a duas que já
+> existem e estão mortas."*
+
+Falso. A Wiki **precisaria** de extração nova, com outro alvo. E isso
+derruba junto o **§7**: os US$0,29 pressupunham reuso; um extrator novo
+significa prompt novo, calibração nova e custo não medido.
+
+O que sobra de pé do design: o §5 (arestas por co-ocorrência, não por
+similaridade) e o §8 (segurança) seguem válidos — não foram testados aqui
+e não dependem do que caiu.
+
+### O que NÃO é conclusão deste teste
+
+Não está provado que uma Wiki de conversas é inviável. Está provado que
+**a Wiki construída sobre o pipeline de extração existente não alcança o
+que se quer consultar.** Um extrator com alvo diferente é uma **frente
+nova**, com pré-registro próprio — não um resgate desta. Registrar em
+`FILA_FUTURO.md` com esta ressalva, e com o custo do §7 marcado como
+inválido.
+
+### Custo total da refutação
+
+US$0,14 e ~6 minutos de LLM, mais dois testes sem custo nenhum
+(pré-condição e varredura bruta). Contra a alternativa de compilar 3.748
+turnos e descobrir depois que as páginas não têm `exp016` nem
+`NOT_FOUND_FLOOR`.
