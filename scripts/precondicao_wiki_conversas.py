@@ -115,33 +115,59 @@ def textos_de_exports(path: Path) -> tuple[list[tuple[str, str]], int, int]:
             print(f"  AVISO: {arq.name} não parseou ({type(e).__name__}: {e})"
                   f" — NÃO contabilizado")
             continue
-        turns = doc.get("turns")
-        if not isinstance(turns, list):
-            continue
-        n_conv += 1
-        titulo = str(doc.get("title") or arq.stem)[:60]
-        for i, t in enumerate(turns):
-            if not isinstance(t, dict):
-                continue
-            n_turnos += 1
-            partes: list[str] = []
-            if t.get("raw_text"):
-                partes.append(str(t["raw_text"]))
-            for b in (t.get("blocks") or []):
-                if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
-                    partes.append(str(b["text"]))
-            # thinking — v4.9.0 (commit 3bddd29 do exportador)
-            for b in (t.get("thinking_blocks") or []):
-                if isinstance(b, dict) and b.get("thinking"):
-                    partes.append(str(b["thinking"]))
-                elif isinstance(b, str):
-                    partes.append(b)
-            for s in (t.get("thinking_summaries") or []):
-                if isinstance(s, str):
-                    partes.append(s)
-            if partes:
-                textos.append((f"{titulo}#t{i}", "\n".join(partes)))
+        # O exportador emite tanto 1 conversa por arquivo quanto um bundle
+        # com centenas (ex.: 390 conversas / 3748 turnos num JSON de 46 MB).
+        # Em vez de adivinhar a chave do invólucro, procura qualquer objeto
+        # que tenha uma lista "turns", em qualquer profundidade razoável.
+        for doc_conv in _achar_conversas(doc):
+            turns = doc_conv["turns"]
+            n_conv += 1
+            titulo = str(doc_conv.get("title") or doc_conv.get("uuid")
+                         or arq.stem)[:60]
+            _coletar_turnos(turns, titulo, textos)
+            n_turnos += sum(1 for t in turns if isinstance(t, dict))
     return textos, n_turnos, n_conv
+
+
+def _achar_conversas(no, profundidade: int = 0):
+    """Gera todo dict que tenha uma lista 'turns'. Tolerante ao invólucro."""
+    if profundidade > 4:
+        return
+    if isinstance(no, dict):
+        if isinstance(no.get("turns"), list):
+            yield no
+            return                      # não desce dentro dos próprios turnos
+        for v in no.values():
+            if isinstance(v, (dict, list)):
+                yield from _achar_conversas(v, profundidade + 1)
+    elif isinstance(no, list):
+        for v in no:
+            if isinstance(v, (dict, list)):
+                yield from _achar_conversas(v, profundidade + 1)
+
+
+def _coletar_turnos(turns: list, titulo: str,
+                    textos: list[tuple[str, str]]) -> None:
+    for i, t in enumerate(turns):
+        if not isinstance(t, dict):
+            continue
+        partes: list[str] = []
+        if t.get("raw_text"):
+            partes.append(str(t["raw_text"]))
+        for b in (t.get("blocks") or []):
+            if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
+                partes.append(str(b["text"]))
+        # thinking — v4.9.0 (commit 3bddd29 do exportador)
+        for b in (t.get("thinking_blocks") or []):
+            if isinstance(b, dict) and b.get("thinking"):
+                partes.append(str(b["thinking"]))
+            elif isinstance(b, str):
+                partes.append(b)
+        for s in (t.get("thinking_summaries") or []):
+            if isinstance(s, str):
+                partes.append(s)
+        if partes:
+            textos.append((f"{titulo}#t{i}", "\n".join(partes)))
 
 
 def varredura_bruta(textos: list[tuple[str, str]]
@@ -158,18 +184,22 @@ def varredura_bruta(textos: list[tuple[str, str]]
     termo não aparece em texto nenhum, nenhuma extração vai fazê-lo
     aparecer. Se aparece, a extração provavelmente o alcança.
     """
-    saida = []
-    for query, termos in ALVOS:
-        n = 0
-        amostra = None
-        for fonte, txt in textos:
-            tn = normalizar(txt)
-            if any(normalizar(t) in tn for t in termos):
-                n += 1
-                if amostra is None:
-                    amostra = fonte
-        saida.append((query, sorted(termos), n, amostra))
-    return saida
+    # Normaliza UMA vez por texto, não uma por alvo — com 46 MB / 3.748
+    # turnos, NFKD repetido 5x é o gargalo.
+    alvos_norm = [(q, sorted(ts), [normalizar(t) for t in ts]) for q, ts in ALVOS]
+    n_por_alvo = [0] * len(alvos_norm)
+    amostras: list[str | None] = [None] * len(alvos_norm)
+
+    for fonte, txt in textos:
+        tn = normalizar(txt)
+        for k, (_, _, termos_n) in enumerate(alvos_norm):
+            if any(t in tn for t in termos_n):
+                n_por_alvo[k] += 1
+                if amostras[k] is None:
+                    amostras[k] = fonte
+
+    return [(q, ts, n_por_alvo[k], amostras[k])
+            for k, (q, ts, _) in enumerate(alvos_norm)]
 
 
 def main() -> int:
