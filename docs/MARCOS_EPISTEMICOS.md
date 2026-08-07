@@ -227,6 +227,19 @@ já entregues) mas não **continuidade de decisões técnicas** (modelo escolhe
 Kafka na Seção 1 e RabbitMQ na Seção 4 sem justificar). Resolver isso exige
 âncora carregar não só títulos mas decisões — pendente como peça 2.6d.
 
+> **DESATUALIZADO — nota de 07/08/2026.** Isto **não está mais pendente**.
+> Foi implementado como **peça 2.6e M1**, no mesmo 30/05: contrato
+> `<!-- decisions: {...} -->` no system prompt (`llm_adapter.py:1661`),
+> parser determinístico (`:1196`), consolidação com precedência da decisão
+> original (`:1338`) e exigência de justificativa explícita para mudar
+> decisão estabelecida (`:1672`). O texto acima foi preservado porque
+> registra o diagnóstico que originou a peça — ver regra 3 do
+> `docs/WIKI_SCHEMA.md`: o que mudou fica, datado.
+>
+> Defeito aberto identificado na mesma leitura: o bloco `consolidated`
+> **não tem teto** e cresce com o número de seções, enquanto todos os
+> outros campos da âncora têm. Não medido.
+
 ### Lição registrada
 
 O EDP nas mãos certas não é "ferramenta que responde perguntas". É
