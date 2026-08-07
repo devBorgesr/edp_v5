@@ -236,3 +236,20 @@ LIVE_FEED_INDEX_PATH = BASE_DIR / "live_feed_index.json"
 # (248 -> 246 detectados).
 EDP_GRAPH_VIEWER = os.environ.get("EDP_GRAPH_VIEWER", "1") == "1"
 
+# ── Wiki de conhecimento compilado (GET /wiki) ──────────────────────────────────
+# Páginas por comunidade do grafo, derivadas de graphify-out/graph.json +
+# GRAPH_REPORT.md. Mesmo perfil de risco do EDP_GRAPH_VIEWER acima: o conteúdo
+# vem do código do projeto, e o que entra no grafo é governado por
+# .graphifyignore. Default ON pelo mesmo motivo, e com a mesma ressalva —
+# desligue antes de expor o EDP fora de localhost.
+EDP_WIKI = os.environ.get("EDP_WIKI", "1") == "1"
+
+# Indexar trecho de CONVERSA REAL nas páginas da wiki. Default OFF, e o
+# default aqui não é conservadorismo genérico: esta API roda com
+# allow_origins=["*"] (api/main.py:260) e EDP_LIVE_FEED_TOKEN vazio (acima),
+# então uma página servida por ela é legível por qualquer origem sem
+# autenticação. Ligar isto sem antes setar EDP_LIVE_FEED_TOKEN reabre a
+# exposição fechada em 3076559 (.graphifyignore) e 99d827c (.gitignore).
+# Nenhum código consome esta flag ainda — ver docs/wiki_conversas_pendente.md.
+EDP_WIKI_CONVERSAS = os.environ.get("EDP_WIKI_CONVERSAS", "0") == "1"
+

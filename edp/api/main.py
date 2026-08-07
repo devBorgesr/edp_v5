@@ -269,6 +269,7 @@ try:
         mode,  # Peça 2.6a (2026-05-30): endpoint /mode para modo bimodal
         cognitive_decisions, lineage,  # α (Tier 3, 13/06/2026): leitura REST
         live_feed,  # Receptor de eventos do sensor: API HTTP de consulta
+        wiki,       # Wiki de conhecimento compilado do grafo (EDP_WIKI)
     )
     from ..ingest.websocket_receiver import router as live_feed_ws_router
 
@@ -290,6 +291,7 @@ try:
     app.include_router(cognitive_decisions.router)  # α
     app.include_router(lineage.router)              # α
     app.include_router(live_feed_ws_router)          # WS /stream
+    app.include_router(wiki.router)                  # /wiki (EDP_WIKI)
 
     # ── Dashboard estático ────────────────────────────────────────────────────
     _DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"

@@ -25,6 +25,14 @@ gt_rotulacao.csv
 gt_features.csv
 gt_*.csv
 
+# Saída do próprio graphify — auto-indexação.
+# 06/08/2026: graphify-out/memory/query_*.md estava virando 4 "comunidades"
+# no grafo, com títulos tipo "Q: por que retrieval nao chegava ao prompt?",
+# que apareciam como páginas da wiki. São notas geradas pela ferramenta,
+# não código do projeto. (As duas menções a graphify-out acima são
+# comentário, não regra — por isso não estavam surtindo efeito.)
+graphify-out/
+
 # Ruído de build/ambiente (não é dado sensível, só polui o grafo).
 .venv/
 node_modules/
