@@ -43,27 +43,7 @@ uma meta nova.
   sinais fortes (−0.2755 onde sim≥0.70 vs −0.0633 onde sim<0.70). Um
   match idêntico vira 0.6523. Afeta o retrieval inteiro, não só o cache.
   (origem: 06/08)
-- ~~**Wiki/"Palácio da Memória"**~~ — **SAIU DA FILA em 06/08/2026 por
-  decisão explícita do pesquisador (override do NORTE.md).** Registro do
-  override, não omissão: esta entrada dizia "fora de escopo até
-  02/09/2026" e foi commitada pelo próprio pesquisador em `36ac6b4`;
-  eu apontei o conflito duas vezes e a instrução foi construir mesmo
-  assim. Decisão dele, tomada com o conflito à vista. Implementado em
-  `edp/wiki.py` + `edp/api/routes/wiki.py` (198 páginas, índice, busca,
-  `/wiki/{slug}.md`), reaproveitando `GRAPH_REPORT.md` como o texto
-  original desta linha mandava — nenhum nome de comunidade foi
-  inventado. Indexação de conversa/thinking **não** entrou: ver
-  `docs/wiki_conversas_pendente.md`. Texto original preservado abaixo
-  para auditoria:
-  > ideia tecnicamente sólida; antes de construir do zero, avaliar reaproveitar
-  `edp/co_occurrence.py` (já vivo, 9 consumidores) e reabrir
-  `edp/memory_graph.py` (76 linhas, zero consumidores desde antes de
-  julho — candidato natural em vez de módulo novo). CORREÇÃO 06/08: a
-  versão anterior desta linha afirmava que o `graphify` tem "exportação
-  `--wiki` e servidor `--mcp` nativos" — **falso**, eu escrevi errado.
-  `graphify --help` não tem comando `wiki` nem `mcp`, e não existe
-  `graphify-out/wiki/`. O que já existe de conhecimento compilado é
-  `graphify-out/GRAPH_REPORT.md` (1192 linhas, 12 comunidades nomeadas),
-  `graphify-out/memory/` (4 notas de query) e
-  `graphify-out/reflections/LESSONS.md` — avaliar ESSES antes de
-  construir páginas do zero. (origem: 06/08)
+- ~~**Wiki/"Palácio da Memória"**~~ — **FEITO em 06/08/2026.**
+  `edp/wiki.py` + `edp/api/routes/wiki.py`: 198 páginas, índice, busca,
+  `/wiki/{slug}.md`. Indexação de conversa/thinking ficou de fora por
+  segurança — ver `docs/wiki_conversas_pendente.md`.
