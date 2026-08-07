@@ -350,6 +350,105 @@ documentadamente uma cópia de sondagem, não o acervo de trabalho. Trocar
 `fase0` por produção corrige um erro de Passo 0 identificado; trocar o
 critério, não.
 
+### SEGUNDA RODADA — 07/08/2026 (produção + exports)
+
+Store `C:\edp_data` (produção, RUNBOOK.md:138) + export de 3.748 turnos.
+
+| medida | fase0 | produção |
+|---|---|---|
+| entries | 210 | 222 |
+| cobertura `cognitive_decisions` | 40,0% | 39,6% |
+| conceitos ≥3 ocorrências | 28 | 31 |
+| **pré-condição congelada** | **1/5** | **1/5** |
+| domínios top | postgresql, acústica, java | **idênticos** |
+
+**Critério congelado: 1/5 nas duas. PARAR, como escrito.**
+
+#### Mas a justificativa impressa junto do PARAR está REFUTADA
+
+O ramo PARAR do script imprime *"a Wiki não pode bater o baseline por
+AUSÊNCIA DE CONTEÚDO"*. A varredura de texto cru, com **cobertura 100%**
+sobre 3.775 textos, mede o contrário:
+
+| alvo | ocorrências no corpus |
+|---|---|
+| `calibrador` / `bayes` / `gauss` | **275x** |
+| `RRF` | **93x** |
+| `exp016` | **72x** |
+| `NOT_FOUND_FLOOR` | **58x** |
+| `Mongólia` | **8x** |
+| | **5 de 5 presentes** |
+
+**Predição do arquiteto refutada pela segunda vez.** Eu havia registrado
+que Mongólia "quase certamente não está". Está, 8 vezes.
+
+**Erro meu, nomeado:** escrevi no ramo PARAR uma *interpretação* que o
+critério não media. O critério media "estes conceitos estão no índice
+extraído?" — e a resposta 1/5 é verdadeira. "Logo, não há conteúdo" foi
+inferência minha embutida na mensagem, e é falsa. Violação da regra
+`NORTE.md` §4.12 (honestidade de escopo do resultado), cometida por mim
+no próprio instrumento.
+
+#### Isto NÃO é reinterpretação pós-dado
+
+O ramo que disparou foi **pré-registrado**. `71ba4af`, commitado *antes*
+desta medição, já continha:
+
+> `bruta > congelada` → *"o problema seria de COBERTURA da extração, não
+> de ausência de conteúdo"*
+
+O dado caiu exatamente nesse ramo (5 > 1). Estou seguindo regra escrita
+antes, não inventando leitura agora.
+
+#### A regra "a camada 3 cai" estava DEFEITUOSA — e o defeito é meu
+
+Eu havia congelado: *"se produção também der ≤1 de 5, a camada 3 cai
+definitivamente"*. Produção deu 1/5. Pela letra, cairia.
+
+**A regra é inválida, e não por conveniência:** ela foi escrita
+pressupondo que ≤1 significasse ausência de conteúdo. Eu construí, na
+mesma sessão, o instrumento que distingue *ausência* de *cobertura* — e
+mesmo assim escrevi a cláusula sem contemplar o segundo caso. A regra
+condicionava o abandono a um diagnóstico que o meu próprio diagnóstico
+refuta.
+
+Anular uma regra frouxa depois do dado é goalpost-moving. Por isso a
+substituição é **mais restritiva**, não menos:
+
+> **Regra E-2 (congelada agora).** O que decide a camada 3 deixa de ser
+> presença de termo e passa a ser: **a extração de conceitos, rodada
+> sobre os exports, recupera os alvos?** Amostra de **200 turnos
+> sorteados** dos 3.748, seed fixa. Critério: **≥3 dos 5 alvos aparecem
+> em `concepts[]`/`domain` da amostra**. Abaixo disso, a camada 3 cai —
+> e aí cai por defeito do pipeline de extração, que é conclusão forte e
+> verificada, não por corpus errado.
+> Custo da amostra: ~200 × 800 tok ≈ US$0,20.
+
+#### O achado que ninguém procurava: a memória do EDP não contém o EDP
+
+Produção (222 entries) e fase0 (210) têm **o mesmo perfil de domínios** —
+`postgresql indexing`, `fisica acustica`, `acustica nao-linear`, `java
+resilience patterns`, `conversacao geral`. Nenhum dos dois contém as
+conversas de desenvolvimento do próprio EDP.
+
+Ou seja: o EDP roda há mais de 36 dias e o seu store guarda sondagens de
+teste, não o trabalho que o construiu — porque esse trabalho aconteceu no
+claude.ai, e é o exportador que o tem. **Os 3.748 turnos do export são o
+acervo real; as 222 entries do store são o subproduto.**
+
+Isso reordena a arquitetura: o corpus principal da Wiki é o export, e o
+store é fonte secundária. O §2 já listava os dois, mas na ordem errada.
+
+#### Nota de leitura: o bundle é PLANO
+
+A saída diz `1 conversas, 3748 turnos` — o exportador fundiu os 390
+arquivos num único objeto com uma lista `turns`. O título
+`opus copiloto principal` vale para todos, então **atribuição por
+conversa se perdeu**. Para a Wiki isso importa: `fontes:` no frontmatter
+(§4) apontaria tudo para um blob só. Antes do E4, ou o exportador preserva
+a fronteira de conversa, ou a Wiki reconstrói por `conversation_id` /
+`created_at` do turno.
+
 #### O achado da distribuição fica pendente, confundido
 
 88% dos conceitos abaixo do piso e 154 singletons **poderiam** indicar que
