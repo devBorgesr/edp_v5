@@ -103,3 +103,91 @@ Corpo. Cada afirmação com fonte rastreável.
 2. Ler `edp_wiki/index.md`.
 3. Ler as últimas 20 linhas de `edp_wiki/log.md`.
 4. Só então responder ou ingerir.
+
+---
+
+## 7. As camadas (a cebola) e a regra de promoção
+
+Acrescentado em 07/08/2026. Resolve dois problemas de uma vez: qual
+memória é confiável, e **o que a `[ÂNCORA DE TAREFA EM CURSO]` carrega**
+(peça 2.6d, pendente desde 30/05 — `docs/MARCOS_EPISTEMICOS.md`).
+
+As duas perguntas são a mesma: *o que é sólido o bastante para carregar
+adiante.*
+
+### 7.1 As camadas
+
+| camada | `status` | o que exige | pode entrar na âncora? |
+|---|---|---|---|
+| **0 · núcleo** | `nucleo` | passou em teste com **critério congelado antes do dado**, ou medição com **controle declarado** | **sempre** |
+| **1 · verificado** | `verificado` | citação a `arquivo:linha`, commit ou medição **re-checável mecanicamente** | se relevante à tarefa |
+| **2 · contestado** | `contestado` | duas fontes divergem, **sem** resolução | **sempre** — ver 7.4 |
+| **3 · hipótese** | `hipotese` | plausível e com fonte, **não testada** | **nunca** |
+| **4 · obsoleto** | `obsoleto` | superada; fica pelo registro | nunca |
+
+### 7.2 A regra que impede autoconfirmação
+
+**Promover para dentro exige evidência externa ao próprio sistema.**
+
+- `hipotese → verificado` — exige citação que outra pessoa possa
+  re-checar sem confiar em mim: `arquivo:linha`, hash de commit, ou saída
+  de script. Nenhuma métrica interna promove nada.
+- `verificado → nucleo` — exige **uma** das duas:
+  1. pré-registro com critério congelado **antes** do dado, e o dado
+     rodou (`NORTE.md` §4.2)
+  2. medição com **controle declarado** — controle negativo, baseline, ou
+     predição registrada antes (`NORTE.md` §4.5)
+
+O núcleo não é o que a métrica gostou. É **o que não foi derrubado**.
+
+Isto é o que impede o defeito do bot que se pontua pelo próprio grafo:
+nenhuma pontuação interna move nada para dentro.
+
+### 7.3 Rebaixamento — a metade que se esquece
+
+Automático e obrigatório:
+
+- fonte citada foi refutada depois → **volta para `contestado`**, nunca
+  apaga
+- `arquivo:linha` citado não existe mais → **`verificado` cai para
+  `hipotese`**; detectável por lint, sem julgamento
+- **predição registrada na página foi refutada** → a página cai uma
+  camada. Nesta sessão houve **4 predições refutadas**; cada uma deve
+  rebaixar o que a carregava.
+
+Camada que só sobe é ranking, não epistemologia.
+
+### 7.4 O que a âncora carrega (fecha a 2.6d)
+
+A âncora hoje carrega desafio + seções entregues + próxima esperada. Falta
+a **decisão**, e é isso que faz o modelo escolher Kafka na Seção 1 e
+RabbitMQ na Seção 4.
+
+Ordem de preenchimento, até o teto:
+
+1. **todo o núcleo relevante** — é pequeno por construção e é o que não
+   pode ser re-litigado
+2. **todo `contestado` relevante** — decisão em aberto precisa aparecer
+   *como aberta*. Omitir contestado é o que produz o Kafka/RabbitMQ: o
+   modelo não sabe que há divergência e escolhe arbitrariamente
+3. **`verificado` relevante**, por proximidade à tarefa, até encher
+4. **`hipotese` nunca entra** — propagaria alegação não validada para
+   dentro do trabalho futuro
+
+**Teto obrigatório.** Sem teto, a âncora incha e reproduz a inflação
+crônica que o modo sprint diagnosticou em 30/05 (peça 2.6a). O teto é
+declarado por tarefa e o que não coube é **listado por título**, para o
+modelo saber que existe e poder pedir.
+
+### 7.5 Como isto é auditável
+
+Um lint pode verificar mecanicamente, sem julgamento:
+
+- toda página `nucleo` cita pré-registro ou medição com controle
+- toda página `verificado` tem ao menos uma citação re-checável
+- todo `arquivo:linha` citado ainda existe
+- toda página com predição registrada diz se ela foi confirmada ou
+  refutada
+
+O que o lint **não** decide: se a evidência é boa. Isso é humano, e é o
+ponto — a camada externa de validação é uma pessoa, não uma métrica.
