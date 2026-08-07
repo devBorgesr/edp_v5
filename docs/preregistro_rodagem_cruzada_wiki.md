@@ -118,3 +118,53 @@ substituída.
   errata invalidou. Medir na condição W antes de seguir para C.
 - **Julgamento humano único.** Sem segundo avaliador não há como medir
   concordância. Limitação aceita, registrada.
+
+---
+
+## EMENDA E-1 — 07/08/2026, PRÉ-DADO (nenhuma comparação rodou)
+
+Duas lacunas no texto acima, ambas minhas, achadas ao começar a condição W.
+
+### E-1.1 — Faltava critério de conclusão por condição
+
+O §7 manda "compilar do corpus e rodar as perguntas" sem dizer **quanto**
+compilar. Sem isso, a comparação entre W, C e WC mede **esforço de
+compilação**, não qualidade de corpus — quem eu compilar mais, vence.
+
+**Orçamento congelado, igual nas três condições:**
+
+> **~200 turnos/mensagens de fonte por condição**, escolhidos por
+> relevância às 12 perguntas do §4. O critério de escolha é declarado
+> antes de ler: densidade de thinking × proximidade ao assunto da
+> pergunta. Compilar além do orçamento invalida a comparação.
+
+Segurar o esforço constante e variar o corpus é o que torna isto um
+teste controlado. 200 é o que cabe em uma a duas sessões por condição —
+número prático, não derivado de teoria, e declarado como tal.
+
+**Estado atual do W:** 1 conversa, **7 turnos** (`conv:8c2ef23e`).
+Restam ~193 de orçamento.
+
+### E-1.2 — Páginas anteriores às condições contaminam a nota
+
+Das 10 páginas da wiki hoje, **9 não vêm de W nem de C**: saíram desta
+sessão de trabalho, do código do graphify, dos índices de export. Só
+`mercado-de-auditoria-de-rag` veio da condição W.
+
+Elas respondem perguntas do §4 — `r1-seletividade-invertida` responde Q1,
+`metodo-llm-wiki-lido-de-segunda-mao` alimenta Q12 — e estariam presentes
+nas três condições igualmente.
+
+**Regra congelada:** ao pontuar, cada resposta registra **de qual página
+veio**, e a página é classificada em `base` (anterior às condições) ou
+`W`/`C`. Duas notas são reportadas:
+
+- **bruta** — o que a wiki entrega ao usuário, inclusive `base`
+- **diferencial** — só o que veio das páginas da condição
+
+**A comparação entre W, C e WC usa a DIFERENCIAL.** A bruta serve para
+saber se a wiki é útil; a diferencial, para saber qual corpus a alimenta.
+
+Se a nota bruta for alta e a diferencial ~zero, a conclusão é que o valor
+veio de compilar a sessão de trabalho, não de compilar conversas — que é
+um achado, não um fracasso.
