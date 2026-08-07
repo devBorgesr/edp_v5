@@ -362,24 +362,100 @@ opostas.
 
 `[PREENCHER — rodada Windows: scripts/avaliador_honeypot_14q.py]`
 
-Store medido (cópia): `[PREENCHER]`
-Data da medição: `[PREENCHER]`
-Commit do script: `[PREENCHER]`
+Store medido: `C:\edp_data_fase0` — **210 entries**
+Data da medição: **06/08/2026**, máquina Windows do pesquisador
+Commit do script: `70d04a7`
 
-Censo `epistemic_status` do store: `[PREENCHER]`
-(se `verified == 0`, P3 está confirmado e o veredito é lido conforme §9.1)
+Censo `epistemic_status`: **`hypothesis` 208, `verified` 2** → P3
+**CONFIRMADO** com número: 0,95% do store é `verified`.
 
 | # | pool | query | sim_q | sim_ver | sim_blob | hit | causa |
 |---|---|---|---|---|---|---|---|
-| | | `[PREENCHER — 14 linhas]` | | | | | |
+| 1 | R3 | vamos continuar nossa conversa | **0.7032** | 0.3047 | 0.5132 | não | STATUS_NAO_VERIFIED |
+| 2 | R2 | vamos continuar a conversa sobre Redis e Memcached | **1.0000** | 0.3575 | 0.6523 | não | STATUS_NAO_VERIFIED |
+| 3 | N | qual é a capital da Mongólia mesmo? | 0.4324 | 0.2874 | 0.3514 | não | SEM_MEMORIA_SIMILAR |
+| 4 | R3 | continuando o que falávamos | 0.6179 | 0.3717 | 0.5294 | não | SEM_MEMORIA_SIMILAR |
+| 5 | R2 | me lembra o que a gente concluiu sobre cache… Redis | **0.8216** | 0.3794 | 0.6380 | não | STATUS_NAO_VERIFIED |
+| 6 | N | me explica de novo como funciona o RRF | 0.4279 | 0.2640 | 0.4695 | não | SEM_MEMORIA_SIMILAR |
+| 7 | R3 | o que a gente tinha concluído mesmo? | 0.6223 | 0.3489 | 0.5133 | não | SEM_MEMORIA_SIMILAR |
+| 8 | R2 | voltando ao assunto do Redis para sessões web | 0.6853 | 0.4055 | 0.5649 | não | SEM_MEMORIA_SIMILAR |
+| 9 | N | qual foi a última vez que ajustamos o NOT_FOUND_FLOOR? | 0.5032 | 0.3068 | 0.4705 | não | SEM_MEMORIA_SIMILAR |
+| 10 | R3 | me lembra o que discutimos | 0.6194 | 0.2994 | 0.5081 | não | SEM_MEMORIA_SIMILAR |
+| 11 | N | pode resumir o que ficou pendente no exp016? | 0.5028 | 0.3415 | 0.4867 | não | SEM_MEMORIA_SIMILAR |
+| 12 | R3 | voltando ao que estávamos vendo | 0.6178 | 0.3373 | 0.5428 | não | SEM_MEMORIA_SIMILAR |
+| 13 | N | o que a gente decidiu sobre o calibrador Bayes-vs-Gauss? | 0.5753 | 0.1846 | 0.5348 | não | SEM_MEMORIA_SIMILAR |
+| 14 | R3 | sobre o que conversamos até agora | **0.9383** | 0.4040 | 0.5576 | não | STATUS_NAO_VERIFIED |
 
-Acertos: `[PREENCHER]` / 14 — critério H1: ≥ 5
-Contrafactual sem gate de status: `[PREENCHER]` / 14
-Causas: `[PREENCHER]`
+Acertos: **0 / 14** — critério H1: ≥ 5
+Contrafactual sem gate de status: **4 / 14**
+Causas: `STATUS_NAO_VERIFIED` 4, `SEM_MEMORIA_SIMILAR` 10
 
-**Veredito H1 / H0:** `[PREENCHER]`
+## **VEREDITO: H0 VENCE.** Honeypot **abandonado** (§6).
 
-### Fase A (F1) — suspensa por E1
+### R1 — Seletividade invertida (achado principal, não previsto)
 
-Não executada. Instrumento preservado em
-`scripts/medir_repeticao_honeypot.py` para caracterização futura.
+As 4 queries que passariam o gate de similaridade são, **todas as 4**,
+anafóricas. Nenhuma factual passou:
+
+| pool | n | sim_q média | máx | passaram o gate 0.70 |
+|---|---|---|---|---|
+| anafóricas [R3]+[R2] | 9 | **0.7362** | 1.0000 | **4** |
+| factuais [N] | 5 | **0.4883** | 0.5753 | **0** |
+
+O gate seleciona **vagueza**, não repetição. Frases curtas e genéricas
+("vamos continuar nossa conversa", "sobre o que conversamos até agora")
+aglomeram-se no espaço de embeddings e produzem cosseno alto entre si;
+perguntas factuais, que carregam conteúdo específico, ficam ~0.24 abaixo.
+
+Consequência operacional: o honeypot dispararia **exatamente onde não
+pode** — em perguntas cuja resposta correta depende do estado da sessão —
+e ficaria mudo exatamente onde poderia ajudar. Precisão no conjunto que
+dispara: **0%**. As 4 seriam confabulação servida com confiança.
+
+**Escopo desta conclusão.** O lado *precisão* generaliza: a aglomeração de
+texto curto e vago em espaço de embeddings é propriedade do método, não
+deste pool, e toda conversa real contém frases de continuação. O lado
+*recall* (ficar mudo onde ajudaria) é parcialmente artefato do pool e do
+store — 10 dos 14 misses são `SEM_MEMORIA_SIMILAR`, e o store pode
+simplesmente não conter aqueles tópicos. P1/P2 seguem válidas.
+
+### R2 — O gate de status é irrelevante NESTE dado
+
+`sim_ver` máximo em todas as 14 queries: **0.4055**. As 2 entries
+`verified` do store nunca chegam perto de 0.70. Ou seja: mesmo que o gate
+de status fosse removido, o resultado não melhoraria — as 4 que passariam
+seriam as anafóricas de R1. P3 é real (0,95% verified) mas **não é o que
+mata o honeypot** aqui; R1 é.
+
+### R3 — O blob `Q+A` comprime a faixa dinâmica (achado reaproveitável)
+
+Diluição média `sim_q − sim_blob`:
+
+- onde `sim_q ≥ 0.70`: **+0.2755**
+- onde `sim_q < 0.70`: **+0.0633**
+
+Amplitude: `sim_q` 0.4279–1.0000 (**0.5721**) → `sim_blob` 0.3514–0.6523
+(**0.3009**). O `combined = f"Q: …\nA: …"` de `websocket.py:1200`
+**destrói 47% da faixa dinâmica** e dilui seletivamente os sinais fortes.
+Um par idêntico (1.0000) vira 0.6523.
+
+Isso é evidência independente do veredito do honeypot e vale para o
+retrieval inteiro: hoje o EDP não consegue distinguir "match perfeito" de
+"match mediano". Fica registrado como frente candidata separada, **não
+aberta aqui**.
+
+### R4 — Pendência: `sim_q = 1.0000` na query 2
+
+Existe no store uma entry cuja parte `Q:` é textualmente **idêntica** à
+query 2. As 14 são queries de laboratório (`exp009.py:70-77`,
+`exp010.py:84-88`); a explicação mais provável é que uma rodada anterior
+as persistiu. **Não verificado** — registrado como pendência. Se
+confirmado, a única "repetição perfeita" do dado é auto-contaminação do
+instrumento, não repetição genuína do usuário, o que reforça R1.
+
+### Fase A (F1) — suspensa por E1, permanece não medida
+
+F1 (taxa de repetição real de perguntas) continua sendo o teto absoluto de
+qualquer cache e **segue sem medição**. Instrumento preservado em
+`scripts/medir_repeticao_honeypot.py`. Este H0 **não** o substitui: ele
+mostra que *este* gate falha, não que repetição não exista.
