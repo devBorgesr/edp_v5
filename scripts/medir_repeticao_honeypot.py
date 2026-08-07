@@ -2,6 +2,12 @@
 """
 scripts/medir_repeticao_honeypot.py — Fase A do Degrau 1 (Honeypot).
 
+*** SUSPENSO pela EMENDA E1 (06/08/2026) — NÃO é o instrumento de decisão
+*** do Degrau 1. O instrumento é scripts/avaliador_honeypot_14q.py.
+*** Este arquivo fica como ESTUDO DE CARACTERIZAÇÃO FUTURA: mede F1, que
+*** continua sendo o teto absoluto de qualquer cache e segue não medido.
+*** Ver docs/preregistro_degrau1_honeypot.md §9.
+
 Contrato: docs/preregistro_degrau1_honeypot.md (escrito ANTES desta
 medição). Mede UM número: a taxa de repetição semântica de perguntas do
 usuário (fenômeno F1 do §3 do pré-registro).

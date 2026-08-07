@@ -295,21 +295,91 @@ robustez e **não** podem ser promovidos a critério depois do dado.
 
 ---
 
+## 9. EMENDA E1 — 06/08/2026 (pré-dado, aditiva; texto acima intocado)
+
+Registrada por decisão explícita do pesquisador, **antes** de qualquer
+medição. O texto original das §§1-8 fica intocado, como manda o protocolo.
+
+**O que muda.** O instrumento de decisão do Degrau 1 passa a ser o
+**avaliador direto das 14 queries** (`scripts/avaliador_honeypot_14q.py`),
+não a medição de F1. Critério do pesquisador: a decisão precisa sair em
+horas, e o teste direto é terminal — roda em segundos sobre o store que já
+existe, sem depender de acumular corpus.
+
+**O que fica suspenso.** `scripts/medir_repeticao_honeypot.py` (Fase A/F1)
+não é instrumento de decisão. Permanece no repositório como **estudo de
+caracterização futura**, não é executado nesta fase, e o piso `N_MIN=100`
+continua válido *para ele*.
+
+**O que permanece congelado, sem alteração:** gate de similaridade
+**bruta ≥ 0.70** (cosseno de embeddings, nunca `rank_score`), gate
+`epistemic_status == "verified"`, e critério **acertos ≥ 5 → H1**.
+
+### 9.1 Ressalva do arquiteto (registrada pré-dado, não bloqueia)
+
+As objeções P1 e P2 das §§1.1-1.2 **não foram refutadas** por esta emenda —
+elas continuam factualmente verdadeiras sobre o pool: 9 das 14 queries são
+anafóricas por desenho, e o teto de perguntas cacheáveis é ~2-3, abaixo do
+critério de 5. Minha predição pré-dado permanece: **H0 vence**, e vence por
+propriedade do instrumento, não por propriedade do cache.
+
+O pesquisador decidiu rodar mesmo assim; a decisão é dele e está tomada.
+Registro a ressalva aqui para que, quando o número sair, ele seja lido pelo
+que é. **Um H0 neste teste autoriza dizer:** "com este pool e este gate, o
+cache não entrega". **Não autoriza dizer:** "cache de respostas é inviável
+no EDP" — para isso faltaria justamente a medição de F1 suspensa acima.
+
+### 9.2 O que foi acrescentado ao instrumento para o H0 ser informativo
+
+Um `0/14` seco não distingue causas. O avaliador reporta, por query, **a
+causa do miss** — `SEM_MEMORIA_SIMILAR` / `STATUS_NAO_VERIFIED` /
+`SEM_RESPOSTA_EXTRAIVEL` / `HIT` — e mais dois números:
+
+- **contrafactual sem o gate de status**: quantos passariam só por
+  similaridade. Isola o custo exato de P3.
+- **`sim_blob` vs `sim_q`**: similaridade contra o embedding persistido do
+  blob `Q+A` (o que o sistema faz hoje) contra a parte `Q:` re-embeddada (o
+  desenho corrigido). Mede diretamente quanto `websocket.py:1200` distorce
+  a recuperação — evidência reaproveitável para outra frente,
+  independentemente do veredito do honeypot.
+
+Sem isso, o resultado esperado (0/14 por P3) seria indistinguível de
+"nenhuma memória parecida existe", e as duas conclusões levam a decisões
+opostas.
+
+### 9.3 Desenho autorizado SE H1 vencer
+
+- similaridade **bruta**, nunca `rank_score`;
+- armazenar **só a resposta**, nunca o blob `Q: ...\nA: ...`;
+- flag `EDP_HONEYPOT`, default **OFF** (mandato Tier 2/3 do
+  `edp_metodologia.md`);
+- teste de regressão garantindo que `score=0.65` não toca o código novo
+  (defeito A5, §7 Q2).
+
+---
+
 ## Resultado
 
-`[PREENCHER — rodada Windows]`
+`[PREENCHER — rodada Windows: scripts/avaliador_honeypot_14q.py]`
 
-Hash SHA-256 do corpus congelado: `[PREENCHER]`
+Store medido (cópia): `[PREENCHER]`
 Data da medição: `[PREENCHER]`
 Commit do script: `[PREENCHER]`
 
-| limiar | fração de turnos com repetição anterior |
-|---|---|
-| 0.80 | |
-| **0.85 (decisão)** | |
-| 0.90 | |
+Censo `epistemic_status` do store: `[PREENCHER]`
+(se `verified == 0`, P3 está confirmado e o veredito é lido conforme §9.1)
 
-Distribuição da similaridade máxima (p50 / p75 / p90 / p95 / max):
-`[PREENCHER]`
+| # | pool | query | sim_q | sim_ver | sim_blob | hit | causa |
+|---|---|---|---|---|---|---|---|
+| | | `[PREENCHER — 14 linhas]` | | | | | |
 
-Veredito H1a / H0a: `[PREENCHER]`
+Acertos: `[PREENCHER]` / 14 — critério H1: ≥ 5
+Contrafactual sem gate de status: `[PREENCHER]` / 14
+Causas: `[PREENCHER]`
+
+**Veredito H1 / H0:** `[PREENCHER]`
+
+### Fase A (F1) — suspensa por E1
+
+Não executada. Instrumento preservado em
+`scripts/medir_repeticao_honeypot.py` para caracterização futura.
