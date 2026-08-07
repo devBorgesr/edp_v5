@@ -151,9 +151,22 @@ Automático e obrigatório:
   apaga
 - `arquivo:linha` citado não existe mais → **`verificado` cai para
   `hipotese`**; detectável por lint, sem julgamento
-- **predição registrada na página foi refutada** → a página cai uma
-  camada. Nesta sessão houve **4 predições refutadas**; cada uma deve
-  rebaixar o que a carregava.
+- **predição que a página AFIRMA foi refutada** → a página cai uma
+  camada.
+
+  **Correção de 07/08, achada ao aplicar a regra às 15 páginas
+  existentes:** a versão anterior dizia "predição registrada na página",
+  e isso rebaixaria exatamente as melhores páginas. Distinção necessária:
+
+  | a página… | efeito |
+  |---|---|
+  | **afirma** algo que depois foi refutado | rebaixa |
+  | **relata** uma refutação (o conteúdo dela É o dado que derrubou) | **promove** — é medição com predição declarada antes |
+
+  `contagem-de-nos-como-medida-de-vagueza` e
+  `memoria-do-edp-nao-contem-o-edp` relatam predições minhas refutadas, e
+  por isso foram para o **núcleo**, não rebaixadas. Predição refutada e
+  registrada é a evidência mais forte que existe aqui, não um defeito.
 
 Camada que só sobe é ranking, não epistemologia.
 
