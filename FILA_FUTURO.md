@@ -43,7 +43,21 @@ uma meta nova.
   sinais fortes (−0.2755 onde sim≥0.70 vs −0.0633 onde sim<0.70). Um
   match idêntico vira 0.6523. Afeta o retrieval inteiro, não só o cache.
   (origem: 06/08)
-- ~~**Wiki/"Palácio da Memória"**~~ — **FEITO em 06/08/2026.**
-  `edp/wiki.py` + `edp/api/routes/wiki.py`: 198 páginas, índice, busca,
-  `/wiki/{slug}.md`. Indexação de conversa/thinking ficou de fora por
-  segurança — ver `docs/wiki_conversas_pendente.md`.
+- ~~**Wiki/"Palácio da Memória"**~~ — **FEITO em 06/08/2026** para o
+  corpus de CÓDIGO: `edp/wiki.py` + `edp/api/routes/wiki.py`, 198
+  páginas, índice, busca, `/wiki/{slug}.md`.
+- **Wiki de CONVERSAS** — **REFUTADA POR DADO em 07/08/2026**, não
+  adiada. Regra E-2: dos 5 alvos, a extração existente recuperou 2
+  (critério era ≥3). O conteúdo está no corpus (5/5 em texto cru, 3.748
+  turnos) mas `cognitive_decisions` não o alcança: o prompt pede
+  "conceitos técnicos" e por isso descarta identificador (`exp016`),
+  nome de parâmetro (`NOT_FOUND_FLOOR`) e substantivo próprio
+  (`Mongólia` — 0 de 8). Controle negativo 0/20, parse 0 falhas —
+  extrator íntegro, alvo diferente. Custo da refutação: US$0,14.
+  Ver `docs/design_wiki_conversas.md`.
+- **Extrator de ENTIDADES (frente nova, não resgate da anterior)** — a
+  Wiki de conversas precisaria de extração com outro alvo: parâmetros,
+  identificadores de experimento, nomes de arquivo, substantivos
+  próprios. É prompt novo, calibração nova e custo NÃO medido — o
+  US$0,29 do §7 daquele design pressupunha reuso e está **inválido**.
+  Exige pré-registro próprio. (origem: 07/08)
