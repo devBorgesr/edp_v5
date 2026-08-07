@@ -282,6 +282,84 @@ que recuperar não entregava, e a camada 3 cai antes de custar semanas.
    corpus. O §7 calculou US$0,29 assumindo reuso; se a cobertura for
    baixa, o custo real é proporcionalmente maior e a afirmação do §2 ("a
    Wiki não cria camada de extração nova") enfraquece. Reportar junto.
+### RESULTADO do passo 1 — 07/08/2026
+
+Store: `C:\edp_data_fase0`, 210 entries. Script: `4367927`.
+
+| medida | valor |
+|---|---|
+| cobertura `cognitive_decisions` | **84/210 = 40,0%** |
+| conceitos distintos | 236 (52 domínios) |
+| conceitos ≥3 ocorrências | **28** ← nº de páginas |
+| abaixo do piso | 208/236 = **88%** (154 são singletons) |
+| **pré-condição** | **1 de 5** |
+
+**VEREDITO: PARAR**, conforme o critério congelado em `b76828b`.
+`1 ≤ 1`. Só `bayes` apareceu, e "dentro de conceito", não exato.
+
+**Predição do arquiteto REFUTADA.** Eu havia registrado "2 ou 3
+presentes"; deu 1. `RRF` e `exp016`, que eu dei como quase certos, não
+estão no corpus.
+
+#### O que o dado mostra além do veredito
+
+Os domínios mais frequentes são `conversacao geral` (8), `postgresql
+indexing` (6), `probabilidade e estatistica` (4), `fisica acustica` (3),
+`acustica nao-linear` (3), `java resilience patterns` (2). **Este corpus
+não é sobre o EDP.**
+
+E isso é verificável, não interpretação: `EXP017_FASE0.md:156` registra que
+`C:\edp_data_fase0` é uma **cópia** criada para a medição do EXP017, com
+*"produção intocada"* — ou seja, a produção é outro store. As 5 queries
+`[N]` perguntam sobre internals do EDP (`RRF`, `exp016`,
+`NOT_FOUND_FLOOR`); o corpus medido é de sondagens sobre PostgreSQL e
+acústica.
+
+**Isto é falha de Passo 0 minha** (`NORTE.md` §4.1): assumi que o store
+continha as conversas de trabalho sem verificar, e o §11 nomeou esse store
+sem checar seu conteúdo.
+
+#### O risco de custo que eu havia sinalizado NÃO se materializou
+
+Recalculando com a cobertura real de 40% (126 entries precisando de
+extração), preços de `model_router.py:30`:
+
+- E2 (126 entries): ~101k tok in (US$0,10) + ~13k out (US$0,06) = **US$0,16**
+- E4 (28 páginas): ~56k tok in (US$0,06) + ~17k out (US$0,08) = **US$0,14**
+- **Total ≈ US$0,30** — contra os US$0,29 estimados no §7.
+
+A estimativa sobreviveu porque extração é barata perto de compilação. O
+aviso do script sobre cobertura baixa está correto como alerta, mas neste
+caso não muda a decisão.
+
+#### Segunda rodada: regra congelada ANTES de rodar
+
+Rodar o mesmo teste num segundo corpus depois de um resultado indesejado é
+exatamente o movimento que vira p-hacking. Portanto, congelado agora:
+
+- **Permitida UMA segunda rodada**, contra o store de **produção**, pelo
+  mesmo script e mesmo critério, sem alterar `ALVOS` nem o corte.
+- **Se produção também der ≤1 de 5: a camada 3 cai**, definitivamente.
+  Não há terceiro corpus. Não se troca a lista de alvos.
+- O resultado da segunda rodada é reportado **ao lado** deste, nunca no
+  lugar dele.
+
+Justificativa de que não é caça a resultado: a pergunta "os conceitos
+existem no corpus?" é sobre um corpus específico, e o corpus medido é
+documentadamente uma cópia de sondagem, não o acervo de trabalho. Trocar
+`fase0` por produção corrige um erro de Passo 0 identificado; trocar o
+critério, não.
+
+#### O achado da distribuição fica pendente, confundido
+
+88% dos conceitos abaixo do piso e 154 singletons **poderiam** indicar que
+a extração produz termos granulares demais, ou que o piso de 3 é alto. Mas
+está confundido pela mesma causa: num corpus espalhado entre PostgreSQL,
+acústica e Java, conceito não repete mesmo. Só é interpretável depois da
+segunda rodada — **não ajustar o piso agora.**
+
+---
+
 2. Pré-registro com o §9 congelado.
 3. E2+E4 numa fatia (um domínio só), medindo custo real contra o §7.
 4. Julgamento das 14 queries.
