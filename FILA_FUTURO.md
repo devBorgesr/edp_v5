@@ -30,7 +30,13 @@ uma meta nova.
   alguém medir F1 (repetição real de perguntas, instrumento pronto em
   `scripts/medir_repeticao_honeypot.py`) E desenhar um gate que não
   selecione vagueza. Ver `docs/preregistro_degrau1_honeypot.md`.
-  (origem: 06/08)
+  PRECISÃO DE ESCOPO (06/08, após objeção do pesquisador): o que foi
+  refutado é o **roteamento por similaridade** sobre memória episódica.
+  O honeypot na visão ampla (memória + wiki + busca web + captura
+  contínua, com API paga como último recurso) **não foi testado** — mas
+  R1 é defeito do GATE, não da FONTE: qualquer fonte atrás do mesmo
+  limiar de similaridade herda a seletividade invertida. Trocar a fonte
+  sem trocar o gate reproduz o resultado. (origem: 06/08)
 - **Corrigir o blob `Q+A` do `websocket.py:1200`** — achado colateral do
   Degrau 1: armazenar `Q: …\nA: …` junto destrói 47% da faixa dinâmica
   da similaridade (amplitude 0.5721 → 0.3009) e dilui seletivamente os
@@ -42,7 +48,12 @@ uma meta nova.
   sólida; antes de construir do zero, avaliar reaproveitar
   `edp/co_occurrence.py` (já vivo, 9 consumidores) e reabrir
   `edp/memory_graph.py` (76 linhas, zero consumidores desde antes de
-  julho — candidato natural em vez de módulo novo), e avaliar se o
-  `graphify` (já usado neste próprio fluxo de trabalho, com exportação
-  `--wiki` e servidor `--mcp` nativos) já cobre a maior parte do
-  escopo antes de reimplementar. (origem: 06/08)
+  julho — candidato natural em vez de módulo novo). CORREÇÃO 06/08: a
+  versão anterior desta linha afirmava que o `graphify` tem "exportação
+  `--wiki` e servidor `--mcp` nativos" — **falso**, eu escrevi errado.
+  `graphify --help` não tem comando `wiki` nem `mcp`, e não existe
+  `graphify-out/wiki/`. O que já existe de conhecimento compilado é
+  `graphify-out/GRAPH_REPORT.md` (1192 linhas, 12 comunidades nomeadas),
+  `graphify-out/memory/` (4 notas de query) e
+  `graphify-out/reflections/LESSONS.md` — avaliar ESSES antes de
+  construir páginas do zero. (origem: 06/08)
