@@ -150,15 +150,29 @@ def test_wiki_nao_serve_conversa_real():
     (3076559) mantém esses arquivos fora do grafo; este teste garante que a
     wiki não passe a servi-los caso o ignore seja afrouxado.
     """
+    import fnmatch
+    import os
+
     from edp import wiki
+
+    # Os MESMOS padrões do .graphifyignore, casados contra o NOME do arquivo.
+    # Substring no caminho inteiro dava falso positivo: `docs/design_wiki_
+    # conversas.md` é documentação do projeto, versionada e sem conteúdo de
+    # conversa, e continha "conversa". O que importa é o arquivo ser um dos
+    # que carregam dado real, não a palavra aparecer no nome.
+    PADROES = ("conversa_*.txt", "conversa_*.md", "conversa[0-9]*.md",
+               "response*.md", "response*.txt", "*chunks*.json",
+               "Análise*.json", "analise*.json", "*.har", "gt_*.csv")
+
     paginas, _ = wiki.indice()
-    proibidos = ("conversa", "response1", "análise_geral", "analise_geral",
-                 ".har", "chunks", "gt_rotulacao", "gt_features")
     for p in paginas:
         for arq in p.arquivos:
-            baixo = arq.lower()
-            assert not any(t in baixo for t in proibidos), (
-                f"página {p.slug} referencia arquivo sensível: {arq}")
+            nome = os.path.basename(arq)
+            casou = [pat for pat in PADROES
+                     if fnmatch.fnmatch(nome, pat) or fnmatch.fnmatch(nome.lower(), pat.lower())]
+            assert not casou, (
+                f"página {p.slug} referencia arquivo sensível: {arq} "
+                f"(padrão {casou[0]})")
 
 
 @requer_grafo

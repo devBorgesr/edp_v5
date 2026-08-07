@@ -253,3 +253,23 @@ EDP_WIKI = os.environ.get("EDP_WIKI", "1") == "1"
 # Nenhum código consome esta flag ainda — ver docs/wiki_conversas_pendente.md.
 EDP_WIKI_CONVERSAS = os.environ.get("EDP_WIKI_CONVERSAS", "0") == "1"
 
+
+# ── Âncora de tarefa compacta (peça 2.6f, 07/08/2026) ───────────────────────────
+# A listagem "Decisões:" por seção da âncora custa 79% do bloco inteiro
+# (medido: 9.100 de 11.486 chars em 10 seções x 6 decisões x 120 chars) e é
+# quase toda redundante com o bloco consolidado, que já lista cada chave com
+# sua seção de origem. "Quase" porque o consolidado guarda só a PRIMEIRA
+# decisão de cada chave — se a Seção 4 muda `messaging`, o por-seção registra
+# e o consolidado não.
+#
+# Com a flag ON: a linha por-seção sai, e o consolidado passa a carregar a
+# cadeia de mudanças ("Kafka (S1) -> RabbitMQ (S4)"), que é a informação que
+# realmente importa para continuidade de decisão e cresce só quando há mudança.
+#
+# Motivo do teto: a âncora é Camada 0.5, injetada ANTES da janela imediata, e
+# é o único bloco sem limite — challenge tem 2000/800, decisões por seção têm
+# 6 chaves, CAPS_POR_POSICAO limita cada slot. Em 10 seções ela chega a 96% do
+# cap de 12000 do turno-1; a tarefa validada em 30/05 rodou nessa borda.
+#
+# Default OFF: muda o prompt que vai ao modelo (Tier 2/3, edp_metodologia.md).
+EDP_ANCHOR_COMPACT = os.environ.get("EDP_ANCHOR_COMPACT", "0") == "1"
