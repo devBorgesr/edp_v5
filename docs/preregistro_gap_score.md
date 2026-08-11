@@ -1010,3 +1010,79 @@ Terceiro erro desta família hoje — 7 órfãs (eram 5), 0 links quebrados
 (eram 2), e este. Os três são **ler parte da estrutura e tratar como o
 todo**, que é literalmente o defeito sob investigação. O código que mede
 precisa ser mais rigoroso que o objeto medido; hoje não foi.
+
+---
+
+## NOTA DE EXECUÇÃO — item 1 do E-3.5, 11/08/2026
+
+Os 2 links quebrados de `r1-seletividade-invertida` foram **removidos**,
+não convertidos em páginas.
+
+**Argumento neutro, que decide sozinho:** `medir_alcance_wiki.py` já não
+contava alvo inexistente como aresta — ia para `quebrados`. Remover a
+declaração não move nenhum número congelado em E-3.2. Verificado depois
+da edição: **27 arestas válidas, mediana 4,5, min 2, max 8, 2/16 fora da
+faixa** — idênticos. O lint foi de **2 erros para 0**.
+
+**Segundo motivo, e declaro que ele não é cego:** ao olhar os alvos,
+notei que `blob-qa-comprime-faixa-dinamica` é o achado dos 47%, que é o
+assunto de **Q6** — pergunta do conjunto A. Criar essa página injetaria
+conteúdo exatamente sobre uma pergunta do teste. O argumento neutro já
+bastava; este aponta para o mesmo lado e fica registrado por honestidade,
+não como justificativa.
+
+A emenda ficou no corpo da própria página (regra 3 do schema), já que
+`edp_wiki/` é gitignored e não há registro em git da edição.
+
+---
+
+## RESSALVA A E-3.2 — a faixa [3,12] não é calibração
+
+Registrado em 11/08, depois de a faixa já ter sido usada.
+
+**A faixa não tem derivação externa.** "Abaixo de 3 é ler uma página,
+acima de 12 é ler o acervo" é raciocínio razoável, mas 3 e 12 saíram de
+intuição minha, não de calibração contra nada. O que a salva de ser
+ajuste é ter sido declarada **antes** de medir — não é tunada ao
+resultado. Mas não é constante do sistema.
+
+**Ela depende do tamanho do corpus.** 12 é 75% de 16. Com 100 páginas,
+"12" significaria 12% e a faixa passaria a testar outra coisa. Portanto:
+**revalidar quando o corpus crescer**, com nova declaração pré-dado. Não
+tratar como parâmetro permanente.
+
+**E N=16 é instável para qualquer limiar fixo.** No dia 11/08 a mediana
+de alcance assumiu 4,0 / 4,5 / 11,5 conforme detalhe de implementação —
+dois desses valores eram bug meu, mas a lição vale: com 16 nós, decisão
+binária em cima de uma mediana é frágil por construção.
+
+---
+
+## RISCO DECLARADO PARA O ITEM 2 (definir `necessidade`), antes de escrevê-lo
+
+Foi sugerido, como primeira versão mínima:
+
+> `necessidade = (conceito, tipo de pergunta: definição / origem /
+> evolução / contradição)`
+
+**Essas quatro categorias são quase a taxonomia do próprio gabarito.**
+`docs/preregistro_rodagem_cruzada_wiki.md` §4 classifica as 12 perguntas
+em: `a—decisão`, `b—refutado`, `c—evolução`, `d—contradição`,
+`e—proveniência`, `f—padrão`. E aquela taxonomia foi escrita **olhando
+as perguntas**.
+
+Definir o espaço de tipos de `necessidade` a partir dela é moldar o
+predicado pelo conjunto de teste — o mesmo defeito que E-2.0 recusou em
+Q11, um nível abaixo e mais difícil de ver, porque não muda nenhuma
+pergunta de lado: apenas garante que o predicado tenha uma categoria
+para cada coisa que o teste pergunta.
+
+**Não estou dizendo que a sugestão está errada.** Estou registrando que,
+se as categorias vierem daquela lista, o resultado não pode ser lido
+como evidência de que o predicado generaliza — só de que ele cobre este
+gabarito. Se vierem de outro lugar (uma taxonomia de relação semântica
+publicada, ou derivadas do schema sem olhar as perguntas), a leitura é
+mais forte.
+
+Quem escrever o item 2 deveria declarar **de onde as categorias vieram**,
+antes de aplicá-las.
