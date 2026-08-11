@@ -909,3 +909,104 @@ congelado antes.
 
 E reforça o achado central em vez de enfraquecê-lo: mesmo com (a)
 possivelmente inflada, (b) falhou nos quatro métodos.
+
+---
+
+## EMENDA E-3 — 11/08/2026, PRÉ-DADO (nenhum navegador foi escrito)
+
+Depois que as quatro medições de cobertura falharam, surgiu — do
+pesquisador, observando um pé de manga — a hipótese de que lacuna não é
+grandeza a calcular sobre o corpus, e sim **evento de navegação**: o
+ponto em que a propagação de uma tarefa deixa de ser sustentada pela
+estrutura existente. Esta emenda congela o que dá para congelar e
+registra o que bloqueia.
+
+### E-3.1 — Modelo do grafo: DIRIGIDO, congelado
+
+Aresta = união de `links:` do frontmatter com `[[...]]` do corpo,
+**seguida só no sentido declarado**. Link de wiki é dirigido: "A cita B"
+não implica que B conheça A. Seguir backlink é suposição extra e exigiria
+teste próprio.
+
+Medido em 11/08 sobre as 16 páginas (`sha256 27e4fe846fdc37fb`):
+**27 arestas dirigidas válidas**, grau de saída médio **1,69**.
+
+### E-3.2 — Pré-condição de alcance (critério declarado ANTES de medir)
+
+> Navegação só carrega informação além da leitura global se, de um ponto
+> de entrada típico, a BFS em profundidade ≤3 alcançar **entre 3 e 12**
+> dos 16 nós. Abaixo de 3 não há caminho — é ler uma página. Acima de 12
+> não há discriminação — é ler o acervo.
+
+| modelo | mediana | min | max | fora de [3,12] | |
+|---|---|---|---|---|---|
+| **dirigido** | **4,5** | 2 | 8 | 2/16 | **PASSA** |
+| não-dirigido | 11,5 | 6 | 16 | 7/16 | passa raspando |
+
+O dirigido passa com folga e discrimina: 28% do acervo por entrada. O
+não-dirigido alcança 72%, com dois pontos chegando ao grafo inteiro —
+quase "ler tudo com passos no meio". Mais uma razão para congelar
+dirigido.
+
+**Pré-condição satisfeita ≠ hipótese comprovada.** Isto responde
+"existe vizinhança pequena o bastante para experimentar?". Não responde
+"essa vizinhança contém o caminho necessário?".
+
+### E-3.3 — O BLOQUEIO: não existe aresta tipada
+
+A hipótese exige decidir, a cada passo, se **a relação** representada
+pela aresta satisfaz a necessidade corrente. Medido em 11/08:
+
+- **0 de 16** páginas marcam tipo de relação. `links:` é lista de slugs
+  puros: `links: ["compressao-zero-e-loops-abertos"]`.
+- **`docs/WIKI_SCHEMA.md` não define vocabulário de tipo de aresta.**
+
+Consequência: `capacidade_de_satisfação(transição, necessidade)` não tem
+o que ler além do **conteúdo da página-alvo** — que é leitura lexical,
+agora **uma por passo** em vez de uma por consulta. O defeito que matou
+as três fórmulas voltaria distribuído pelo laço, mais difícil de ver.
+
+**Portanto o navegador NÃO é implementável hoje**, e o bloqueio não é de
+desenho: falta uma peça do schema.
+
+### E-3.4 — O que fica registrado como não resolvido
+
+1. **`necessidade` e `capacidade_de_satisfação` são indefinidos.** A
+   formulação `Need ≠ ∅ ∧ ∀t: cap(t,Need)=0 → GAP`, com `cap`
+   indefinido, diz "há lacuna quando nada funciona" — verdadeira por
+   construção, infalsificável. Mesma forma do critério mole que este
+   documento já rejeitou uma vez.
+2. **Histórico de uso de aresta conflita com o §7.2 do schema**
+   (*"nenhuma métrica interna promove nada"*). Registrar como evento em
+   vez de peso não desfaz o laço de autoconfirmação.
+3. **A analogia do dreno pressupõe vasculatura.** Grau 1,69 e 5 órfãs
+   não são rede de transporte.
+
+### E-3.5 — Decisões congeladas sobre o corpus
+
+- **NÃO conectar as 5 órfãs.** Adicionar aresta para o navegador
+  funcionar é alterar o corpus a favor do experimento — o simétrico do
+  que E-2.0 recusou em Q11. Órfã é dado, não defeito a corrigir:
+  `contagem-de-nos-como-medida-de-vagueza` é núcleo **e** órfã.
+- **SIM corrigir os 2 links quebrados** — são arestas declaradas
+  apontando para o nada, promessa falsa, não conhecimento ausente. Criar
+  as páginas ou remover os links: escolha feita **cega às 15 perguntas**.
+- **NÃO implementar RWR, PageRank ou MCTS.** Grau 1,69 e alcance 4,5 não
+  sustentam propagação probabilística. RWR *é* o personalized PageRank —
+  um algoritmo listado como dois. MCTS a profundidade 3 sobre 16 nós é
+  enumerável por BFS exaustivo.
+- **Nome: `Gap Event`, não `Gap Score 2.0`.** Inventar o número antes de
+  entender o fenômeno foi como esta frente começou.
+
+### ERRATA de medição — 11/08
+
+A segunda rodada de alcance deu mediana 4,0 no não-dirigido, contra 11,5
+da primeira. **A segunda estava errada:** filtrei os links contra o
+conjunto `slugs` **enquanto ele ainda estava sendo preenchido** no mesmo
+laço, descartando toda referência a página posterior na ordem
+alfabética. Os números válidos são os do E-3.2.
+
+Terceiro erro desta família hoje — 7 órfãs (eram 5), 0 links quebrados
+(eram 2), e este. Os três são **ler parte da estrutura e tratar como o
+todo**, que é literalmente o defeito sob investigação. O código que mede
+precisa ser mais rigoroso que o objeto medido; hoje não foi.
