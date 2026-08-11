@@ -4,6 +4,37 @@
 > Sprint 06-07/06/2026 entregou: Commits 4-fix, 5α, 6, 3d (com 4 ciclos de
 > bug) + Commit ε (validação cruzada).
 
+> **ERRATA (11/08/2026) — documento histórico, não corrente.** Texto abaixo
+> preservado intacto (regra 3, `WIKI_SCHEMA.md` / §4.4 do método,
+> `NORTE.md`) — nada foi apagado nem reescrito.
+>
+> O que mudou desde 07/06 e torna a leitura abaixo desatualizada, ponto a
+> ponto:
+> - A convenção de nomenclatura de commit por letra grega (Commit 3d, 5α,
+>   ε, γ) foi abandonada; o projeto passou a nomear por branch/experimento
+>   (`exp0XX`, `hardening/faseN`, `fix/<nome>`).
+> - "Mantenedor: Renato (autodidata)" (linha final) não corresponde a
+>   nenhum outro documento do repositório, que se referem ao pesquisador
+>   como Daniel (`devBorgesr`). Não verificado se é pseudônimo antigo,
+>   erro do documento original, ou período anterior distinto — registrado
+>   como discrepância, não resolvido aqui.
+> - A tabela "Estado Atual do EDP (07/06/2026)" e "Próximos commits
+>   planejados" descrevem um sistema anterior ao ciclo de curadoria de
+>   24/06/2026 (`RESULTADO_AUDITORIA_EDP_v5.md` — remoção do bloco v3.2,
+>   11 arquivos/~5.500 linhas) e a tudo que veio depois (exp008–exp017,
+>   hardening fase 1–4, pré-registros de 07–08/2026). Boa parte dos
+>   componentes citados como "✅ validados" não existe mais sob esse nome.
+> - Os **6 Princípios EDP** e as **4 Dimensões de Investigação Prévia**
+>   seguem citados e em uso — `NORTE.md §4.8` refere-se a este documento
+>   para o checklist completo das dimensões (embora `NORTE.md` fale em "5
+>   dimensões", contando a 5ª — custo de LLM — que este documento não
+>   nomeia como tal; outra discrepância registrada, não resolvida).
+>
+> **A descrição do estado corrente do sistema, com evidência
+> re-verificada em 11/08/2026, está em
+> [`docs/edp_metodologia_v5.md`](edp_metodologia_v5.md).** Este documento
+> fica como registro histórico do método tal como formalizado em 06–07/06.
+
 ---
 
 ## Por que este documento existe
