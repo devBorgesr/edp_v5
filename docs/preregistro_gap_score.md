@@ -332,3 +332,68 @@ contar presença de token, sem qualquer noção de sobre o que a página é.
   isso agora, depois de ver o dado, seria ajuste de curva. Exige emenda
   pré-dado, na disciplina de E-1/E-2 da rodagem cruzada.
 - **Não decide:** nada sobre menção-vs-tratamento, que N2 mostra vivo.
+
+---
+
+## EMENDA E-1 — 11/08/2026, PRÉ-DADO (a correção não rodou)
+
+O resultado localizou o primeiro defeito num ponto: `idf.get(t, 0.0)`.
+Consertar e re-testar **depois** de ver o dado é ajuste de curva, a menos
+que a correção e a predição sejam declaradas antes. É o que esta emenda
+faz. Mesma disciplina de E-1/E-2 da rodagem cruzada.
+
+### E-1.1 — A correção, congelada
+
+**G-idf⁰** — idêntica a G-idf, com uma diferença única:
+
+```
+antes:  idf.get(t, 0.0)              # termo nunca visto vale 0 e some
+depois: idf.get(t, math.log(N+1))    # aplica log((N+1)/(df+1)) com df=0
+```
+
+Com N=16, um termo de `df = 0` passa a valer **2,833** — o maior peso
+possível na escala. Não é fórmula nova: é a **mesma** fórmula
+`log((N+1)/(df+1))` aplicada onde estava sendo pulada. O `0.0` veio de
+`edp/wiki.py:259`, onde é correto (não se ranqueia por termo que ninguém
+tem) e onde nunca precisou valer para ausência.
+
+Nada mais muda: mesmo τ = 0,5, mesmas quatro condições do §4, mesmo
+gabarito do §3, mesmos `_RE_TOKEN`/`_STOPWORDS` importados.
+
+### E-1.2 — Predição pré-dado
+
+Placar honesto: **cinco erros consecutivos** nesta frente (alvos do
+fase0, Mongólia, recall da extração, bimodal, e o mecanismo deste teste).
+
+Predigo que **G-idf⁰ passa em (b) e (c) e (d), e FALHA em (a)**.
+
+Raciocínio declarado antes de rodar: o conserto dá peso máximo a
+*qualquer* termo ausente do corpus — e o corpus são 16 páginas curtas,
+que não usam a maior parte do português. `edp_hybrid_retrieval` ausente é
+lacuna real; `costumo`, `assumir`, `desenhar`, `nelas` ausentes são
+ruído, e têm `df = 0` igual. Q11 ("que tipo de **premissa costumo
+assumir** sem verificar antes de **desenhar**?") é do conjunto A e tem
+três termos assim. Q6 e Q1 têm dois cada.
+
+Ou seja: predigo que a correção troca uma inversão por uma
+**descalibração** — passa a marcar lacuna onde há resposta.
+
+Se eu estiver certo, o achado é que o sinal útil não é *"termo não
+visto"*, e sim *"termo não visto **e** específico"* — e o IDF não
+distingue os dois, porque calcula sobre o mesmo corpus que não viu
+nenhum dos dois.
+
+### E-1.3 — O que a emenda NÃO tenta consertar
+
+**Nada em N2.** `mongólia` está em 6 das 16 páginas, `capital` em 2 —
+nenhum termo ausente. G-idf⁰ dará **exatamente 0,000** em N2, igual às
+outras duas. O defeito menção-vs-tratamento não é tocado por esta
+emenda, e nenhum resultado dela pode ser lido como evidência sobre ele.
+
+### E-1.4 — Regra de parada
+
+Se G-idf⁰ falhar, **acaba aqui**: três fórmulas, três falhas, e a
+terceira falhando pelo motivo oposto à segunda é sinal de que o problema
+não está no peso, e sim em contar token. Não haverá quarta fórmula sem
+que algo externo mude — corpus maior, ou extração de assunto, que custa
+LLM e sai do orçamento zero declarado no cabeçalho.
