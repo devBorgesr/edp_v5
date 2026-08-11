@@ -847,3 +847,65 @@ todas. Nenhum erro por omissão.
   olhar**, o que é diferente — e exige pré-registro próprio, com o
   critério de reclassificação declarado antes, não depois. E-2.0 é o
   precedente de por quê.
+
+---
+
+## ADENDO AO RESULTADO E-2 — auditoria da saída crua, 11/08
+
+O JSON bruto expôs três coisas que a tabela de vereditos esconde. Todas
+enfraquecem a leitura de (a), e nenhuma muda o veredito FALHA.
+
+### 1. O modelo não obedeceu o formato — 8 de 15
+
+O prompt de E-2.2 diz *"Responda SOMENTE com uma linha"*. Em 8 das 15
+perguntas o modelo emendou justificativa, cortada pelo `max_tokens=32`.
+O parser lê a primeira linha e funcionou; a medição está intacta. Mas a
+instrução foi desobedecida em mais da metade dos casos, e isso fica
+registrado como desvio, não como detalhe.
+
+### 2. (a) passou por um caminho que o prompt proibiu
+
+`Q11` respondeu **SIM** — e a justificativa começa citando
+`[[que-perguntas-fazer-a-uma-wiki-pessoal]]`, que é a página onde as
+perguntas aparecem **como exemplo**. O prompt diz, textualmente:
+
+> *"NÃO conta como material: o termo da pergunta aparecer apenas como
+> EXEMPLO de pergunta"*
+
+`Q7` — uma das duas falhas de (b) — cita **a mesma página**, pelo mesmo
+caminho.
+
+Ou seja: a mesma violação da regra produziu a resposta que **bate** com
+o gabarito em Q11 e a que **erra** em Q7. E Q11 é justamente a pergunta
+que fez (a) passar em 3/4.
+
+**Não afirmo que o raciocínio foi inválido** — a justificativa foi
+truncada em 32 tokens e não dá para ler o resto. Afirmo o que se pode
+afirmar: **(a) não é passagem limpa, e com este dado não há como
+verificar se é.** O flag fica; a nota, não.
+
+Isso não altera o veredito. E-2 falhou por (b), com ou sem Q11.
+
+### 3. Defeito do meu desenho: o prompt força resposta-antes-de-pensar
+
+O modelo emite `VEREDITO:` na **primeira** linha e só então justifica.
+Ou seja, o veredito é produzido **sem** estar condicionado ao raciocínio
+— o inverso de cadeia de pensamento, e o modo reconhecidamente mais
+fraco para tarefa de julgamento.
+
+Isso é escolha minha em E-2.2, não limitação do modelo. E-2.8 proíbe
+segundo prompt, então **não conserto aqui**: fica como defeito
+declarado do instrumento e como candidato a pré-registro futuro
+("veredito depois do raciocínio, mesmo gabarito"), com o critério
+congelado antes.
+
+### O que o adendo muda
+
+| antes do adendo | depois |
+|---|---|
+| (a) OK, 3/4 | (a) OK **com ressalva** — Q11 chegou lá por caminho proibido |
+| Haiku é o melhor dos quatro | continua sendo — mas a margem em (a) é menos sólida do que o número sugere |
+| veredito FALHA | **inalterado** — (b) cai independentemente |
+
+E reforça o achado central em vez de enfraquecê-lo: mesmo com (a)
+possivelmente inflada, (b) falhou nos quatro métodos.
