@@ -240,3 +240,97 @@ regra, não corrigido no meio.
 orçamento, porque 99 mensagens de Code cobrem menos assunto que 99 turnos
 de conversa web — sessão de trabalho é densa em execução e repetitiva em
 tema. Mas as páginas do C devem responder **mais** perguntas de Q1–Q7.
+
+---
+
+## RESULTADO — condição W, 15 perguntas, 07/08/2026
+
+Wiki com 16 páginas: 5 da condição W, 11 `base` (sessão de trabalho,
+código do graphify, índices de export).
+
+**Leitura do agente, sujeita a revisão do pesquisador** — a régua do §5
+diz que quem pontua é ele.
+
+| # | resposta da wiki | página | classe | nota |
+|---|---|---|---|---|
+| Q1 | completa: 4/4 anafóricas passaram, 0/5 factuais, 0.7362 vs 0.4883 | `r1-seletividade-invertida` | **base** | 2 |
+| Q2 | nada | — | — | 0 |
+| Q3 | **só a pergunta, como exemplo** | `que-perguntas-fazer…` | base | 0 |
+| Q4 | nada | — | — | 0 |
+| Q5 | nada | — | — | 0 |
+| Q6 | 47%, amplitude 0.5721→0.3009, `dd06b87` | `index.md` (lacunas) | **base** | 2 |
+| Q7 | nada | — | — | 0 |
+| Q8 | nada — `Mem0`/`Zep`/`Letta` em **zero** páginas | — | — | 0 |
+| Q9 | nada | — | — | 0 |
+| Q10 | nada | — | — | 0 |
+| Q11 | padrão presente em várias páginas, nenhuma o enuncia | várias | base | 1 |
+| Q12 | placar completo das predições refutadas | `metodo-llm-wiki-lido…` | **base** | 2 |
+
+**Bruta: 7 de 24.** **Diferencial: 0.**
+
+### Controles negativos: 6 de 6
+
+N1 (RRF), N2 (Mongólia) e N3 (anafórica) — a wiki não tem página que as
+responda, então recusa por construção. Comportamento correto.
+
+### Baseline `grep` no corpus cru
+
+| # | termo | arquivos web | sessões code |
+|---|---|---|---|
+| Q1 | `similaridade` | 38 | 16 |
+| Q2 | `source_type` | 26 | 21 |
+| Q3 | `SESSION_BOOST_FACTOR` | **15** | **9** |
+| Q4 | `EDP_HYBRID_RETRIEVAL` | 10 | 20 |
+| Q7 | `alucinação` | 19 | 9 |
+| Q8 | `Mem0` | **11** | 3 |
+| Q10 | `contas gratuitas` | 5 | 2 |
+| Q12 | `refutada` | 13 | 13 |
+
+**O grep tem material para 12 de 12. A wiki tem para 3.**
+
+Grep achar o termo não é o mesmo que responder — devolve 15 arquivos para
+ler. Mas não se responde a partir de uma wiki que não tem o conteúdo.
+
+## VEREDITO: H1 FALHA na condição W
+
+> **H1** — a wiki supera o grep em ≥7 das 12. **Respondeu 3.**
+
+**E o diferencial é ZERO.** Nenhuma das 5 páginas compiladas do corpus web
+respondeu pergunta nenhuma. As três que responderam são `base` — saíram de
+compilar **esta sessão de trabalho**, não conversas.
+
+É exatamente o cenário que a emenda E-1.2 antecipou e nomeou:
+
+> *"Se a nota bruta for alta e a diferencial ~zero, a conclusão é que o
+> valor veio de compilar a sessão de trabalho, não de compilar conversas —
+> que é um achado, não um fracasso."*
+
+### O achado, formulado
+
+**Compilar a sessão de trabalho funciona. Compilar conversas do acervo
+não** — pelo menos nesta fatia de 99 turnos, escolhida por densidade de
+thinking e proximidade ao assunto.
+
+Motivo plausível, **não medido**: as páginas do W tratam de mercado,
+originalidade do exportador e diagnóstico de maio; as perguntas Q1–Q7 são
+sobre decisões de implementação, que vivem no Code e na sessão de
+trabalho. A fatia do W pode ter sido bem escolhida para "densidade de
+thinking" e mal escolhida para "responde às 12 perguntas".
+
+### Detalhe que vale registrar
+
+Q3 pergunta *"por que `SESSION_BOOST_FACTOR` vale 1.60?"*. A única página
+que casa é `que-perguntas-fazer-a-uma-wiki-pessoal`, que usa essa frase
+**como exemplo de boa pergunta**. A wiki devolveu a pergunta em vez da
+resposta.
+
+### O que isto decide, e o que não
+
+**Decide:** a condição W, como executada, não sustenta H1. Compilar mais
+do mesmo tipo de conversa não é o caminho.
+
+**Não decide:** se a condição C venceria. Ela está congelada (E-2.3, três
+sessões, teto de 99) e **não rodou**. As perguntas Q1–Q7 previam C como
+vencedora, e é precisamente o que não foi testado.
+
+**Custo até aqui: US$0,00 de API.**
