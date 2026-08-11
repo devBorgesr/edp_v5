@@ -128,30 +128,37 @@ def main() -> int:
             df[t] = df.get(t, 0) + 1
     idf = {t: math.log((N + 1) / (d + 1)) for t, d in df.items()}
 
+    # E-1.1 — termo nunca visto (df=0) vale log((N+1)/(0+1)), não 0.0
+    IDF0 = math.log(N + 1)
+    print(f"E-1.1: peso de termo com df=0 -> {IDF0:.3f} (era 0.0)")
+
     print("\n" + "=" * 100)
-    print(f"{'#':<5}{'cl':<6}{'g_bruto':>9}{'g_idf':>9}   termos da consulta  (ausente = MAIÚSCULA)")
+    print(f"{'#':<5}{'cl':<6}{'g_bruto':>9}{'g_idf':>9}{'g_idf0':>9}   "
+          f"termos da consulta  (ausente = MAIÚSCULA)")
     print("-" * 100)
 
-    res: dict[str, tuple[float, float]] = {}
+    res: dict[str, tuple[float, float, float]] = {}
     for qid, classe, texto in PERGUNTAS:
         termos = toks_consulta(texto)
         if not termos:
-            res[qid] = (1.0, 1.0)
-            print(f"{qid:<5}{classe:<6}{1.0:>9.3f}{1.0:>9.3f}   (nenhum termo após stopwords)")
+            res[qid] = (1.0, 1.0, 1.0)
+            print(f"{qid:<5}{classe:<6}{1.0:>9.3f}{1.0:>9.3f}{1.0:>9.3f}   (sem termo)")
             continue
 
         presentes = termos & coberto
         g_bruto = 1.0 - len(presentes) / len(termos)
 
         peso_tot = sum(idf.get(t, 0.0) for t in termos)
-        if peso_tot == 0:
-            g_idf = 1.0
-        else:
-            g_idf = 1.0 - sum(idf.get(t, 0.0) for t in presentes) / peso_tot
+        g_idf = (1.0 - sum(idf.get(t, 0.0) for t in presentes) / peso_tot
+                 if peso_tot else 1.0)
 
-        res[qid] = (g_bruto, g_idf)
+        peso_tot0 = sum(idf.get(t, IDF0) for t in termos)
+        g_idf0 = (1.0 - sum(idf.get(t, IDF0) for t in presentes) / peso_tot0
+                  if peso_tot0 else 1.0)
+
+        res[qid] = (g_bruto, g_idf, g_idf0)
         vis = " ".join(sorted(t if t in presentes else t.upper() for t in termos))
-        print(f"{qid:<5}{classe:<6}{g_bruto:>9.3f}{g_idf:>9.3f}   {vis[:70]}")
+        print(f"{qid:<5}{classe:<6}{g_bruto:>9.3f}{g_idf:>9.3f}{g_idf0:>9.3f}   {vis[:62]}")
 
     print("=" * 100)
 
@@ -173,15 +180,17 @@ def main() -> int:
         return passa
 
     p_bruto = avalia(0, "BRUTA  (§2, como o plano escreveu)")
-    p_idf = avalia(1, "IDF    (§2, corrigida)")
+    p_idf = avalia(1, "IDF    (§2, ponderada)")
+    p_idf0 = avalia(2, "IDF⁰   (E-1.1, df=0 vale o máximo)")
 
     print("\n" + "=" * 100)
     print("N1/N2 medidos e relatados, FORA do critério (§5):")
     for q in ("N1", "N2"):
-        print(f"   {q}: bruto={res[q][0]:.3f}  idf={res[q][1]:.3f}")
+        print(f"   {q}: bruto={res[q][0]:.3f}  idf={res[q][1]:.3f}  idf0={res[q][2]:.3f}")
     print("=" * 100)
     print(f"RESULTADO: bruta={'PASSA' if p_bruto else 'FALHA'}   "
-          f"idf={'PASSA' if p_idf else 'FALHA'}")
+          f"idf={'PASSA' if p_idf else 'FALHA'}   "
+          f"idf0={'PASSA' if p_idf0 else 'FALHA'}")
     return 0
 
 

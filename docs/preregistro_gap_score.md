@@ -397,3 +397,102 @@ terceira falhando pelo motivo oposto à segunda é sinal de que o problema
 não está no peso, e sim em contar token. Não haverá quarta fórmula sem
 que algo externo mude — corpus maior, ou extração de assunto, que custa
 LLM e sai do orçamento zero declarado no cabeçalho.
+
+---
+
+## RESULTADO E-1 — 11/08/2026
+
+| # | cl | bruta | idf | **idf⁰** | ausentes |
+|---|---|---|---|---|---|
+| Q1 | A | 0,286 | 0,393 | **0,393** | rotear, testamos |
+| Q2 | B | 0,429 | 0,000 | **0,569** | check, form, identificar |
+| Q3 | B | 0,333 | 0,503 | **0,503** | `session_boost_factor` |
+| Q4 | B | 0,571 | 0,000 | **0,720** | `edp_hybrid_retrieval`, flag, muda, tóxico |
+| Q5 | B | 0,400 | 0,000 | **0,507** | mandar, segundos |
+| Q6 | A | 0,500 | 0,451 | **0,578** | blob, dinâmica, perda |
+| Q7 | B | 0,667 | 0,520 | **0,843** | boost, calibração, incidente, motivou |
+| Q8 | B | 0,875 | 0,828 | **0,954** | competir, letta, mem0, posição, zep… |
+| Q9 | B | 0,333 | 0,469 | **0,469** | 2026, agosto, mudou |
+| Q10 | B | 0,286 | 0,000 | **0,396** | gratuitas, manter |
+| Q11 | A | 0,500 | 0,465 | **0,591** | assumir, costumo, desenhar |
+| Q12 | A | 0,333 | 0,193 | **0,387** | nelas, quais |
+| N1 | ctrl | 0,250 | 0,000 | 0,478 | híbrido |
+| N2 | ctrl | 0,000 | 0,000 | **0,000** | — nenhum |
+| N3 | ctrl | 1,000 | 1,000 | **1,000** | discutiu, gente, lembra |
+
+| condição | bruta | idf | **idf⁰** |
+|---|---|---|---|
+| (a) ≥3/4 de A com gap<0,5 | 2/4 ✗ | 4/4 ✓ | **2/4 ✗** |
+| (b) ≥7/8 de B com gap≥0,5 | 3/8 ✗ | 3/8 ✗ | **6/8 ✗** |
+| (c) Q3 ≥0,5 | 0,333 ✗ | 0,503 ✓ | **0,503 ✓** |
+| (d) N3 ≥0,5 | 1,000 ✓ | 1,000 ✓ | **1,000 ✓** |
+| **veredito** | FALHA | FALHA | **FALHA** |
+
+### Placar da predição E-1.2: 3 de 4
+
+Previ *"passa em (b), (c), (d) e falha em (a)"*.
+
+- **(a) falha — acertei**, e pelos nomes que declarei: Q6 (0,451→0,578) e
+  Q11 (0,465→0,591) cruzaram o limiar exatamente por termos como
+  `costumo`, `assumir`, `desenhar`, `blob`, `perda`.
+- **(b) errei.** Subiu de 3/8 para 6/8 e parou a **uma** pergunta do
+  critério. Q9 (0,469) e Q10 (0,396) seguraram.
+- (c) e (d) — acertei.
+
+Primeira predição majoritariamente certa desta frente, depois de cinco
+erradas. Registrado sem arredondar: **errei (b)**.
+
+### E-1.3 confirmada: N2 = 0,000 nas três
+
+Como declarado antes de rodar. Menção-vs-tratamento intocado.
+
+## O achado: as três falham em lados OPOSTOS
+
+| fórmula | peso do termo ausente | como falha |
+|---|---|---|
+| idf | 0,0 — some da conta | **conservadora demais**: (b) 3/8, quase nada vira lacuna |
+| idf⁰ | 2,833 — o máximo | **agressiva demais**: (a) 2/4, resposta que existe vira lacuna |
+| bruta | 1 termo = 1 termo | falha nos dois |
+
+**É o mesmo botão.** O peso do termo ausente controla (a) e (b) em
+direções opostas, e não há ajuste que satisfaça as duas — não porque o
+valor certo não foi achado, mas porque a grandeza medida não separa os
+dois conjuntos.
+
+**Por quê, no dado:** `mem0` está ausente porque o assunto não está na
+wiki. `costumo` está ausente porque a palavra não foi digitada. As duas
+têm `df = 0`. Contagem de token não distingue **assunto ausente** de
+**palavra não usada** — e 16 páginas curtas não usam a maior parte do
+português, então o segundo caso domina.
+
+### Ressalva contra mim mesmo
+
+Q6 é do conjunto A porque a rodagem cruzada a respondeu — mas pela
+página **`index.md`**, que o §1 deixou fora do corpus
+(`edp_wiki/paginas/*.md`). Parte do gap alto de Q6 é defeito da minha
+definição de corpus, não da fórmula. Não muda o veredito (Q11 sozinha já
+derruba (a) na idf⁰), mas fica registrado.
+
+## Regra de parada E-1.4: acionada
+
+Três fórmulas, três falhas, a terceira pelo motivo oposto à segunda.
+**Encerrado.** Não haverá quarta sem que algo externo mude.
+
+O que sobrevive, medido:
+
+1. **N3 = 1,000 nas três.** O filtro `len>2` + `_STOPWORDS` (170
+   palavras), importado de `edp.wiki`, mata a consulta vaga por
+   construção. **R1 não voltou pelo lado da consulta** — voltou pelo lado
+   do peso, e agora está documentado nos dois.
+2. **Q8 = 0,954** — separação limpa quando os termos ausentes são nomes
+   próprios que a wiki nunca menciona.
+
+### Hipótese registrada, NÃO testada
+
+A diferença entre Q8 (0,954, acerto) e Q11 (0,591, erro) não é `df` —
+ambos zero. É que `mem0`/`zep`/`letta`/`edp_hybrid_retrieval` **parecem
+identificadores** e `costumo`/`assumir` são palavras comuns.
+
+Testar isso agora seria a quarta fórmula depois de ver três resultados —
+exatamente o que E-1.4 proíbe. Fica como **hipótese para pré-registro
+futuro**, com corpus maior, e não como conclusão desta rodada.
