@@ -15,6 +15,8 @@ pydantic>=2.0
 psutil>=5.9           # métricas de RAM no benchmark
 faiss-cpu>=1.7        # ANN retrieval acelerado (10-100x mais rápido)
 # hnswlib>=0.7        # alternativa ao FAISS para HNSW
+pyyaml>=6.0            # edp.profiles: seed de perfis via YAML
 
 # Nota: sqlite3 e zlib já fazem parte da stdlib do Python
 # Nota: sentence-transformers baixa o modelo na 1ª execução (~90MB)
+pyyaml>=6.0
