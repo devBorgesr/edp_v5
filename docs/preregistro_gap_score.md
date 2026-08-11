@@ -546,3 +546,194 @@ correção.
 Mesma família do `aee20f9`: regra aplicada larga demais derruba página
 boa. Terceira vez que este projeto tropeça nisso — vale como padrão, não
 como acidente.
+
+---
+
+## EMENDA E-2 — 11/08/2026, PRÉ-DADO (nenhuma chamada ao Haiku rodou)
+
+A regra de parada E-1.4 admitia uma saída: *"extração de assunto, que
+custa LLM"*. Esta emenda a executa. **Quebra o `US$ 0,00` do cabeçalho**
+— custo declarado no E-2.7.
+
+### E-2.0 — Q11 NÃO muda de lado. E aqui está a aritmética do porquê.
+
+Foi proposto reclassificar Q11 de **A** para **B**, com o argumento de
+que o teste deveria ser sobre *"existe página dedicada?"* e não sobre
+*"existe material?"*. O argumento é **substantivamente razoável**. O
+problema é o momento.
+
+Q11 é uma das duas perguntas que derrubaram a condição (a) da idf⁰
+(0,591 ≥ 0,5). Movê-la agora:
+
+| | A | B |
+|---|---|---|
+| hoje | Q1 ✓, Q6 ✗, **Q11 ✗**, Q12 ✓ = **2/4** (exige 3) | 6/8 (exige 7) |
+| com Q11 em B | Q1 ✓, Q6 ✗, Q12 ✓ = **2/3** | **7/9** |
+
+Melhora os **dois** lados de uma vez, e obriga a reescrever os **dois**
+limiares — porque "≥3 de 4" e "≥7 de 8" não existem mais. Sob
+reescrita proporcional (75% e 87,5%) continua falhando; sob "≥2 de 3" e
+"≥7 de 9", **passa**.
+
+Ou seja: o veredito passaria a depender de uma escolha feita **depois**
+de ver qual pergunta estragou o resultado. É a definição de ajuste de
+curva, e é exatamente o que o §4 proíbe.
+
+**Decisão: Q11 fica em A, como congelada no §3.**
+
+O repositório já tem regra para pergunta mal formulada, e ela é
+**anulação**, não reclassificação
+(`preregistro_rodagem_cruzada_wiki.md` §7): *"é reportada como defeito
+do instrumento e **anulada**, nunca substituída"*. Anular é neutro —
+encolhe os dois denominadores. Reclassificar é direcional. A diferença
+não é de rigor, é de aritmética.
+
+**A leitura "página dedicada" fica registrada como pré-registro futuro
+próprio**, com gabarito construído antes de ver o dado dele. Não entra
+aqui de carona.
+
+### E-2.1 — O que muda no desenho, e por quê
+
+Fórmula se congela byte a byte. **Prompt, não.** Prompt + modelo +
+temperatura devolvem uma distribuição, e toda a máquina do §4 pressupõe
+determinismo. Por isso E-2 acrescenta uma quinta condição, sobre
+estabilidade, **antes** de qualquer nota.
+
+### E-2.2 — O prompt, congelado verbatim
+
+**Sistema:**
+
+```
+Você recebe as páginas de uma wiki pessoal e UMA pergunta.
+
+Decida uma coisa só: a wiki contém material suficiente para responder
+a pergunta?
+
+"Material suficiente" significa que alguém lendo estas páginas
+conseguiria formular a resposta. NÃO exige que exista uma página
+dedicada ao assunto — material espalhado por várias páginas conta.
+
+NÃO conta como material:
+- o termo da pergunta aparecer apenas como EXEMPLO de pergunta
+- o termo aparecer só em lista, índice ou menção de passagem, sem o
+  conteúdo que responde
+
+Responda SOMENTE com uma linha, exatamente neste formato:
+VEREDITO: SIM
+ou
+VEREDITO: NAO
+```
+
+**Usuário:**
+
+```
+=== PÁGINAS DA WIKI ===
+{as 16 páginas íntegras, cada uma precedida de "--- <slug> ---"}
+
+=== PERGUNTA ===
+{texto da pergunta}
+```
+
+**Declaração sobre a cláusula "NÃO conta como material":** ela existe
+porque é **exatamente a distinção que as três fórmulas não souberam
+fazer** (Q3 e N2). Está aqui explicitamente, e não escondida, para que
+seja auditável: se for removida, o teste vira outro e o resultado não é
+comparável. Não é ajuda indevida — é a **especificação** do que se
+entende por lacuna, e o que se mede é se o modelo a implementa.
+
+**A pergunta feita é "há material?", não "há página dedicada?"** —
+porque é essa que o gabarito congelado do §3 responde. As notas do W
+foram escritas sobre a wiki *responder*, não sobre haver página com o
+assunto no título.
+
+### E-2.3 — Modelo e execução, congelados
+
+| item | valor |
+|---|---|
+| modelo | `claude-haiku-4-5` — o default de `edp/llm_adapter.py:1447` |
+| temperatura | **0.0** |
+| rodadas por pergunta | **5** |
+| ordem das páginas | alfabética por slug, fixa nas 5 rodadas |
+| corpus | as mesmas 16 páginas, `sha256 27e4fe846fdc37fb` |
+| parsing | linha `VEREDITO: SIM\|NAO`; qualquer outra saída = **resposta inválida**, contada como não-unânime |
+
+Cinco rodadas, não três: com três, um desacordo 2×1 já é maioria simples
+e a instabilidade some no arredondamento. Com cinco, ela aparece.
+
+### E-2.4 — Condição (e), nova: estabilidade
+
+**Unanimidade das 5 rodadas é exigida por pergunta.** Pergunta cujas 5
+rodadas não concordarem é marcada **instável** e conta como
+**não-acerto** no conjunto dela.
+
+Sem voto de maioria. Um detector de lacuna que oscila é pior que um
+consistentemente errado — contra o errado dá para calibrar, contra o
+oscilante não.
+
+**Porta dura:** se **menos de 12 das 15** forem unânimes, o instrumento
+é declarado **não-determinístico** e a rodada inteira é **anulada**, não
+"reprovada". Nota sobre ruído não é nota.
+
+### E-2.5 — Critério (o do §4, mais (e))
+
+`VEREDITO: SIM` = há material (equivale a gap baixo).
+`VEREDITO: NAO` = não há (gap alto).
+
+| # | condição |
+|---|---|
+| a | ≥ 3 das 4 de **A** com SIM |
+| b | ≥ 7 das 8 de **B** com NAO |
+| c | **Q3 → NAO** |
+| d | **N3 → NAO** |
+| **e** | **≥ 12 das 15 unânimes**; instável = não-acerto |
+
+τ, conjuntos e gabarito **inalterados**. Passa só quem satisfizer as
+cinco.
+
+### E-2.6 — Predição pré-dado
+
+Placar: cinco erradas, e a sexta (E-1.2) certa em 3 de 4.
+
+Predigo: **passa em (b), (c), (d) e (e), e FALHA em (a)** — pelas mesmas
+duas perguntas que derrubaram a idf⁰, e por motivo diferente:
+
+- **Q6** ("de onde saiu o 47%?") — o resultado do W registra que quem
+  respondeu foi **`index.md`**, que não está em `edp_wiki/paginas/`. O
+  Haiku vai ler as 16 páginas e **não achar**, e vai responder `NAO`.
+  Estará **certo sobre o corpus** e **errado contra o gabarito**. O
+  defeito é da minha definição de corpus no §1, já registrado na
+  ressalva do resultado E-1.
+- **Q11** — o próprio gabarito diz *"padrão presente em várias páginas,
+  **nenhuma o enuncia**"*. Predigo `NAO`.
+
+Se eu acertar, o achado não é sobre o Haiku: é que **duas das quatro
+perguntas do conjunto A estão mal ancoradas**, e nenhuma fórmula nem
+modelo poderia acertá-las contra este gabarito. O limite deixa de ser do
+método e passa a ser do gabarito — o que é conclusão diferente e mais
+útil que "o Gap Score não funciona".
+
+Predigo (e) em **15 de 15 unânimes**, com Q6 e Q11 como as candidatas a
+oscilar, se alguma oscilar.
+
+### E-2.7 — Custo, declarado
+
+Medido: 16 páginas = 52.186 chars ≈ 13.046 tokens; ~13.4k por chamada.
+75 chamadas ≈ **1,01M tokens de entrada**.
+
+Preço de `edp/model_router.py:30` (`claude-haiku-4-5`, US$1,00/M in,
+US$5,00/M out): **US$ 1,01 entrada + US$ 0,03 saída ≈ US$ 1,04.**
+
+Primeiro gasto de API desta frente. O cabeçalho deste documento diz
+`US$ 0,00`; passa a valer para E-0 e E-1 apenas.
+
+### E-2.8 — O que E-2 não decide
+
+- **Nada sobre "página dedicada"** — outra pergunta, outro gabarito,
+  outro pré-registro.
+- **Nada sobre custo em produção.** Mede 15 perguntas contra 16 páginas.
+  Wiki maior não cabe no contexto e exigiria recuperação antes — que é
+  o problema original, de volta.
+- **Nada sobre outro modelo.** Congelado em `claude-haiku-4-5`.
+- **Regra de parada mantida:** se E-2 falhar por (e), a rodada é anulada
+  e cabe **uma** repetição, com o mesmo prompt. Se falhar por (a)–(d),
+  acaba — sem sexta fórmula e sem segundo prompt.
