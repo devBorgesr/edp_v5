@@ -1181,3 +1181,88 @@ Fica registrado que **qualquer edição futura que toque
 `r1-seletividade-invertida` ou o assunto de Q6 já não é cega para mim**,
 do mesmo modo que o item 2 está marcado como não-executável por quem viu
 o teste.
+
+---
+
+## ERRATA AO ADENDO — 11/08, o conserto que piorou o que consertava
+
+### O vazamento
+
+`docs/arestas_removidas.md`, criado há minutos para preservar dado,
+gravou em arquivo **versionado e não-gitignored**:
+
+- uma coluna "assunto do alvo" descrevendo o conteúdo de um dos alvos;
+- a frase explícita ligando esse alvo a **Q6** e à classe dela no
+  gabarito.
+
+A observação original ficou presa a uma conversa. Esta versão a deixou
+**estruturada, rotulada e permanente**, num arquivo que qualquer sessão
+futura lê **achando que é seguro** — inclusive quem for desenhar o item
+2 ou a taxonomia de arestas, que é exatamente o trabalho que precisa ser
+cego.
+
+Corrigido: coluna removida, frase removida, e o arquivo passou a
+declarar no topo o que é seguro ler e o que desqualifica. O detalhe
+continua existindo aqui, no pré-registro — que já contém o gabarito
+inteiro e cuja leitura já desqualifica.
+
+**A lição, que vale mais que o conserto:** "preservar o dado" e "publicar
+o dado" não são a mesma operação, do mesmo modo que "remover do
+frontmatter" e "descartar o dado" não eram. Errei o par duas vezes
+seguidas, em direções opostas, na mesma hora.
+
+### O que eu tinha assumido sem demonstrar
+
+O arquivo chamava as 2 linhas de "casos de calibração com rótulo
+conhecido". Isso conflava dois fenômenos com processos geradores
+diferentes:
+
+| fenômeno | gerador |
+|---|---|
+| link quebrado de autoria | alguém declarou `links:` e nunca criou o destino |
+| dead-end de navegação | navegador, em consulta, não acha aresta sustentável |
+
+Podem correlacionar; **não foi demonstrado que correlacionam**, e com N=2
+do mesmo nó de origem não dá para demonstrar. Rebaixado no arquivo para o
+que é: evidência anedótica de que declaração-fantasma existe.
+
+### A verificação da faixa era fraca
+
+Registrei que a faixa proporcional "reproduz o veredito congelado" e
+tratei como prova de bom desenho. Prova só de **não-tuning**.
+
+Os dois pontos testados (4,5 e 11,5) já estavam dentro da faixa antiga, e
+nenhum na borda. Não sofrer flip onde nada estava perto da borda é
+evidência fraca. E `0.20`/`0.75` têm **o mesmo estatuto epistêmico** que
+`3`/`12` tinham — constantes chutadas, agora em percentual. A troca é
+upgrade por escalar sozinha; não é calibração, e a ressalva de E-3.2
+vale igual para elas.
+
+### Item 5 era declaração sem consequência, e o escopo estava subestimado
+
+"Não é cego para mim" não impedia nada. Regra operacional, agora
+explícita:
+
+> **Esta sessão — e qualquer contexto que tenha lido
+> `preregistro_gap_score.md` ou `preregistro_rodagem_cruzada_wiki.md` —
+> está desqualificada para: definir `necessidade` e
+> `capacidade_de_satisfação` (item 2), desenhar o vocabulário de tipo de
+> aresta (item 3), e mapear as arestas nele (item 4).**
+
+E o escopo não é Q6. Este contexto já viu: a taxonomia completa do §4
+(`decisão / refutado / evolução / contradição / proveniência / padrão`),
+o par Q9/Q11 em detalhe, o conteúdo de Q6 duas vezes, e os 15 vereditos
+do Haiku. Limitar a ressalva a uma página e uma pergunta subestimava
+quanto do teste já foi absorvido.
+
+Uma instância limpa precisa: o `WIKI_SCHEMA.md`, o corpus, o
+`arestas_removidas.md`, e **nenhum dos dois pré-registros**.
+
+### CiTO: adequação não verificada
+
+Recomendei a CiTO como fonte externa. Ela foi desenhada para relações
+entre **citações acadêmicas**. Aplicá-la a referência cruzada de wiki
+técnica pessoal é **hipótese razoável, não solução** — o encaixe tem de
+ser testado antes de adotar, não só a lista de propriedades puxada da
+fonte. Somei uma suposição não declarada à ressalva que eu já tinha
+feito sobre não citar os termos de cabeça.

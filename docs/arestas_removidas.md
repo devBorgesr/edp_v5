@@ -3,48 +3,66 @@
 Registro append-only de arestas que a wiki **declarou** e que apontavam
 para página que nunca existiu.
 
+> **ESTE ARQUIVO É SEGURO PARA TRABALHO CEGO AO GABARITO.**
+> Ele registra que uma declaração existiu e não foi sustentada — origem,
+> alvo, data, detector. Nada sobre o que o alvo tratava, e nada que ligue
+> uma linha daqui a qualquer pergunta de teste.
+>
+> `docs/preregistro_gap_score.md` e
+> `docs/preregistro_rodagem_cruzada_wiki.md` **não são seguros**: contêm
+> o gabarito inteiro. Quem os ler está desqualificado para desenhar
+> critério que será medido contra ele.
+
 ## Por que este arquivo existe
 
-Ao remover os 2 links quebrados de `r1-seletividade-invertida` em
-11/08/2026 (item 1 do E-3.5, `preregistro_gap_score.md`), provei que a
-remoção era neutra **para as métricas agregadas** da E-3.2 — 27 arestas,
+Ao remover os 2 links quebrados em 11/08/2026 (item 1 do E-3.5), provei
+que a remoção era neutra **para as métricas agregadas** — 27 arestas,
 mediana 4,5, min 2, max 8, idênticos antes e depois.
 
-**Não era neutra para a pergunta de pesquisa, e isso passou.**
-
-Uma aresta declarada apontando para página nunca escrita é uma instância
-do fenômeno que o `Gap Event` tenta formalizar: *o ponto em que a
-estrutura promete uma transição e não entrega*. Alguém, numa sessão
-anterior, tentou estabelecer uma relação e ela não foi sustentada. Apagar
-a declaração descartava um caso real do fenômeno **antes de o detector
-existir**.
+Não era neutra para o dado. Uma aresta declarada apontando para página
+nunca escrita registra que alguém tentou estabelecer uma relação e ela
+não foi sustentada. Apagar a declaração descartava isso.
 
 "Remover do frontmatter" e "descartar o dado" não podem ser a mesma
-operação. A remoção mantém o lint limpo — que é o motivo legítimo dela;
-este arquivo mantém o dado.
+operação. A remoção mantém o lint limpo — motivo legítimo dela; este
+arquivo mantém o dado.
 
-**Uso previsto:** quando `capacidade_de_satisfação()` for definido (item
-2 do E-3), estas linhas são casos de calibração com rótulo conhecido —
-promessas de transição que sabidamente não se sustentam. Corpus pequeno,
-mas é dado real e não sintético.
+## O que estas linhas NÃO são
+
+**Não são casos de calibração de `capacidade_de_satisfação()`.** A versão
+anterior deste arquivo afirmava isso; era otimismo, e assumia uma
+equivalência que ninguém demonstrou:
+
+| fenômeno | processo gerador |
+|---|---|
+| **link quebrado de autoria** (isto aqui) | alguém escreveu `links: [...]` numa sessão e nunca criou a página de destino |
+| **dead-end de navegação** (o que o `Gap Event` quer detectar) | um navegador, em tempo de consulta, tenta avançar e não acha aresta sustentável |
+
+Podem correlacionar. **Não foi demonstrado que correlacionam**, e com
+N=2 — as duas do mesmo nó de origem — não há como demonstrar aqui.
+
+O que estas linhas são, com honestidade: **evidência anedótica de que
+declaração-fantasma existe neste corpus.** Nada além disso até que
+alguém meça.
 
 ## Registro
 
-| removida em | origem | alvo pretendido | assunto do alvo | como foi detectada |
-|---|---|---|---|---|
-| 2026-08-11 | `r1-seletividade-invertida` | `honeypot-refutado` | resultado H0 do honeypot, 0/14 (`dd06b87`) | `scripts/lint_wiki.py`, regra 5 |
-| 2026-08-11 | `r1-seletividade-invertida` | `blob-qa-comprime-faixa-dinamica` | perda de 47% de faixa dinâmica no blob `Q+A` | `scripts/lint_wiki.py`, regra 5 |
+| removida em | origem | alvo pretendido | detectada por |
+|---|---|---|---|
+| 2026-08-11 | `r1-seletividade-invertida` | `honeypot-refutado` | `scripts/lint_wiki.py`, regra 5 |
+| 2026-08-11 | `r1-seletividade-invertida` | `blob-qa-comprime-faixa-dinamica` | `scripts/lint_wiki.py`, regra 5 |
 
-**As duas foram removidas, não convertidas em páginas.** Criar as páginas
-acrescentaria conteúdo ao corpus sob teste — e
-`blob-qa-comprime-faixa-dinamica` é o assunto de **Q6**, pergunta do
-conjunto A do gabarito. Ver a nota de execução do item 1 em
-`preregistro_gap_score.md`.
+As duas foram **removidas, não convertidas em páginas** — criar página
+acrescentaria conteúdo ao corpus sob teste. O raciocínio completo, que
+inclui informação que vaza gabarito, está na nota de execução do item 1
+em `preregistro_gap_score.md`, que é leitura desqualificante.
 
 ## Regra
 
 Toda remoção de aresta por alvo inexistente entra aqui **antes** de a
 edição ser feita. Linha nova, nunca sobrescrita — regra 3 do
-`WIKI_SCHEMA.md`. E o `sha256` do corpus resultante vai para o
-`preregistro_gap_score.md`, já que `edp_wiki/` é gitignored e a edição
-não produz diff versionado.
+`WIKI_SCHEMA.md`. Sem coluna de assunto, sem descrição do alvo: o slug
+já identifica, e descrever é vazar.
+
+O `sha256` do corpus resultante vai para `preregistro_gap_score.md`, já
+que `edp_wiki/` é gitignored e a edição não produz diff versionado.
