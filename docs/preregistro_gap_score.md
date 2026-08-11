@@ -496,3 +496,53 @@ identificadores** e `costumo`/`assumir` são palavras comuns.
 Testar isso agora seria a quarta fórmula depois de ver três resultados —
 exatamente o que E-1.4 proíbe. Fica como **hipótese para pré-registro
 futuro**, com corpus maior, e não como conclusão desta rodada.
+
+---
+
+## ERRATA — 11/08/2026, sobre o §0 e o §9 deste documento
+
+Ao escrever `scripts/lint_wiki.py` descobri que **dois números que
+publiquei acima estão errados**. Ficam onde estão (regra 3 do schema: o
+que mudou fica, datado, não se sobrescreve); a correção é esta.
+
+| onde | eu publiquei | o certo | fonte |
+|---|---|---|---|
+| §0, tabela da auditoria | "**7 páginas órfãs** (44%)" | **5 órfãs** (31%) | `scripts/lint_wiki.py` |
+| §0 e §9 | "4 sem link de saída" | **1** (`sozinha` não existe; nenhuma página real está sem saída) | idem |
+| §9 | "**0 links quebrados**" | **2 links quebrados** | idem |
+| §0 | "17 arestas" | **29 arestas distintas** | idem |
+
+**Causa única.** Contei arestas só pelos `[[...]]` do corpo e ignorei o
+array `links:` do frontmatter — que carrega **28** das 29 arestas
+distintas. Foi uma leitura parcial da estrutura, não um erro de conta: eu
+olhei o formato do corpo e supus que fosse a única forma de aresta.
+
+Os dois links quebrados que eu tinha reportado como zero:
+
+- `r1-seletividade-invertida` → `[[blob-qa-comprime-faixa-dinamica]]`
+- `r1-seletividade-invertida` → `[[honeypot-refutado]]`
+
+Ambos declarados no frontmatter, ambos apontando para página que não
+existe. É exatamente a classe de defeito que a regra 5 manda o lint
+pegar, e eu havia declarado ausente.
+
+**Isto não muda nenhum resultado do Gap Score** — a cobertura léxica é
+sobre texto, não sobre arestas. Muda o §9, que era o meu argumento de
+"defeito já medido, é só automatizar". Estava medido errado.
+
+### Falso positivo da primeira versão do lint, também registrado
+
+A v1 acusou `exportador-e-85-por-cento-commodity` e `fontes-conta-1` de
+citarem arquivo inexistente. Eram `content.js`, `interceptor.js` (repo do
+exportador) e `Downloads/.../_indice.json` (máquina do pesquisador) —
+fontes legítimas, fora deste repositório. Minha regra tratava qualquer
+token com ponto como caminho local.
+
+Corrigido: só se checa caminho cujo primeiro segmento é entrada de topo
+deste repo. As duas páginas voltaram a limpo, e
+`tests/test_lint_wiki.py::test_fonte_de_fora_do_repo_nao_e_erro` trava a
+correção.
+
+Mesma família do `aee20f9`: regra aplicada larga demais derruba página
+boa. Terceira vez que este projeto tropeça nisso — vale como padrão, não
+como acidente.
