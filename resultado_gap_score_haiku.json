@@ -1,0 +1,303 @@
+{
+  "rodado_em": "2026-08-11T18:52:09.696048+00:00",
+  "modelo": "claude-haiku-4-5",
+  "temperatura": 0.0,
+  "rodadas": 5,
+  "sha_corpus": "27e4fe846fdc37fb",
+  "condicoes": {
+    "a": true,
+    "b": false,
+    "c": true,
+    "d": true,
+    "e": true
+  },
+  "veredito": "FALHA",
+  "custo_usd": 1.4555,
+  "resultados": {
+    "Q1": {
+      "classe": "A",
+      "vereditos": [
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM"
+      ],
+      "unanime": true,
+      "veredito": "SIM",
+      "brutos": [
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **"
+      ]
+    },
+    "Q2": {
+      "classe": "B",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO"
+      ]
+    },
+    "Q3": {
+      "classe": "B",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO\n\nA wiki contém uma página sobre decisões e âncoras de tarefa (`ancora-de-tarefa-",
+        "VEREDITO: NAO\n\nA wiki contém uma página sobre decisões e âncoras de tarefa (`ancora-de-tarefa-",
+        "VEREDITO: NAO\n\nA wiki contém uma página sobre decisões e âncoras de tarefa (`ancora-de-tarefa-",
+        "VEREDITO: NAO\n\nA wiki contém uma página sobre decisões e âncoras de tarefa (`ancora-de-tarefa-",
+        "VEREDITO: NAO\n\nA wiki contém uma página sobre decisões e âncoras de tarefa (`ancora-de-tarefa-"
+      ]
+    },
+    "Q4": {
+      "classe": "B",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO"
+      ]
+    },
+    "Q5": {
+      "classe": "B",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO\n\nA wiki não contém material suficiente para responder por que o exportador passou a mandar timestamp em segund",
+        "VEREDITO: NAO\n\nA wiki não contém material suficiente para responder por que o exportador passou a mandar timestamp em segund",
+        "VEREDITO: NAO\n\nA wiki não contém material suficiente para responder por que o exportador passou a mandar timestamp em segund",
+        "VEREDITO: NAO\n\nA wiki não contém material suficiente para responder por que o exportador passou a mandar timestamp em segund",
+        "VEREDITO: NAO\n\nA wiki não contém material suficiente para responder por que o exportador passou a mandar timestamp em segund"
+      ]
+    },
+    "Q6": {
+      "classe": "A",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO"
+      ]
+    },
+    "Q7": {
+      "classe": "B",
+      "vereditos": [
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM"
+      ],
+      "unanime": true,
+      "veredito": "SIM",
+      "brutos": [
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Na página \"que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Na página \"que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Na página \"que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Na página \"que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Na página \"que-perguntas-"
+      ]
+    },
+    "Q8": {
+      "classe": "B",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO\n\nA wiki contém material sobre decisões arquiteturais do EDP, achados sobre retrieval e memória",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO\n\nA wiki contém material sobre decisões arquiteturais do EDP, avaliações de sistemas de memória",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO"
+      ]
+    },
+    "Q9": {
+      "classe": "B",
+      "vereditos": [
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM"
+      ],
+      "unanime": true,
+      "veredito": "SIM",
+      "brutos": [
+        "VEREDITO: SIM",
+        "VEREDITO: SIM",
+        "VEREDITO: SIM",
+        "VEREDITO: SIM",
+        "VEREDITO: SIM"
+      ]
+    },
+    "Q10": {
+      "classe": "B",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO"
+      ]
+    },
+    "Q11": {
+      "classe": "A",
+      "vereditos": [
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM"
+      ],
+      "unanime": true,
+      "veredito": "SIM",
+      "brutos": [
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. A página [[que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. A página [[que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. A página [[que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. A página [[que-perguntas-",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. A página [[que-perguntas-"
+      ]
+    },
+    "Q12": {
+      "classe": "A",
+      "vereditos": [
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM"
+      ],
+      "unanime": true,
+      "veredito": "SIM",
+      "brutos": [
+        "VEREDITO: SIM",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Há múltiplas páginas que",
+        "VEREDITO: SIM",
+        "VEREDITO: SIM",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Há múltiplas páginas que"
+      ]
+    },
+    "N1": {
+      "classe": "ctrl",
+      "vereditos": [
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM",
+        "SIM"
+      ],
+      "unanime": true,
+      "veredito": "SIM",
+      "brutos": [
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder como funciona o RRF no retrieval híbrido",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder como funciona o RRF no retrieval híbrido",
+        "VEREDITO: SIM\n\nA wiki contém material suficiente para responder esta pergunta. Especificamente:\n\n1. **"
+      ]
+    },
+    "N2": {
+      "classe": "ctrl",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO"
+      ]
+    },
+    "N3": {
+      "classe": "ctrl",
+      "vereditos": [
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO",
+        "NAO"
+      ],
+      "unanime": true,
+      "veredito": "NAO",
+      "brutos": [
+        "VEREDITO: NAO",
+        "VEREDITO: NAO\n\nA pergunta é anafórica (\"me lembra o que a gente discutiu\") e não nom",
+        "VEREDITO: NAO\n\nA pergunta é anafórica — pede para relembrar uma discussão anterior sem especificar qual",
+        "VEREDITO: NAO",
+        "VEREDITO: NAO"
+      ]
+    }
+  }
+}

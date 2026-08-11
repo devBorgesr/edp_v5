@@ -737,3 +737,113 @@ Primeiro gasto de API desta frente. O cabeçalho deste documento diz
 - **Regra de parada mantida:** se E-2 falhar por (e), a rodada é anulada
   e cabe **uma** repetição, com o mesmo prompt. Se falhar por (a)–(d),
   acaba — sem sexta fórmula e sem segundo prompt.
+
+---
+
+## RESULTADO E-2 — 11/08/2026, `scripts/medir_gap_score_haiku.py`
+
+Corpus com `sha256 27e4fe846fdc37fb`, igual ao congelado em E-2.3.
+`claude-haiku-4-5`, temperatura 0.0, 5 rodadas por pergunta, 75 chamadas.
+**Custo real: US$ 1,4555** — 40% acima dos US$ 1,04 de E-2.7. A
+estimativa usou 4 chars/token e subestimou; fica registrado.
+
+| # | classe | veredito (unânime nas 5) | esperado |
+|---|---|---|---|
+| Q1 | A | **SIM** | SIM ✓ |
+| Q2 | B | **NAO** | NAO ✓ |
+| Q3 | B | **NAO** | NAO ✓ |
+| Q4 | B | **NAO** | NAO ✓ |
+| Q5 | B | **NAO** | NAO ✓ |
+| Q6 | A | **NAO** | SIM ✗ |
+| Q7 | B | **SIM** | NAO ✗ |
+| Q8 | B | **NAO** | NAO ✓ |
+| Q9 | B | **SIM** | NAO ✗ |
+| Q10 | B | **NAO** | NAO ✓ |
+| Q11 | A | **SIM** | SIM ✓ |
+| Q12 | A | **SIM** | SIM ✓ |
+| N1 | ctrl | SIM | fora do critério |
+| N2 | ctrl | NAO | fora do critério |
+| N3 | ctrl | **NAO** | NAO ✓ |
+
+| condição | resultado |
+|---|---|
+| (a) ≥3/4 de A com SIM | **3/4 — OK** |
+| (b) ≥7/8 de B com NAO | **6/8 — NÃO** |
+| (c) Q3 → NAO | OK |
+| (d) N3 → NAO | OK |
+| (e) ≥12/15 unânimes | **15/15 — OK** |
+| **veredito** | **FALHA** |
+
+## Placar da predição E-2.6: 3 de 5, e as duas erradas são as que importam
+
+Previ: *"passa em (b), (c), (d) e (e), e FALHA em (a), por Q6 e Q11."*
+
+| previ | deu |
+|---|---|
+| **(a) falha** | **passou (3/4)** — errei |
+| **(b) passa** | **falhou (6/8)** — errei |
+| (c), (d) passam | passaram — acertei |
+| (e) 15/15 unânimes | 15/15 — acertei, no número |
+| Q6 → NAO | **NAO** — acertei |
+| Q11 → NAO | **SIM** — errei |
+
+**Inverti as duas condições de contagem.** Acertei que Q6 cairia e
+errei Q11; errei qual lado do critério quebraria. Sétima predição desta
+frente: cinco erradas, uma certa em 3/4, esta certa em 3/5 com o
+essencial invertido.
+
+### A recusa de E-2.0 se sustentou no dado
+
+Q11 foi a pergunta que eu me recusei a mover de A para B. O Haiku
+respondeu **SIM** — coincidindo com o gabarito congelado. Se eu tivesse
+aceitado a reclassificação, esse SIM contaria como **erro** em B, e (b)
+teria ido a **6/9** em vez de 6/8. **Pior.**
+
+A recusa não foi conservadorismo: a mudança teria degradado o resultado
+que ela supostamente ajudaria. Congelar não é cerimônia.
+
+## O achado: (b) falha nos QUATRO métodos
+
+| método | (a) A | (b) B | (c) Q3 | (d) N3 | estável |
+|---|---|---|---|---|---|
+| bruta | 2/4 ✗ | **3/8 ✗** | ✗ | ✓ | — |
+| idf | 4/4 ✓ | **3/8 ✗** | ✓ | ✓ | — |
+| idf⁰ | 2/4 ✗ | **6/8 ✗** | ✓ | ✓ | — |
+| **haiku** | **3/4 ✓** | **6/8 ✗** | ✓ | ✓ | **15/15** |
+
+O Haiku é o **melhor dos quatro** — primeiro a passar (a), empata o
+melhor (b), passa (c) e (d), e é perfeitamente estável. E falha.
+
+Quatro mecanismos sem nada em comum — contagem crua, IDF, IDF com peso
+máximo para termo não visto, e um modelo lendo o texto — e **nenhum
+chega a 7/8 em (b)**. Isso deixa de ser propriedade do método.
+
+**Q9 falha nos dois melhores** (idf⁰ 0,469 e Haiku SIM). É a pergunta
+*"o que mudou na definição do EDP entre abril e agosto?"* — pede uma
+**comparação diacrônica**. A wiki tem páginas sobre o que o EDP é; não
+tem o registro da mudança. Contador de termo vê material; leitor vê
+material. O gabarito diz 0 porque a *síntese* não está lá.
+
+E é exatamente a mesma situação estrutural de **Q11** — material
+presente, síntese ausente — que o gabarito classificou como **A**.
+Mesmo formato, lados opostos do gabarito.
+
+### O modo de falha do Haiku, nomeado
+
+Erra por **excesso**, e só em pergunta aberta: Q7 (proveniência,
+"qual incidente motivou") e Q9 (evolução). Vê material relacionado e
+julga suficiente. Nas sete perguntas de decisão/refutação de B, acertou
+todas. Nenhum erro por omissão.
+
+## O que isto decide
+
+- **Decide:** o Gap Score não passa o critério do §4 nem com LLM. Quatro
+  métodos, quatro falhas.
+- **Decide:** a falha não é mais atribuível ao método. Converge em (b),
+  e Q9 cai nos dois melhores por razões diferentes.
+- **Decide:** instabilidade **não** é o problema. 15/15 unânimes a
+  temperatura 0 — a condição (e), criada para pegar isso, veio limpa.
+- **Não decide** que o gabarito está errado. Decide que **ele é onde
+  olhar**, o que é diferente — e exige pré-registro próprio, com o
+  critério de reclassificação declarado antes, não depois. E-2.0 é o
+  precedente de por quê.
