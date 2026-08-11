@@ -1266,3 +1266,99 @@ técnica pessoal é **hipótese razoável, não solução** — o encaixe tem de
 ser testado antes de adotar, não só a lista de propriedades puxada da
 fonte. Somei uma suposição não declarada à ressalva que eu já tinha
 feito sobre não citar os termos de cabeça.
+
+---
+
+## FECHAMENTO — 11/08, o que não fecha e por quê
+
+### A regra 3 foi aplicada fora do domínio dela, e o fato também estava errado
+
+Justifiquei não reescrever história de git citando a regra 3 do
+`WIKI_SCHEMA.md`. **Erro de domínio:** a regra 3 governa proveniência de
+**afirmação na wiki** — preservar o que uma página afirmou para rastrear
+de onde veio. Não diz nada sobre higiene de versionamento. Reescrever um
+commit local não conflita com ela.
+
+**E o fato estava errado:** falei em "história publicada". Verificado —
+**16 commits locais à frente do `origin/main`**, nenhum empurrado. Não há
+história compartilhada para preservar.
+
+A decisão de não reescrever se mantém, por razões que agora são as
+verdadeiras: as mensagens **são** a trilha de auditoria desta frente, o
+pré-registro já carrega tudo em aberto e declarado como desqualificante,
+e `rebase` está bloqueado neste ambiente (sem `-i`, e o `vboxsf` derruba
+o pré-check do `unpack_trees`). Custo de reescrever é alto e o ganho é
+marginal sobre um arquivo que já se declara desqualificante.
+
+### O commit de correção também vaza
+
+`87b1ac2`, o conserto, registra na própria mensagem que certas perguntas
+são especiais, que a taxonomia do gabarito tem categorias nomeáveis, e a
+contagem de vereditos. Não diz do que tratam — diz **quais importam**.
+Metadado estrutural, agora em dois commits em vez de um.
+
+Terceira vez nesta sequência que reintroduzo, ao consertar, uma forma
+mais fraca do que estou consertando.
+
+**Mitigação, sem reescrever nada — a regra operacional passa a cobrir
+arqueologia:**
+
+> Instância limpa não lê os dois pré-registros **e não roda `git log`,
+> `git show`, `git blame` ou `git diff`** sobre `docs/`,
+> `scripts/medir_*`, `tests/test_medicao_wiki.py` ou
+> `docs/arestas_removidas.md`. Ler o arquivo e escavar o histórico dele
+> são a mesma leitura.
+
+### Tensão estrutural não reconhecida: slug autodescritivo vs. cegueira
+
+Cortar a coluna ajuda, mas **o slug deste corpus já é o resumo do
+achado** — é a convenção: `r1-seletividade-invertida`,
+`contagem-de-nos-como-medida-de-vagueza`. Boa propriedade para humano
+navegar e para o lint casar; **ruim** para "arquivo seguro para leitura
+cega".
+
+Qualquer arquivo que precise referenciar uma página pelo nome — inclusive
+`arestas_removidas.md` já limpo — carrega uma fração do conteúdo pelo
+próprio nome. Não há corte de coluna que resolva.
+
+Fica **registrado como tensão entre dois objetivos do projeto**, não como
+defeito a consertar: navegabilidade por nome legível contra cegueira ao
+gabarito. Quem for desenhar o item 2 vai esbarrar nela; melhor saber
+antes.
+
+### O vetor de maior alcance está fora do repositório inteiro
+
+Nada aqui — arquivo, commit, faixa, regra — alcança o mais direto.
+
+**Esta sessão está sendo escrita, agora, em
+`~/.claude/projects/-media-sf-edp-v5-main/*.jsonl` — que é o corpus da
+condição C.** O gabarito inteiro, as 15 perguntas, os vereditos, e cada
+uma destas erratas estão indo para um arquivo que o próprio experimento
+lê. Fora de `edp_wiki/`, fora do git, fora de qualquer lint.
+
+O mesmo vale para o `claude-exporter`, que captura tráfego do claude.ai
+incluindo `thinking_summaries` para alimentar o pipeline da wiki.
+
+**Consequência operacional:** a fatia de C congelada em E-2.3 (três
+sessões de julho) **precede isto e segue válida**. Mas qualquer trabalho
+futuro sobre corpus de Code — nova condição C, wiki compilada de sessões,
+ou o "Gêmeo do Gêmeo" — tem de **excluir explicitamente as sessões de
+11/08/2026 em diante**, ou aceitar que o gabarito reentrou por uma porta
+que nenhuma regra em `docs/` enxerga.
+
+### O regresso, concedido
+
+Cada correção desta sequência exigiu que **esta instância contaminada
+olhasse o gabarito para decidir o que cortar.** Inevitável para o reparo
+— e por isso mesmo:
+
+> **Esta instância não pode certificar o próprio processo de limpeza como
+> suficiente. Só descrevê-lo.**
+
+"Isto é seguro publicar" e "estou desqualificado para decidir isso" são o
+mesmo julgamento, feito pela mesma parte contaminada. Tudo que escrevi
+sobre segurança nesta seção é **declaração de intenção, não certificação**.
+
+"Instância limpa" não é uma camada extra de cuidado sobre o que foi feito
+aqui. É a única coisa que resolve — e o primeiro trabalho dela deveria
+ser **re-auditar esta limpeza**, não confiar nela.
