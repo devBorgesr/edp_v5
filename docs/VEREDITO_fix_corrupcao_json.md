@@ -1,5 +1,25 @@
 # Veredito — Fix de corrupção/truncamento de JSON nos stores do EDP
 
+## Correção pós-correção (06/08/2026) — 6/6 confirmado em clone limpo
+
+Commit `2524c55` versiona `edp.profiles` por inteiro. Reverificado com
+`git clone` fresco do remote público (não o working tree, que já tinha
+o módulo no disco só não commitado — mesmo erro de método que causou a
+ressalva de 05/08, desta vez evitado de propósito):
+
+```
+206 passed, 1 deselected, 0 skipped
+```
+
+Item (a)/(b)/(c) do critério: **6/6 versionado e comprovado**, não mais
+"5/6 + 1 pendurado em WIP". A diferença entre este número e os "220
+passed" citados abaixo (medidos contra o working tree em 04/08) é
+explicada e não é um regressão: 14 testes de
+`test_profiles_selector.py`/`test_profiles_tracker.py` continuam
+untracked, fora do escopo desta dívida — ver `docs/DIVIDAS.md` #53 para
+o achado completo. Nada abaixo foi reescrito; esta seção só substitui a
+conclusão prática, a análise original permanece como registro.
+
 Referência: [`docs/preregistro_fix_corrupcao_json.md`](preregistro_fix_corrupcao_json.md)
 (congelado antes da implementação). Dívida: [#53](DIVIDAS.md).
 

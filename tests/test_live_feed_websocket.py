@@ -104,6 +104,78 @@ def test_session_id_invalido_na_url_e_rejeitado(client):
     assert resp.status_code == 400
 
 
+# ── contrato de escala do timestamp (06/08/2026) ────────────────────────────
+#
+# O sensor emitiu epoch MILLISECONDS até 06/08 enquanto o contrato
+# (WEBSOCKET_API.md) sempre disse SECONDS. O receptor coage em vez de
+# rejeitar: rejeitar seria perda silenciosa (a extensão descarta toda
+# resposta do servidor que não seja pong), o mesmo modo de falha do
+# incidente de 2026-08-03.
+
+def test_timestamp_em_ms_e_aceito_e_armazenado_em_segundos(client):
+    """Evento em ms NÃO é rejeitado, e chega ao disco já em segundos."""
+    with client.websocket_connect("/stream") as ws:
+        ws.send_json(_thinking_event(
+            conversation_id="conv_ms1", timestamp=1_800_000_000_000.0,
+        ))
+        ws.send_json({"type": "ping"})
+        # pong sem nenhum {"type":"error"} antes = evento aceito
+        assert ws.receive_json() == {"type": "pong"}
+
+    body = client.get("/memory/session/conv_ms1").json()
+    assert body["count"] == 1
+    assert body["events"][0]["event_timestamp"] == 1_800_000_000.0
+
+
+def test_timestamp_em_segundos_nao_e_alterado(client):
+    """Controle negativo: a coerção não pode tocar quem já manda certo."""
+    with client.websocket_connect("/stream") as ws:
+        ws.send_json(_thinking_event(
+            conversation_id="conv_s1", timestamp=1_800_000_000.0,
+        ))
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+    body = client.get("/memory/session/conv_s1").json()
+    assert body["events"][0]["event_timestamp"] == 1_800_000_000.0
+
+
+def test_ms_e_segundos_ordenam_juntos_na_mesma_conversa(client):
+    """
+    O ponto prático da coerção: um emissor antigo (ms) e um novo (s) na
+    mesma conversa precisam ordenar por tempo real, não por escala. Sem
+    normalizar, QUALQUER evento em ms viria depois de QUALQUER evento em
+    segundos (1.8e12 > 1.8e9), embaralhando a ordem cronológica.
+    """
+    with client.websocket_connect("/stream") as ws:
+        # mais NOVO, mas emitido em ms por um sensor desatualizado
+        ws.send_json(_thinking_event(
+            conversation_id="conv_mix", timestamp=1_800_000_500_000.0,
+            data={"text": "evento mais novo, escala ms"},
+        ))
+        # mais ANTIGO, emitido em segundos pelo sensor novo
+        ws.send_json(_thinking_event(
+            conversation_id="conv_mix", timestamp=1_800_000_000.0,
+            data={"text": "evento mais antigo, escala s"},
+        ))
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+    events = client.get("/memory/session/conv_mix").json()["events"]
+    assert len(events) == 2
+    assert [e["event_timestamp"] for e in events] == [1_800_000_000.0, 1_800_000_500.0]
+    assert "mais antigo" in events[0]["text"]
+
+
+def test_timestamp_nao_numerico_continua_rejeitado(client):
+    """A coerção não afrouxou a validação de tipo (regressão do 03/08)."""
+    with client.websocket_connect("/stream") as ws:
+        ws.send_json(_thinking_event(timestamp="2026-08-06T12:00:00Z"))
+        resp = ws.receive_json()
+        assert resp["type"] == "error"
+        assert "numérico" in resp["error"]
+
+
 def test_sessions_por_profile_id(client):
     with client.websocket_connect("/stream") as ws:
         ws.send_json(_thinking_event(conversation_id="conv_p1", profile_id="prof_x"))

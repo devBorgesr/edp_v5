@@ -220,3 +220,56 @@ EDP_LIVE_FEED_TOKEN  = os.environ.get("EDP_LIVE_FEED_TOKEN", "")
 LIVE_FEED_LOG        = BASE_DIR / "live_feed.log"
 LIVE_FEED_INDEX_PATH = BASE_DIR / "live_feed_index.json"
 
+# ── Visualizador do grafo de conhecimento (GET /graph) ──────────────────────────
+# Serve graphify-out/graph.html, gerado pelo graphify a partir do repositório.
+#
+# Default ON porque o conteúdo é derivado do próprio código do projeto — mas
+# esta flag existe porque o conteúdo do grafo depende do que o graphify indexa,
+# e isso é governado por .graphifyignore, não por este módulo. Se algum dia o
+# ignore for removido/afrouxado, um arquivo de conversa ou ground-truth pode
+# entrar no grafo e passaria a ser servido por este endpoint — numa API que
+# roda com CORS ["*"] e EDP_LIVE_FEED_TOKEN vazio por padrão (acima).
+# Desligue antes de expor o EDP fora de localhost.
+#
+# Verificado em 06/08/2026: grafo com 3.868 nós, zero vindos de arquivo de
+# dado; detect() com o .graphifyignore em vigor exclui os 6 arquivos sensíveis
+# (248 -> 246 detectados).
+EDP_GRAPH_VIEWER = os.environ.get("EDP_GRAPH_VIEWER", "1") == "1"
+
+# ── Wiki de conhecimento compilado (GET /wiki) ──────────────────────────────────
+# Páginas por comunidade do grafo, derivadas de graphify-out/graph.json +
+# GRAPH_REPORT.md. Mesmo perfil de risco do EDP_GRAPH_VIEWER acima: o conteúdo
+# vem do código do projeto, e o que entra no grafo é governado por
+# .graphifyignore. Default ON pelo mesmo motivo, e com a mesma ressalva —
+# desligue antes de expor o EDP fora de localhost.
+EDP_WIKI = os.environ.get("EDP_WIKI", "1") == "1"
+
+# Indexar trecho de CONVERSA REAL nas páginas da wiki. Default OFF, e o
+# default aqui não é conservadorismo genérico: esta API roda com
+# allow_origins=["*"] (api/main.py:260) e EDP_LIVE_FEED_TOKEN vazio (acima),
+# então uma página servida por ela é legível por qualquer origem sem
+# autenticação. Ligar isto sem antes setar EDP_LIVE_FEED_TOKEN reabre a
+# exposição fechada em 3076559 (.graphifyignore) e 99d827c (.gitignore).
+# Nenhum código consome esta flag ainda — ver docs/wiki_conversas_pendente.md.
+EDP_WIKI_CONVERSAS = os.environ.get("EDP_WIKI_CONVERSAS", "0") == "1"
+
+
+# ── Âncora de tarefa compacta (peça 2.6f, 07/08/2026) ───────────────────────────
+# A listagem "Decisões:" por seção da âncora custa 79% do bloco inteiro
+# (medido: 9.100 de 11.486 chars em 10 seções x 6 decisões x 120 chars) e é
+# quase toda redundante com o bloco consolidado, que já lista cada chave com
+# sua seção de origem. "Quase" porque o consolidado guarda só a PRIMEIRA
+# decisão de cada chave — se a Seção 4 muda `messaging`, o por-seção registra
+# e o consolidado não.
+#
+# Com a flag ON: a linha por-seção sai, e o consolidado passa a carregar a
+# cadeia de mudanças ("Kafka (S1) -> RabbitMQ (S4)"), que é a informação que
+# realmente importa para continuidade de decisão e cresce só quando há mudança.
+#
+# Motivo do teto: a âncora é Camada 0.5, injetada ANTES da janela imediata, e
+# é o único bloco sem limite — challenge tem 2000/800, decisões por seção têm
+# 6 chaves, CAPS_POR_POSICAO limita cada slot. Em 10 seções ela chega a 96% do
+# cap de 12000 do turno-1; a tarefa validada em 30/05 rodou nessa borda.
+#
+# Default OFF: muda o prompt que vai ao modelo (Tier 2/3, edp_metodologia.md).
+EDP_ANCHOR_COMPACT = os.environ.get("EDP_ANCHOR_COMPACT", "0") == "1"

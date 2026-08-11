@@ -23,6 +23,28 @@ gt_rotulacao.csv
 gt_features.csv
 gt_*.csv
 
+# Wiki de conversas (metodo Karpathy llm-wiki).
+# O CONTEUDO fica local: paginas compiladas a partir de conversa real
+# herdam a sensibilidade da fonte, e este repo e publico. As CONVENCOES
+# ficam versionadas em docs/WIKI_SCHEMA.md — protocolo commitado,
+# conteudo nao. Mesma logica de servir vs. commitar de 3076559/99d827c.
+edp_wiki/
+
+# Transcricoes de conversa real e exports do sensor.
+# 06/08/2026: estes arquivos estavam UNTRACKED mas NAO ignorados, num repo
+# publico - um `git add -A` os teria commitado. Mesmo incidente ja corrigido
+# no repo do exportador (history rewrite + repo privado). Espelha o
+# .graphifyignore, que cobre o mesmo conjunto para o grafo.
+conversa_*.txt
+conversa_*.md
+conversa*.md
+response*.md
+response*.txt
+*chunks*.json
+Análise*.json
+analise*.json
+*.har
+
 # Grafo do projeto (conservador ate auditoria - pode conter conteudo extraido local)
 graphify-out/
 

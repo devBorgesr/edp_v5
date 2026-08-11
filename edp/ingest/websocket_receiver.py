@@ -22,7 +22,13 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from .. import config
 from ..runtime import get_memory, is_valid, get_error
 from .consolidator import consolidate_session
-from .events import extract_ids, extract_text, registry_key, validate_event
+from .events import (
+    extract_ids,
+    extract_text,
+    normalize_timestamp,
+    registry_key,
+    validate_event,
+)
 from .session_index import get_session_index
 
 logger = logging.getLogger("edp.live_feed")
@@ -120,7 +126,18 @@ def _process_event(event: dict) -> Optional[str]:
     session_id      = ids["session_id"]
     profile_id      = ids["profile_id"]
     event_type      = event["type"]
-    event_timestamp = event["timestamp"]
+
+    # Contrato: event_timestamp é SEMPRE epoch seconds na memória (mesma
+    # escala do timestamp interno do EDP). Um emissor em milissegundos é
+    # coagido aqui, não rejeitado — ver normalize_timestamp() para o porquê.
+    event_timestamp, ts_coerced = normalize_timestamp(event["timestamp"])
+    if ts_coerced:
+        logger.warning(
+            "[stream] timestamp em milissegundos coagido para segundos "
+            "(emissor desatualizado? esperado epoch seconds) "
+            "conversation_id=%s event_type=%s",
+            conversation_id, event_type,
+        )
 
     key = registry_key(conversation_id)
     mem = get_memory(key)

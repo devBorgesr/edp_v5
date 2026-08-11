@@ -1310,6 +1310,13 @@ REGRAS ABSOLUTAS:
         delivered = ta["sections_delivered"]
         total = ta["expected_total"] or "?"
 
+        # Peça 2.6f (07/08/2026). Import local, como em EDP_GRAPH_VIEWER:
+        # falha de import não pode derrubar a formatação da âncora.
+        try:
+            from .config import EDP_ANCHOR_COMPACT as _anchor_compact
+        except Exception:
+            _anchor_compact = False
+
         lines = ["[ÂNCORA DE TAREFA EM CURSO]"]
         lines.append(f"Desafio: {ta['challenge'][:800]}")
         if len(ta['challenge']) > 800:
@@ -1323,7 +1330,13 @@ REGRAS ABSOLUTAS:
                 if s.get("summary"):
                     lines.append(f"    Resumo: {s['summary']}")
                 # Peça 2.6e M1: incluir decisões da seção (se houver)
-                if s.get("decisions"):
+                # Peça 2.6f (07/08/2026): com EDP_ANCHOR_COMPACT=1 esta linha
+                # sai. Medido: custa 9.100 de 11.486 chars em 10 seções × 6
+                # decisões × 120 chars (79% do bloco), e o consolidado abaixo
+                # já lista cada chave com sua seção de origem. O que se perdia
+                # ao omitir — o registro de RE-decisão — passa a ser carregado
+                # pelo consolidado como cadeia de mudança.
+                if s.get("decisions") and not _anchor_compact:
                     dec_summary = []
                     for k, v in list(s["decisions"].items())[:6]:
                         v_short = str(v)[:120]
@@ -1342,6 +1355,15 @@ REGRAS ABSOLUTAS:
                         # decisão original feita na Seção mais antiga)
                         if k not in consolidated:
                             consolidated[k] = {"value": v, "from_section": s["n"]}
+                        elif _anchor_compact and str(v) != str(consolidated[k]["value"]):
+                            # Peça 2.6f: a chave foi RE-decidida numa seção
+                            # posterior. Sem isto, omitir a linha por-seção
+                            # perderia a mudança — que é justamente o sinal
+                            # que a continuidade de decisão precisa ver.
+                            # Cresce só quando há mudança real, não por seção.
+                            consolidated[k].setdefault("changes", []).append(
+                                {"value": v, "section": s["n"]}
+                            )
             if consolidated:
                 lines.append("")
                 lines.append("DECISÕES ARQUITETURAIS JÁ ESTABELECIDAS:")
@@ -1352,6 +1374,12 @@ REGRAS ABSOLUTAS:
                     lines.append(
                         f"  • {k} (def. Seção {info['from_section']}): {v_str}"
                     )
+                    # Peça 2.6f: cadeia de re-decisão, quando houve
+                    for ch in info.get("changes", []):
+                        lines.append(
+                            f"    ↳ ALTERADA na Seção {ch['section']}: "
+                            f"{str(ch['value'])[:200]}"
+                        )
 
             # Próxima esperada
             delivered_ns = {s["n"] for s in delivered}

@@ -1,0 +1,44 @@
+# Dado de conversa real / pessoal — NUNCA entra no grafo.
+#
+# Motivo (06/08/2026): graphify-out/graph.html chegou a 3,3 MB contendo
+# conteúdo extraído de conversa_importante1.txt. graphify-out/ é gitignored,
+# então não vaza por commit — mas o plano de SERVIR o graph.html pelo
+# dashboard do EDP o exporia, e a API do EDP roda com CORS allow_origins=["*"]
+# e EDP_LIVE_FEED_TOKEN vazio por padrão (ver WEBSOCKET_API.md).
+# O risco aqui não é commit, é servir.
+conversa_*.txt
+conversa_*.md
+conversa*.md
+response*.md
+response*.txt
+
+# Exports de conversa do sensor (extensão) — JSON/JSONL com turnos reais,
+# incluindo thinking_blocks desde a v4.9.0 do exportador.
+*chunks*.json
+Análise*.json
+analise*.json
+export_fase0.jsonl
+*.har
+
+# Ground truth rotulado à mão a partir de conversas reais.
+gt_rotulacao.csv
+gt_features.csv
+gt_*.csv
+
+# Saída do próprio graphify — auto-indexação.
+# 06/08/2026: graphify-out/memory/query_*.md estava virando 4 "comunidades"
+# no grafo, com títulos tipo "Q: por que retrieval nao chegava ao prompt?",
+# que apareciam como páginas da wiki. São notas geradas pela ferramenta,
+# não código do projeto. (As duas menções a graphify-out acima são
+# comentário, não regra — por isso não estavam surtindo efeito.)
+graphify-out/
+
+# Ruído de build/ambiente (não é dado sensível, só polui o grafo).
+.venv/
+node_modules/
+edp_frontend/node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+edp.egg-info/
+.claude/

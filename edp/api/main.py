@@ -269,6 +269,7 @@ try:
         mode,  # Peça 2.6a (2026-05-30): endpoint /mode para modo bimodal
         cognitive_decisions, lineage,  # α (Tier 3, 13/06/2026): leitura REST
         live_feed,  # Receptor de eventos do sensor: API HTTP de consulta
+        wiki,       # Wiki de conhecimento compilado do grafo (EDP_WIKI)
     )
     from ..ingest.websocket_receiver import router as live_feed_ws_router
 
@@ -290,6 +291,7 @@ try:
     app.include_router(cognitive_decisions.router)  # α
     app.include_router(lineage.router)              # α
     app.include_router(live_feed_ws_router)          # WS /stream
+    app.include_router(wiki.router)                  # /wiki (EDP_WIKI)
 
     # ── Dashboard estático ────────────────────────────────────────────────────
     _DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"
@@ -332,6 +334,34 @@ try:
         except Exception as e:
             logger.warning(f"[dashboard] falha ao injetar sidebar: {e}")
             return FileResponse(str(html_file), media_type="text/html")
+
+    # ── Grafo de conhecimento (graphify) ──────────────────────────────────────
+    # Serve o graph.html que o graphify já gera na raiz do repo. Não há
+    # geração aqui — se o arquivo não existe, o endpoint explica como criá-lo.
+    # Flag EDP_GRAPH_VIEWER (config.py) governa a exposição; ver a nota lá
+    # sobre a dependência do .graphifyignore.
+    _GRAPH_HTML = Path(__file__).parent.parent.parent / "graphify-out" / "graph.html"
+
+    @app.get("/graph", response_class=HTMLResponse)
+    async def graph_page():
+        """Grafo de conhecimento interativo do repositório (graphify)."""
+        from .. import config as _config
+        if not _config.EDP_GRAPH_VIEWER:
+            return HTMLResponse(
+                "<h1>Visualizador de grafo desabilitado</h1>"
+                "<p>Defina <code>EDP_GRAPH_VIEWER=1</code> para habilitar.</p>",
+                status_code=404,
+            )
+        if not _GRAPH_HTML.exists():
+            return HTMLResponse(
+                "<h1>Grafo ainda não gerado</h1>"
+                f"<p>Esperado em: <code>{_GRAPH_HTML}</code></p>"
+                "<p>Gere com <code>graphify update .</code> na raiz do repositório.</p>",
+                status_code=404,
+            )
+        # FileResponse (não read_text): o graph.html passa de 3 MB e é servido
+        # em stream, sem carregar tudo em memória a cada request.
+        return FileResponse(str(_GRAPH_HTML), media_type="text/html")
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():

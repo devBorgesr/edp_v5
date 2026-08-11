@@ -22,3 +22,14 @@ httpx>=0.24              # fastapi.testclient.TestClient exige
 psutil>=5.9               # pressure_governor real (tests sobrescrevem
                            # gov._psutil com fake, mas o import inicial de
                            # psutil roda antes disso)
+pyyaml>=6.0                # edp/profiles/registry.py importa no module-level
+                            # (ProfileRegistry.load_seed_yaml lê
+                            # profiles.example.yaml); entra na cadeia de
+                            # import de edp.profiles.__init__, puxada por
+                            # test_profiles_selector.py e
+                            # test_profiles_tracker.py. Ausente também do
+                            # requirements.txt de produção — a verificação
+                            # de "clone limpo" da dívida-53 (2524c55) testou
+                            # rastreamento de arquivo, não instalação de
+                            # dependência a partir de um venv vazio; por
+                            # isso passou local e falhou no CI.
