@@ -139,9 +139,26 @@ def main() -> int:
         print("\ndry-run: nenhuma chamada feita, custo US$ 0,00.")
         return 0
 
-    chave = os.environ.get("ANTHROPIC_API_KEY", "")
+    # A chave vai num header HTTP. Espaço, \n ou \r dentro dela fazem o
+    # http.client levantar `Invalid header value` com 30 linhas de
+    # traceback e o prefixo da chave impresso no erro — foi o que
+    # aconteceu em 11/08, com a chave cortada em 18 chars por uma quebra
+    # de linha no paste. Falhar aqui, cedo e sem vazar a chave.
+    bruta = os.environ.get("ANTHROPIC_API_KEY", "")
+    chave = bruta.strip()
     if not chave:
         raise SystemExit("ERRO: ANTHROPIC_API_KEY ausente no ambiente.")
+    if any(c in chave for c in " \t\r\n"):
+        raise SystemExit(
+            f"ERRO: ANTHROPIC_API_KEY tem espaço ou quebra de linha no MEIO "
+            f"({len(chave)} chars). O paste provavelmente quebrou.\n"
+            f"       Use:  read -rs ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY")
+    if len(chave) < 80:
+        raise SystemExit(
+            f"ERRO: ANTHROPIC_API_KEY tem {len(chave)} chars — curta demais. "
+            f"A chave da Anthropic tem ~108.\n"
+            f"       Foi truncada no paste. Use:  "
+            f"read -rs ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY")
 
     from edp.llm.providers.anthropic import AnthropicProvider
     from edp.llm.providers.base import CompletionRequest, Message, ProviderConfig, Role
