@@ -44,7 +44,26 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 
 PROFUNDIDADE = 3        # E-3.2
-FAIXA = (3, 12)         # E-3.2, congelada antes de medir
+
+# E-3.2 congelou a faixa ABSOLUTA [3, 12]. Substituída em 11/08 pela
+# PROPORCIONAL, porque 12 era 75% de 16 e a absoluta testaria outra coisa
+# num corpus maior — a ressalva dizia "revalidar quando crescer", que é
+# instrução sem gatilho e se perde.
+#
+# A troca só é legítima porque **reproduz o veredito congelado**: em N=16
+# dá [3.2, 12.0], e dirigido (4,5) e não-dirigido (11,5) continuam ambos
+# PASSA, iguais ao que E-3.2 registrou. Mesma disciplina de flag-off
+# byte-idêntico usada no resto do repo — generalizar não pode mudar
+# decisão já tomada.
+#
+# O piso tem mínimo absoluto 2: alcançar só a si mesmo é ausência de
+# navegação por definição, e 20% de um corpus pequeno cairia abaixo disso.
+FAIXA_PROP = (0.20, 0.75)
+
+
+def faixa(n: int) -> tuple[float, float]:
+    lo, hi = FAIXA_PROP
+    return (max(2.0, lo * n), hi * n)
 
 _RE_FM = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 _RE_LINKS_FM = re.compile(r"^links:\s*\[(.*?)\]\s*$", re.M | re.DOTALL)
@@ -108,9 +127,9 @@ def medir(pasta: Path, dirigido: bool = True,
     por_no = {s: alcance(grafo, s, profundidade) for s in sorted(slugs)}
     vals = sorted(por_no.values())
     mediana = statistics.median(vals) if vals else 0
-    lo, hi = FAIXA
+    lo, hi = faixa(len(slugs))
     return {
-        "nos": len(slugs),
+        "nos": len(slugs), "faixa": (lo, hi),
         "arestas": sum(len(v) for v in grafo.values()) // (1 if dirigido else 2),
         "quebrados": quebrados,
         "por_no": por_no,
@@ -155,10 +174,11 @@ def main() -> int:
     for s, v in sorted(r["por_no"].items(), key=lambda kv: -kv[1]):
         print(f"  {s:<48}{v:>8}")
 
-    lo, hi = FAIXA
+    lo, hi = r["faixa"]
     print(f"\nmediana {r['mediana']}   min {r['min']}   max {r['max']}   "
-          f"fora de [{lo},{hi}]: {r['fora_da_faixa']}/{r['nos']}")
-    print(f"pré-condição E-3.2 ({lo} <= mediana <= {hi}): "
+          f"fora de [{lo:.1f},{hi:.1f}]: {r['fora_da_faixa']}/{r['nos']}")
+    print(f"pré-condição E-3.2 ({lo:.1f} <= mediana <= {hi:.1f}, "
+          f"{FAIXA_PROP[0]:.0%}-{FAIXA_PROP[1]:.0%} de N={r['nos']}): "
           f"{'PASSA' if r['passa'] else 'FALHA'}")
     print("\nPré-condição satisfeita != hipótese comprovada. Isto responde "
           "'existe\nvizinhança pequena o bastante para experimentar?'. Não "

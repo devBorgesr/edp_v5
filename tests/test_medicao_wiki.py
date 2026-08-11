@@ -237,6 +237,50 @@ def test_pasta_vazia_nao_quebra(tmp_path):
     assert medir(d)["nos"] == 0
 
 
+# ── Faixa proporcional (substituiu a absoluta [3,12] em 11/08) ───────────────
+
+def test_faixa_escala_com_o_corpus(wiki):
+    """
+    A absoluta [3,12] tinha 12 = 75% de 16; num corpus de 100 páginas
+    passaria a testar outra coisa, e a ressalva "revalidar quando
+    crescer" é instrução sem gatilho — se perde. A proporcional escala
+    por construção.
+    """
+    d, escreve = wiki
+    for i in range(20):
+        escreve(f"n{i:02d}")
+    assert medir(d)["faixa"] == (4.0, 15.0)      # 20% e 75% de 20
+
+
+def test_piso_nunca_cai_abaixo_de_dois(wiki):
+    """
+    Alcançar só a si mesmo é ausência de navegação por definição. Em
+    corpus pequeno 20% cairia abaixo de 1, e "tudo isolado" passaria.
+    """
+    d, escreve = wiki
+    for i in range(4):
+        escreve(f"n{i}")
+    lo, _ = medir(d)["faixa"]
+    assert lo == 2.0, "piso proporcional afundou abaixo do mínimo absoluto"
+    assert medir(d)["passa"] is False, "corpus todo isolado passou"
+
+
+def test_faixa_reproduz_o_veredito_congelado_em_16_nos(wiki):
+    """
+    REGRESSÃO da troca de critério. Trocar faixa depois de ver resultado
+    só é legítimo se o veredito congelado não muda — mesma disciplina do
+    flag-off byte-idêntico. Em N=16 a proporcional dá [3.2, 12.0], e as
+    duas medianas que E-3.2 registrou continuam PASSA.
+    """
+    d, escreve = wiki
+    for i in range(16):
+        escreve(f"n{i:02d}")
+    lo, hi = medir(d)["faixa"]
+    assert (round(lo, 1), round(hi, 1)) == (3.2, 12.0)
+    assert lo <= 4.5 <= hi, "mediana dirigida de E-3.2 deixou de passar"
+    assert lo <= 11.5 <= hi, "mediana não-dirigida de E-3.2 deixou de passar"
+
+
 # ── Regressão do veredito publicado do Haiku (E-2) ───────────────────────────
 
 _JSON_E2 = _ROOT / "resultado_gap_score_haiku.json"

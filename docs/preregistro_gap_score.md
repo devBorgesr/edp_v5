@@ -1086,3 +1086,98 @@ mais forte.
 
 Quem escrever o item 2 deveria declarar **de onde as categorias vieram**,
 antes de aplicá-las.
+
+---
+
+## ADENDO À NOTA DE EXECUÇÃO — quatro coisas que faltaram, 11/08
+
+### 1. A remoção não era neutra para a pergunta de pesquisa
+
+Provei neutralidade para as **métricas agregadas** de E-3.2 e tratei isso
+como neutralidade, ponto. Não é.
+
+Aresta declarada apontando para página nunca escrita **é uma instância do
+fenômeno que o `Gap Event` quer formalizar** — a estrutura prometeu uma
+transição e não entregou. Apaguei dois casos reais antes de o detector
+existir.
+
+Corrigido: `docs/arestas_removidas.md`, registro append-only com origem,
+alvo pretendido, assunto e data. Quando `capacidade_de_satisfação()`
+existir, são casos de calibração com rótulo conhecido. Remover do
+frontmatter e descartar o dado deixam de ser a mesma operação.
+
+### 2. A edição não tem diff — o hash passa a ser a trilha
+
+`edp_wiki/` é gitignored: a edição que mudou o grafo não tem histórico
+versionado, e a evidência de que foi *essa* edição dependia de prosa.
+
+| momento | `sha256` do corpus (16 páginas) |
+|---|---|
+| E-2.3 / E-3, todas as medições até 11/08 | `27e4fe846fdc37fb` |
+| depois da remoção dos 2 links quebrados | **`256ea486246673ca`** |
+
+**Consequência verificada:** `scripts/medir_gap_score_haiku.py` agora
+**aborta** — o guard de E-2.3 dispara e anula a rodada. Correto: o
+gabarito do E-2 foi medido contra o estado antigo, e re-rodar contra o
+novo mediria outra coisa. Quem quiser reproduzir E-2 precisa do corpus em
+`27e4fe846fdc37fb`.
+
+**Regra daqui em diante:** toda edição em `edp_wiki/paginas/` loga o hash
+resultante aqui.
+
+### 3. A faixa vira proporcional, e a troca é provada não-tunante
+
+A ressalva anterior dizia "revalidar quando o corpus crescer" — instrução
+sem gatilho, que se perde. Substituída por faixa que escala sozinha:
+
+```
+faixa(N) = ( max(2, 0.20·N) , 0.75·N )
+```
+
+O piso tem mínimo absoluto **2**: alcançar só a si mesmo é ausência de
+navegação por definição, e 20% de corpus pequeno afundaria abaixo disso.
+
+**Trocar critério depois de ver resultado só é legítimo se o veredito
+congelado não mudar.** Verificado:
+
+| leitura | mediana | faixa antiga [3,12] | faixa nova [3.2,12.0] |
+|---|---|---|---|
+| dirigido | 4,5 | PASSA | **PASSA** |
+| não-dirigido | 11,5 | PASSA | **PASSA** |
+
+Idênticos. A única diferença é estatística secundária: `fora da faixa` no
+dirigido foi de 2/16 para 3/16, porque o piso subiu de 3 para 3,2. Mesma
+disciplina do flag-off byte-idêntico do resto do repo. Travado por
+`tests/test_medicao_wiki.py::test_faixa_reproduz_o_veredito_congelado_em_16_nos`.
+
+### 4. Item 2: de onde as categorias devem vir
+
+Eu tinha exigido "declarar de onde vieram" sem dizer de onde **deveriam**
+vir. Fica registrada a saída concreta:
+
+**adotar um vocabulário de tipo de relação publicado fora deste
+projeto**, e só depois mapear as 27 arestas nele. O campo de *citation
+typing* tem ontologias desenhadas sem nenhum conhecimento deste corpus
+nem deste gabarito — a **CiTO** (Citation Typing Ontology, das SPAR
+ontologies) é a referência mais direta, e a literatura de
+Zettelkasten/wiki-linking tem vocabulários equivalentes.
+
+Isso quebra o vínculo com a taxonomia da rodagem cruzada **sem** exigir
+que apareça alguém não-contaminado para fazer o trabalho.
+
+**Ressalva sobre esta recomendação:** conheço a existência e o propósito
+da CiTO, não a lista exata de propriedades dela. O vocabulário tem de ser
+puxado da fonte, não da minha memória — citar termos de cabeça aqui seria
+o mesmo defeito que passei o dia auditando nas colagens.
+
+### 5. Contaminação minha, com peso consistente
+
+Recusei escrever o item 2 por conhecer o gabarito, mas para a observação
+de Q6 apenas declarei "não é cego" e segui. Mesmo princípio, pesos
+diferentes.
+
+Não muda a decisão sobre os links — o argumento neutro bastava sozinho.
+Fica registrado que **qualquer edição futura que toque
+`r1-seletividade-invertida` ou o assunto de Q6 já não é cega para mim**,
+do mesmo modo que o item 2 está marcado como não-executável por quem viu
+o teste.
