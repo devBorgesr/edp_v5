@@ -230,3 +230,105 @@ código, não como resultado.
 > `compressao-zero-e-loops-abertos` — são páginas de núcleo/verificado com
 > conteúdo forte e nenhuma entrada. Órfã não é sinônimo de fraca; o lint
 > reporta, não rebaixa. Mesma lição de `aee20f9`.
+
+---
+
+## RESULTADO — 11/08/2026, `scripts/medir_gap_score.py`
+
+Wiki inalterada desde 07/08 (§7 satisfeito). `sha256` do conjunto das 16
+páginas: `27e4fe846fdc37fb`. Protocolo cumprido: `_RE_TOKEN` e
+`_STOPWORDS` (170 palavras) importados de `edp.wiki`, sem alteração.
+**Custo: US$ 0,00.**
+
+| # | cl | g_bruto | g_idf | termos ausentes da cobertura |
+|---|---|---|---|---|
+| Q1 | A | 0,286 | 0,393 | rotear, testamos |
+| Q2 | B | 0,429 | **0,000** | check, form, identificar |
+| Q3 | B | 0,333 | **0,503** | `session_boost_factor` |
+| Q4 | B | 0,571 | **0,000** | `edp_hybrid_retrieval`, flag, muda, tóxico |
+| Q5 | B | 0,400 | **0,000** | mandar, segundos |
+| Q6 | A | 0,500 | 0,451 | blob, dinâmica, perda |
+| Q7 | B | 0,667 | 0,520 | boost, calibração, incidente, motivou |
+| Q8 | B | 0,875 | 0,828 | competir, letta, longo, mem0, mudou, posição, zep |
+| Q9 | B | 0,333 | 0,469 | 2026, agosto, mudou |
+| Q10 | B | 0,286 | **0,000** | gratuitas, manter |
+| Q11 | A | 0,500 | 0,465 | assumir, costumo, desenhar |
+| Q12 | A | 0,333 | 0,193 | nelas, quais |
+| N1 | ctrl | 0,250 | **0,000** | híbrido |
+| N2 | ctrl | **0,000** | **0,000** | — (nenhum) |
+| N3 | ctrl | **1,000** | **1,000** | discutiu, gente, lembra |
+
+### Veredito: as duas FALHAM
+
+| condição | bruta | idf |
+|---|---|---|
+| (a) ≥3/4 de A com gap < 0,5 | **2/4 — NÃO** | 4/4 — ok |
+| (b) ≥7/8 de B com gap ≥ 0,5 | **3/8 — NÃO** | **3/8 — NÃO** |
+| (c) Q3 ≥ 0,5 | **0,333 — NÃO** | 0,503 — ok |
+| (d) N3 ≥ 0,5 | 1,000 — ok | 1,000 — ok |
+
+## O placar da minha predição: conclusão certa, mecanismo errado
+
+O §6 previu **"as duas falham, por Q3"**. As duas falharam. **Não por Q3.**
+
+| previ | deu |
+|---|---|
+| G-bruto falha em (c) **e** (d) | falha em (c); **(d) passa com 1,000** — errei |
+| G-idf falha em (c) | **passa em (c) com 0,503** — errei, por 0,003 |
+| a causa é Q3 | a causa é **(b)**, em ambas: só 3 de 8 de B têm gap alto |
+
+Errei também a nota do §1: escrevi que o filtro por status era "quase um
+no-op". Foi **decisivo**. `session_boost_factor` aparece em uma única
+página — `que-perguntas-fazer-a-uma-wiki-pessoal`, status `hipotese` —
+que o filtro exclui. Minha previsão sobre Q3 assumia que a página do
+exemplo estava na cobertura. Não estava. Q3 passou (c) por acidente de
+filtro, não por mérito da fórmula.
+
+**Quinto erro de predição consecutivo nesta frente.** Registrado.
+
+## A causa real: R1 pela terceira vez
+
+`idf.get(t, 0.0)` devolve **0,0 para termo que o corpus nunca viu**.
+Verificado: `edp_hybrid_retrieval`, `mem0`, `zep`, `letta`, `gratuitas`,
+`manter`, `flag`, `tóxico`, `muda`, `mandar` têm todos **df = 0** nas 16
+páginas. Peso zero, some da conta — nem no numerador nem no denominador.
+
+Consequência medida: **quanto mais estranha a pergunta é à wiki, MENOR o
+gap por IDF.** Q4 pergunta por uma flag que não aparece em página nenhuma
+e recebe `g_idf = 0,000` — a fórmula afirma cobertura total. Q2, Q5, Q10
+e N1 caem pelo mesmo mecanismo.
+
+Isso é **seletividade invertida — R1 — pela terceira vez** neste projeto:
+
+1. gate por embedding (`dd06b87`)
+2. primeira `buscar()` léxica (docstring do `_idf()`)
+3. **Gap Score por IDF, aqui**
+
+E a origem é uma regra que está **certa** onde nasceu. `edp/wiki.py:259`
+diz: *"Termo que o acervo desconhece não pode ajudar nem atrapalhar: peso
+0."* Correto para **ranquear** — não dá para ordenar documentos por um
+termo que nenhum tem. Catastrófico para **medir lacuna**, onde o termo
+nunca visto é o sinal inteiro.
+
+## O segundo defeito, que não tem conserto barato
+
+**N2 = 0,000 nas duas fórmulas.** A wiki "cobre integralmente" a capital
+da Mongólia. Medido: `mongólia` aparece em **6 das 16 páginas** (três
+delas núcleo) e `capital` em 2 — sempre como *exemplo de pergunta que não
+precisa de corpus*, nunca como assunto.
+
+É o defeito menção-vs-tratamento que o §5 nomeou antes de rodar. Ele é
+real — só não apareceu em Q3, apareceu em **N2**. E ao contrário do
+primeiro, não decorre de um default mal herdado: decorre de a fórmula
+contar presença de token, sem qualquer noção de sobre o que a página é.
+
+## O que isto decide
+
+- **Decide:** as duas fórmulas do §2 falham o critério do §4. O Gap Score
+  como especificado nos 11 prompts não sustenta o motor.
+- **Decide:** a causa do primeiro defeito é mecânica, localizada e
+  medida — não é "o conceito não presta".
+- **Não decide:** se o conserto do `idf.get(t, 0.0)` faz passar. Testar
+  isso agora, depois de ver o dado, seria ajuste de curva. Exige emenda
+  pré-dado, na disciplina de E-1/E-2 da rodagem cruzada.
+- **Não decide:** nada sobre menção-vs-tratamento, que N2 mostra vivo.
