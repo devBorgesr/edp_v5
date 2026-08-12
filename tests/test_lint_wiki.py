@@ -53,9 +53,11 @@ Volta para [[pagina]].
 """
 
 
-def roda(pasta: Path) -> subprocess.CompletedProcess:
+def roda(pasta: Path, env: dict | None = None) -> subprocess.CompletedProcess:
+    import os
+    ambiente = {**os.environ, **(env or {})}
     return subprocess.run([sys.executable, str(_LINT), "--paginas", str(pasta)],
-                          capture_output=True, text=True, cwd=_ROOT)
+                          capture_output=True, text=True, cwd=_ROOT, env=ambiente)
 
 
 def escreve(pasta: Path, nome: str, conteudo: str) -> None:
@@ -221,3 +223,26 @@ def test_grau_de_entrada_conta_frontmatter_e_corpo(wiki):
                                               'links: ["outra", "alvo"]'))
     r = roda(wiki)
     assert "alvo: órfã" not in r.stdout, r.stdout
+
+
+# ── Regressão de encoding: CI Windows, 11/08 ──────────────────────────────────
+
+def test_erro_nao_crasha_sob_encoding_cp1252(wiki):
+    """
+    REGRESSÃO — falha real no CI (`windows-latest`), 11/08/2026: stdout
+    capturado por subprocess no Windows usa cp1252 ("charmap") quando não
+    é console real. `print(f"  ✗ {e}")` — ✗ é U+2717, fora do Latin-1 —
+    derrubava o processo com UnicodeEncodeError NA PRIMEIRA linha de
+    ERRO, antes de imprimir qualquer achado. O lint saía mudo justo no
+    caso que mais precisa reportar algo.
+
+    Reproduzido aqui simulando o ambiente real via `PYTHONIOENCODING`
+    (Linux honra a variável mesmo sem console Windows) — sem isso, este
+    teste falha com o mesmo traceback do CI.
+    """
+    escreve(wiki, "pagina", PAGINA_OK.replace(
+        'links: ["outra"]', 'links: ["outra", "fantasma"]'))
+    r = roda(wiki, env={"PYTHONIOENCODING": "cp1252"})
+    assert "UnicodeEncodeError" not in r.stderr, r.stderr
+    assert r.returncode == 1, (r.stdout, r.stderr)
+    assert "fantasma" in r.stdout and "inexistente" in r.stdout

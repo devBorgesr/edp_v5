@@ -44,6 +44,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows CI (`windows-latest`, `.github/workflows/tests.yml`) captura
+# stdout com codec cp1252 ("charmap") quando não é console real — qualquer
+# caractere fora do Latin-1 (✗, ─) crasha com UnicodeEncodeError ANTES de
+# imprimir o achado, silenciando o próprio lint. Achado em 11/08 pelo CI
+# real (Linux local já é UTF-8, por isso não apareceu antes do push).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 _ROOT = Path(__file__).resolve().parent.parent
 
 # Vocabulário do schema — §7.1 (camadas) e §2 (anatomia). Não inventar.

@@ -27,6 +27,13 @@ import re
 import sys
 from pathlib import Path
 
+# Windows CI captura stdout com cp1252 ("charmap") — ⁰/─ fora do Latin-1
+# crasham com UnicodeEncodeError antes de imprimir o resultado. Achado em
+# 11/08 no CI real (`windows-latest`); Linux local já é UTF-8.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 

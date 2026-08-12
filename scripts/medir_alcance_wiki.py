@@ -41,6 +41,14 @@ import statistics
 import sys
 from pathlib import Path
 
+# Este script não usa caractere fora do Latin-1 hoje (verificado 11/08),
+# mas os três scripts irmãos (lint_wiki.py, medir_gap_score*.py) crasharam
+# no CI Windows por isso — mesma família, mesmo guard por consistência e
+# para não regredir silenciosamente se alguém adicionar um símbolo aqui.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 _ROOT = Path(__file__).resolve().parent.parent
 
 PROFUNDIDADE = 3        # E-3.2
