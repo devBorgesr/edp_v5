@@ -168,6 +168,74 @@ class AnthropicProvider(LLMProviderBase):
             payload["stop_sequences"] = request.stop
         return payload
 
+    @staticmethod
+    def _medir_prompt(payload: dict) -> tuple[int, int, int, str]:
+        """
+        Mede o prompt já montado, para a Fase 1 da calibração de tokens
+        (AUDITORIA_FASE1_TOKENS.md).
+
+        Mede o PAYLOAD, não o `CompletionRequest`: `_build_payload` move
+        mensagens `system` para o campo `system`, injeta `"(continue)"` quando
+        falta um primeiro turno de user, e descarta um primeiro `assistant`.
+        Medir antes disso contaria caracteres que não foram enviados e deixaria
+        de contar os que foram — a razão sairia enviesada com cara de medida.
+
+        Devolve (text_chars, system_chars, n_messages, texto) — `texto` é o
+        mesmo conteúdo concatenado, reaproveitado para a classificação de
+        conteúdo, para não percorrer o prompt duas vezes.
+        """
+        system_text = payload.get("system") or ""
+        mensagens = payload.get("messages") or []
+        partes = [system_text] if system_text else []
+        for m in mensagens:
+            c = m.get("content")
+            if isinstance(c, str):
+                if c:
+                    partes.append(c)
+            elif isinstance(c, list):
+                # formato multimodal: [{"type": "text", "text": "..."}, ...]
+                for b in c:
+                    if isinstance(b, dict) and b.get("text"):
+                        partes.append(str(b["text"]))
+        # Parte vazia é OMITIDA, não juntada: um bloco sem texto (imagem, por
+        # exemplo) somaria um "\n" fantasma ao total. Um char por bloco
+        # não-textual é pequeno e SISTEMÁTICO — exatamente o tipo de viés que
+        # se esconde numa razão com cara de medida.
+        texto = "\n".join(partes)
+        return len(texto), len(system_text), len(mensagens), texto
+
+    def _telemetria_tokens(
+        self, payload: dict, req: urllib.request.Request,
+        usage: Optional[dict], modo: str, eff_model: str,
+    ) -> None:
+        """
+        Fase 1: emite o par (chars, tokens reais). Nunca propaga exceção e
+        nunca altera a resposta — ver EDP_TOKEN_TELEMETRY em config.py.
+
+        O gate da flag fica AQUI, antes de medir: com a flag OFF o caminho é
+        um `if` e mais nada — nenhuma string é construída, nenhum prompt é
+        percorrido. `emit_token_usage` re-checa a flag como rede de segurança,
+        não como gate primário.
+        """
+        try:
+            from ...config import EDP_TOKEN_TELEMETRY
+            if not EDP_TOKEN_TELEMETRY:
+                return
+            from ...runtime.pareto_store import emit_token_usage
+            text_chars, system_chars, n_msgs, texto = self._medir_prompt(payload)
+            emit_token_usage(
+                model=eff_model,
+                modo=modo,
+                usage=usage,
+                text_chars=text_chars,
+                system_chars=system_chars,
+                payload_bytes=len(req.data or b""),
+                n_messages=n_msgs,
+                amostra_texto=texto,
+            )
+        except Exception as e:
+            logger.debug("[anthropic] telemetria de tokens falhou: %s", e)
+
     def _request(self, payload: dict, stream: bool) -> urllib.request.Request:
         url = f"{self.config.base_url}/v1/messages"
         req = urllib.request.Request(
@@ -265,6 +333,9 @@ class AnthropicProvider(LLMProviderBase):
             "[anthropic] complete | model=%s lat=%.0fms tok_in=%d tok_out=%d cost=$%.4f",
             eff_model, latency_ms, ptoks, ctoks, cost,
         )
+        # Fase 1 (12/08/2026): `usage` cru, não `ptoks`/`ctoks` — os extraídos
+        # já têm default 0, que apagaria a distinção entre "veio 0" e "não veio".
+        self._telemetria_tokens(payload, req, usage, "complete", eff_model)
         return CompletionResponse(
             text=text,
             model=eff_model,
@@ -336,6 +407,14 @@ class AnthropicProvider(LLMProviderBase):
         _stop_reason = None
         _output_tokens_reported = None
         _input_tokens_reported = None
+        # Fase 1 (12/08/2026): os dois `usage` CRUS. No streaming o objeto vem
+        # partido em dois eventos SSE — `message_start` traz input_tokens (e os
+        # campos de cache, se prompt caching estiver ligado) e `message_delta`
+        # traz output_tokens. Guardar os dicts inteiros, em vez de só os dois
+        # inteiros acima, é o que mantém amostras cacheadas separáveis das
+        # limpas no futuro (ver emit_token_usage).
+        _usage_start: Optional[dict] = None
+        _usage_delta: Optional[dict] = None
 
         try:
             current_event = ""
@@ -369,10 +448,11 @@ class AnthropicProvider(LLMProviderBase):
                     elif current_event == "message_start":
                         # message_start carrega usage.input_tokens
                         try:
+                            _usage_start = (
+                                data.get("message", {}).get("usage") or None
+                            )
                             _input_tokens_reported = (
-                                data.get("message", {})
-                                    .get("usage", {})
-                                    .get("input_tokens")
+                                (_usage_start or {}).get("input_tokens")
                             )
                         except Exception:
                             pass
@@ -382,6 +462,7 @@ class AnthropicProvider(LLMProviderBase):
                             _delta = data.get("delta", {})
                             _stop_reason = _delta.get("stop_reason")
                             _usage = data.get("usage", {})
+                            _usage_delta = _usage or None
                             _output_tokens_reported = _usage.get("output_tokens")
                         except Exception:
                             pass
@@ -402,6 +483,18 @@ class AnthropicProvider(LLMProviderBase):
                                 "output_tokens=%s — modelo atingiu limite de saída",
                                 self.config.model, _output_tokens_reported,
                             )
+                        # Fase 1 (12/08/2026): emite só aqui, no message_stop.
+                        # Antes disso o `usage` está incompleto por construção
+                        # (output_tokens só chega no message_delta), e stream
+                        # abandonado pelo consumidor nunca chega aqui — que é o
+                        # comportamento certo: amostra parcial é descartada,
+                        # não completada com zero.
+                        self._telemetria_tokens(
+                            payload, req,
+                            {**(_usage_start or {}), **(_usage_delta or {})},
+                            "stream",
+                            payload.get("model") or self.config.model,
+                        )
                         break
                     elif current_event == "error":
                         err = data.get("error", {})

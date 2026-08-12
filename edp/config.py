@@ -273,3 +273,25 @@ EDP_WIKI_CONVERSAS = os.environ.get("EDP_WIKI_CONVERSAS", "0") == "1"
 #
 # Default OFF: muda o prompt que vai ao modelo (Tier 2/3, edp_metodologia.md).
 EDP_ANCHOR_COMPACT = os.environ.get("EDP_ANCHOR_COMPACT", "0") == "1"
+
+
+# ── Telemetria de tokens — Fase 1 da calibração (12/08/2026) ────────────────────
+# Grava o par (chars enviados, tokens REAIS cobrados pela API) por chamada, em
+# `pareto_store`, para trocar o `4 chars ≈ 1 token` de
+# `runtime/context_window_manager.py:12-13` — que nunca foi medido — por uma
+# razão medida no corpus real (PT-BR + código), onde a razão é comprovadamente
+# diferente da de inglês.
+#
+# NÃO altera prompt, resposta, ranking ou custo. É leitura pura: o dado já chega
+# em toda resposta da Anthropic (`usage.input_tokens`) e hoje é descartado.
+#
+# Default OFF, e o motivo NÃO é risco de comportamento (não há) — é disciplina de
+# coleta: **ligar esta flag abre a janela de coleta, e a janela de coleta congela
+# o formato de injeção**. Mudar o formato dos blocos (compactar, podar, encurtar)
+# no meio da coleta mistura dois regimes no mesmo dataset, e a razão resultante
+# não descreve nenhum dos dois — sem dar erro, só um número errado com cara de
+# medido. Ligar é, portanto, uma decisão explícita de "estou coletando agora".
+#
+# Fase 2 (calcular a razão) e Fase 3 (aplicar) não existem ainda e exigem
+# pré-registro próprio. Ver AUDITORIA_FASE1_TOKENS.md.
+EDP_TOKEN_TELEMETRY = os.environ.get("EDP_TOKEN_TELEMETRY", "0") == "1"

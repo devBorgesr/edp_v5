@@ -91,6 +91,11 @@ EVENT_TYPES = frozenset({
     # subsistema novo — CognitiveHealthIndex foi avaliado primeiro e não
     # serve (calculador de score, não event log genérico).
     "store_degraded",
+    # Fase 1 da calibração de tokens (12/08/2026, AUDITORIA_FASE1_TOKENS.md):
+    # par (chars enviados, tokens REAIS cobrados) por chamada de LLM. Mesmo
+    # motivo do store_degraded acima — reusa este event log em vez de criar
+    # canal paralelo, e assim o dado cai onde bayes/gauss já olham.
+    "token_usage",
 })
 
 
@@ -569,3 +574,158 @@ def emit_store_degraded(
         get_pareto_store().emit(evt)
     except Exception as e:
         logger.warning("[pareto] emit_store_degraded falhou: %s", e)
+
+
+# ── Fase 1 da calibração de tokens (12/08/2026) ──────────────────────────────
+# AUDITORIA_FASE1_TOKENS.md. Coleta o par (chars enviados, tokens REAIS
+# cobrados) para substituir o `4 chars ≈ 1 token` de
+# runtime/context_window_manager.py:12-13, que nunca foi medido.
+
+_CERCA = "```"
+
+
+def classificar_conteudo(texto: str) -> dict:
+    """
+    Rotula o conteúdo de um prompt em UMA passada, sem LLM e sem rede.
+
+    Existe porque tokenização é dependente de conteúdo, não uniforme: a mesma
+    frase em PT e EN gasta número diferente de tokens (o BPE tem mais peças
+    grandes para inglês), e código tokeniza de um terceiro jeito. Uma razão
+    global chars/token seria a média de regimes distintos e não serviria para
+    nenhum deles.
+
+    DEVOLVE OS SINAIS CRUS, não só o rótulo — de propósito. Os limiares abaixo
+    são escolha minha, sem medição por trás (mesmo defeito que
+    AUDITORIA_CONSTANTES_NAO_CALIBRADAS.md cataloga em ~90 constantes). A
+    diferença é que aqui isso é inofensivo: nenhum deles entra em ranking, eles
+    só PARTICIONAM o dataset, e como os sinais crus vão gravados junto, a Fase 2
+    pode re-particionar com outros limiares sem recoletar nada. O que seria
+    irreversível é não gravar os sinais — não o valor do limiar.
+
+    Classes: "codigo" | "acentuado" (prosa PT-BR) | "ascii" (prosa sem acento,
+    tipicamente EN ou PT sem acentuação).
+    """
+    if not texto:
+        return {"classe": "vazio",
+                "sinais": {"n": 0, "nao_ascii": 0.0, "cercas": 0, "simbolos": 0.0}}
+
+    n = len(texto)
+    n_nao_ascii = 0
+    n_simbolos = 0
+    for ch in texto:
+        if ch > "\x7f":
+            n_nao_ascii += 1
+        elif ch in "{}[]()<>=;/\\|_*#$&^~`":
+            n_simbolos += 1
+
+    cercas = texto.count(_CERCA)
+    r_nao_ascii = n_nao_ascii / n
+    r_simbolos = n_simbolos / n
+
+    if cercas >= 2 or r_simbolos > 0.15:
+        classe = "codigo"
+    elif r_nao_ascii > 0.01:
+        classe = "acentuado"
+    else:
+        classe = "ascii"
+
+    return {
+        "classe": classe,
+        "sinais": {
+            "n":          n,
+            "nao_ascii":  round(r_nao_ascii, 4),
+            "cercas":     cercas,
+            "simbolos":   round(r_simbolos, 4),
+        },
+    }
+
+
+def emit_token_usage(
+    model:         str,
+    modo:          str,
+    usage:         Optional[dict],
+    text_chars:    int,
+    system_chars:  int,
+    payload_bytes: int,
+    n_messages:    int,
+    amostra_texto: str = "",
+) -> None:
+    """
+    Hook: par (chars enviados, tokens REAIS) de UMA chamada de LLM.
+
+    Governado por `EDP_TOKEN_TELEMETRY` (default OFF). Com a flag OFF esta
+    função retorna antes de qualquer trabalho — nada é computado, nada é
+    escrito, nenhum evento existe.
+
+    DUAS medidas de "chars", de propósito. A pergunta "qual o numerador da
+    razão chars/token" tem duas respostas defensáveis e escolher uma às cegas
+    produziria um número com aparência de medido:
+      - `text_chars`   — system + conteúdo das mensagens. É o que a API
+                         tokeniza e cobra.
+      - `payload_bytes`— bytes reais no fio (`len(req.data)`), incluindo o
+                         andaime JSON, que a API NÃO cobra mas cujo tamanho
+                         escala com `n_messages`.
+    Gravando as duas + `n_messages`, a Fase 2 calcula a razão das duas formas e
+    escolhe a mais estável com dado, em vez de por decreto. Custo: dois inteiros.
+
+    `usage` vai VERBATIM, não em campos extraídos. Motivo concreto: se prompt
+    caching for ligado um dia, `usage` ganha `cache_read_input_tokens` /
+    `cache_creation_input_tokens`, e uma chamada cacheada tem relação
+    chars→tokens-cobrados completamente diferente de uma sem cache. Se este
+    evento gravasse só `input_tokens`, toda amostra posterior a esse dia ficaria
+    contaminada e INDISTINGUÍVEL das limpas — o dataset inteiro viraria suspeito
+    retroativamente. Gravando o dict inteiro, cacheadas e limpas ficam
+    separáveis para sempre.
+
+    AMOSTRA DESCARTADA quando `input_tokens` ou `output_tokens` estiver ausente
+    (acontece no streaming: chegam em eventos SSE distintos — `message_start` e
+    `message_delta` — e qualquer um pode faltar). Gravar ausência como 0
+    injetaria par falso no dataset; a amostra a menos é o custo certo.
+
+    NÃO carrega `session_id`: o provider não o conhece, e inventar um seria
+    pior que omitir. O `correlation_id` é preenchido automaticamente por
+    `emit()` a partir do thread-local (setado em `llm_adapter.py:1527` e
+    `:1607`, mesma thread da chamada), e por ele a Fase 2 junta com
+    `memory_added`/`memory_accessed` do mesmo turno, que têm `session_id`.
+    """
+    try:
+        from ..config import EDP_TOKEN_TELEMETRY
+        if not EDP_TOKEN_TELEMETRY:
+            return
+
+        if not isinstance(usage, dict):
+            logger.debug("[pareto] token_usage descartado: usage ausente")
+            return
+        if usage.get("input_tokens") is None or usage.get("output_tokens") is None:
+            logger.debug(
+                "[pareto] token_usage descartado: tokens incompletos "
+                "(in=%s out=%s)",
+                usage.get("input_tokens"), usage.get("output_tokens"),
+            )
+            return
+
+        try:
+            from ..clock import is_verified as _is_verified
+            clock_ok = bool(_is_verified())
+        except Exception:
+            clock_ok = False
+
+        cls = classificar_conteudo(amostra_texto)
+
+        evt = {
+            "event":          "token_usage",
+            "ts":             _now(),
+            "clock_verified": clock_ok,
+            "model":          model,
+            "modo":           modo,
+            "usage":          dict(usage),
+            "text_chars":     int(text_chars),
+            "system_chars":   int(system_chars),
+            "payload_bytes":  int(payload_bytes),
+            "n_messages":     int(n_messages),
+            "classe":         cls["classe"],
+            "sinais":         cls["sinais"],
+        }
+        get_pareto_store().emit(evt)
+    except Exception as e:
+        logger.warning("[pareto] emit_token_usage falhou: %s", e)

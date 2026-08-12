@@ -39,6 +39,7 @@ from .pareto_store import (
     get_current_correlation_id, clear_current_correlation_id,
     emit_memory_added, emit_memory_accessed, emit_mode_switched,
     emit_task_started, emit_task_completed,
+    emit_token_usage, classificar_conteudo,
     EVENT_TYPES,
 )
 
@@ -102,6 +103,8 @@ __all__ = [
     "get_current_correlation_id", "clear_current_correlation_id",
     "emit_memory_added", "emit_memory_accessed", "emit_mode_switched",
     "emit_task_started", "emit_task_completed",
+    # Fase 1 da calibração de tokens (12/08/2026)
+    "emit_token_usage", "classificar_conteudo",
     "EVENT_TYPES",
     # Commit 4 — Gauss calibrator
     "GaussStats", "GaussCalibrator", "get_gauss_calibrator",
