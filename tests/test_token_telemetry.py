@@ -296,3 +296,330 @@ def test_medir_prompt_aceita_conteudo_multimodal():
 
 def test_medir_prompt_payload_vazio_nao_quebra():
     assert AnthropicProvider._medir_prompt({}) == (0, 0, 0, "")
+
+
+# ═══ Regime de formato (12/08/2026) ═══════════════════════════════════════════
+#
+# O congelamento de formato da Fase 1 era só convenção. Estes testes existem
+# porque "confie que a configuração era a mesma" e "prove qual configuração
+# produziu esta amostra" são garantias diferentes, e só a segunda sobrevive a
+# alguém rodar `/mode sprint` no meio da coleta.
+
+from edp.llm_adapter import CAPS_POR_MODO, EDPRuntime, snapshot_formato  # noqa: E402
+from edp.runtime.pareto_store import (  # noqa: E402
+    hash_format_state,
+    set_current_format_state,
+    clear_current_format_state,
+)
+
+
+@pytest.fixture(autouse=True)
+def _limpa_formato():
+    """Thread-local não pode vazar entre testes."""
+    clear_current_format_state()
+    yield
+    clear_current_format_state()
+
+
+# ── O gate: flag nova obriga classificação explícita ─────────────────────────
+
+def test_toda_flag_do_config_esta_classificada():
+    """
+    ESTE É O TESTE QUE CONVERTE O PRINCÍPIO EM MECANISMO.
+
+    O princípio — "tudo que altera a composição do prompt entra no
+    format_state" — é inútil se depender de o próximo desenvolvedor lembrar
+    dele. Aqui, adicionar uma `EDP_*` booleana ao config.py e não classificá-la
+    QUEBRA O BUILD, com uma mensagem dizendo o que decidir.
+
+    Falhou pra você? Decida: a flag muda o que entra no prompt? Vai em
+    FORMAT_STATE_FLAGS. Não muda? Vai em FORMAT_STATE_FLAGS_IGNORADAS, **com o
+    motivo no comentário** — "não importa" sem motivo é exatamente a suposição
+    que esta lista existe para impedir.
+    """
+    classificadas = set(edp_config.FORMAT_STATE_FLAGS) | set(
+        edp_config.FORMAT_STATE_FLAGS_IGNORADAS
+    )
+    existentes = {
+        nome for nome in dir(edp_config)
+        if nome.startswith("EDP_") and isinstance(getattr(edp_config, nome), bool)
+    }
+    faltando = existentes - classificadas
+    assert not faltando, (
+        f"flag(s) EDP_* sem classificação de formato: {sorted(faltando)} — "
+        f"decida se mudam o prompt e adicione a FORMAT_STATE_FLAGS ou a "
+        f"FORMAT_STATE_FLAGS_IGNORADAS em config.py"
+    )
+
+
+def test_listas_de_classificacao_nao_se_sobrepoem():
+    assert not (set(edp_config.FORMAT_STATE_FLAGS)
+                & set(edp_config.FORMAT_STATE_FLAGS_IGNORADAS))
+
+
+# ── O snapshot grava o estado EFETIVO, não a causa dele ─────────────────────
+
+def test_snapshot_grava_caps_efetivos_nao_so_o_modo():
+    """
+    Gravar `mode="sprint"` obriga quem analisa a reconstruir "logo, o cap era
+    12000". Gravar os caps responde direto. Configuração é causa indireta; o
+    que entrou no prompt é o que interessa.
+    """
+    assert snapshot_formato("sprint")["caps"][0] == 12000
+    assert snapshot_formato("cognitive")["caps"][0] == 4000
+
+
+def test_caps_por_modo_e_fonte_unica():
+    """
+    REGRESSÃO: o mapa mode->caps era literal DENTRO de `_retrieve_context`.
+    Foi içado para módulo em 12/08 porque a telemetria precisa do mesmo mapa —
+    duplicá-lo é o antipadrão que a auditoria de constantes catalogou
+    (`SESSION_GAP_THRESHOLD_SEC` definido duas vezes, concordando por
+    coincidência). Se alguém re-inlinar os literais, o snapshot e o prompt
+    passam a discordar em silêncio.
+    """
+    assert CAPS_POR_MODO["sprint"][0] == 12000
+    assert CAPS_POR_MODO["cognitive"][0] == 4000
+    assert CAPS_POR_MODO["sprint"][1:] == CAPS_POR_MODO["cognitive"][1:]
+
+
+def test_modo_desconhecido_cai_em_cognitive():
+    assert snapshot_formato("modo-que-nao-existe")["caps"] == list(
+        CAPS_POR_MODO["cognitive"]
+    )
+
+
+def test_snapshot_inclui_flag_lida_fora_do_config(monkeypatch):
+    """
+    `EDP_USE_CTX_MGR` é lida de os.environ direto no llm_adapter, NÃO do
+    config.py — o teste de completude acima varre config.py e não a pegaria.
+    E ela troca `_build_enriched_context` pelo fallback: monta o prompt de
+    outro jeito. É a flag mais disruptiva do conjunto e a única fora do módulo.
+    """
+    monkeypatch.setenv("EDP_USE_CTX_MGR", "0")
+    assert snapshot_formato("cognitive")["flags"]["EDP_USE_CTX_MGR"] is False
+    monkeypatch.setenv("EDP_USE_CTX_MGR", "1")
+    assert snapshot_formato("cognitive")["flags"]["EDP_USE_CTX_MGR"] is True
+
+
+def test_snapshot_e_foto_nao_ponteiro():
+    """
+    A pergunta que a Fase 2 faz é "como o EDP estava quando esta observação
+    nasceu", não "como está agora". Um ponteiro para estrutura viva responderia
+    a segunda por acidente, e a amostra teria sido gravada com o valor errado
+    sem ninguém notar.
+    """
+    a = snapshot_formato("cognitive")
+    a["mode"] = "adulterado"
+    a["flags"]["EDP_ANCHOR_COMPACT"] = "lixo"
+    b = snapshot_formato("cognitive")
+    assert b["mode"] == "cognitive"
+    assert isinstance(b["flags"]["EDP_ANCHOR_COMPACT"], bool)
+
+
+# ── O hash: identidade verificável, não confiança ───────────────────────────
+
+def test_hash_muda_quando_o_modo_muda():
+    """
+    `/mode sprint` no meio da coleta é um comando normal, não um cenário
+    exótico — e troca o cap do turno-1 por 3×. Sem hash distinto, as duas
+    populações ficam indistinguíveis no dataset.
+    """
+    h_cog = hash_format_state(snapshot_formato("cognitive"))
+    h_spr = hash_format_state(snapshot_formato("sprint"))
+    assert h_cog and h_spr and h_cog != h_spr
+
+
+def test_hash_muda_quando_uma_flag_muda(monkeypatch):
+    antes = hash_format_state(snapshot_formato("cognitive"))
+    monkeypatch.setattr(edp_config, "EDP_ANCHOR_COMPACT",
+                        not edp_config.EDP_ANCHOR_COMPACT, raising=False)
+    depois = hash_format_state(snapshot_formato("cognitive"))
+    assert antes != depois
+
+
+def test_hash_e_estavel_para_o_mesmo_regime():
+    """Sem isto, cada amostra viraria seu próprio estrato e a divisão seria inútil."""
+    assert hash_format_state(snapshot_formato("cognitive")) == \
+           hash_format_state(snapshot_formato("cognitive"))
+
+
+def test_hash_ignora_ordem_de_insercao_das_chaves():
+    """
+    `sort_keys=True` não é cosmético: sem ele, dois dicts com o MESMO conteúdo
+    e ordem de inserção diferente dariam hashes diferentes, e a Fase 2 veria
+    dois regimes onde só há um.
+    """
+    a = {"mode": "cognitive", "caps": [1, 2], "flags": {"X": True, "Y": False}}
+    b = {"flags": {"Y": False, "X": True}, "caps": [1, 2], "mode": "cognitive"}
+    assert hash_format_state(a) == hash_format_state(b)
+
+
+def test_hash_de_none_e_none():
+    assert hash_format_state(None) is None
+    assert hash_format_state("nao-e-dict") is None
+
+
+# ── Chega na amostra ─────────────────────────────────────────────────────────
+
+def test_amostra_carrega_o_regime_e_o_hash(flag, isolated_base_dir):
+    flag(True)
+    estado = snapshot_formato("sprint")
+    set_current_format_state(estado)
+    emite()
+    e = eventos()[0]
+    assert e["format_state"]["mode"] == "sprint"
+    assert e["format_state"]["caps"][0] == 12000
+    assert e["format_hash"] == hash_format_state(estado)
+
+
+def test_amostras_de_regimes_diferentes_sao_separaveis(flag, isolated_base_dir):
+    """
+    O ponto inteiro da mudança: mistura de regime deixa de ser contaminação
+    invisível e vira variável observável. A Fase 2 agrupa por `format_hash` e
+    analisa cada estrato no seu próprio regime, em vez de jogar fora tudo o que
+    veio depois da troca (ou pior: não perceber a troca).
+    """
+    flag(True)
+    set_current_format_state(snapshot_formato("cognitive"))
+    emite()
+    set_current_format_state(snapshot_formato("sprint"))
+    emite()
+    hashes = {e["format_hash"] for e in eventos()}
+    assert len(hashes) == 2
+
+
+def test_sem_regime_registrado_a_amostra_ainda_e_gravada(flag, isolated_base_dir):
+    """
+    Falta de regime NÃO descarta a amostra — diferente de tokens ausentes.
+    Motivo: token ausente produziria um par falso que envenena a razão; regime
+    ausente só produz uma amostra que a Fase 2 não consegue estratificar, e é
+    ela quem decide o que fazer com isso. Descartar aqui seria decidir por ela.
+    """
+    flag(True)
+    clear_current_format_state()
+    emite()
+    e = eventos()[0]
+    assert e["format_state"] is None
+    assert e["format_hash"] is None
+
+
+# ── Cobertura dos caminhos de emissão (auditoria de 12/08) ───────────────────
+#
+# A pergunta que originou estes testes: "mostre TODOS os caminhos que produzem
+# uma amostra token_usage e prove que todos passam pelo mesmo construtor de
+# format_state". A resposta era não — três não passavam, e um deles rotulava
+# errado, o que é pior que não rotular.
+
+def test_validate_nao_emite_amostra(flag, isolated_base_dir, monkeypatch):
+    """
+    `AnthropicProvider.validate()` chama `_do_complete` direto para testar
+    credencial (prompt "1", max_tokens=1). Sem `telemetria=False` isso vira uma
+    amostra de ~1 token no dataset — e em prompt minúsculo o andaime JSON
+    domina, então ela puxaria a razão do estrato inteiro.
+    """
+    flag(True)
+    prov = AnthropicProvider.__new__(AnthropicProvider)
+    payload = {"messages": [{"role": "user", "content": "1"}]}
+    req = types.SimpleNamespace(data=b"{}")
+
+    # simula o corpo de _do_complete: com telemetria=False, nada é emitido
+    telemetria = False
+    if telemetria:
+        prov._telemetria_tokens(payload, req, dict(USAGE_OK), "complete", "m")
+    assert eventos() == []
+
+    # e com telemetria=True (o caminho normal), emite
+    prov._telemetria_tokens(payload, req, dict(USAGE_OK), "complete", "m")
+    assert len(eventos()) == 1
+
+
+def test_validate_passa_telemetria_false():
+    """Trava o argumento — se alguém remover, o teste acima vira teatro."""
+    import inspect
+    fonte = inspect.getsource(AnthropicProvider.validate)
+    assert "telemetria=False" in fonte
+    assinatura = inspect.signature(AnthropicProvider._do_complete)
+    assert assinatura.parameters["telemetria"].default is True
+
+
+def test_camara_nao_herda_o_regime_do_turno(flag, isolated_base_dir):
+    """
+    A câmara roda DENTRO do turno, na MESMA thread — herdaria o format_state
+    por acidente. Seria pior que não rotular: o prompt da câmara tem composição
+    própria (system de refutação, sem retrieval nem âncora), e carimbá-lo com o
+    regime do prompt principal afirmaria algo falso sobre a amostra.
+    """
+    flag(True)
+    from edp.runtime.pareto_store import get_current_format_state
+
+    set_current_format_state(snapshot_formato("sprint"))
+    # o que _llm_call_for_chamber faz ao redor da chamada
+    guardado = get_current_format_state()
+    set_current_format_state(None)
+    emite()                                     # amostra da câmara
+    set_current_format_state(guardado)          # devolve ao turno
+    emite()                                     # amostra do turno
+
+    evs = eventos()
+    assert evs[0]["format_state"] is None, "câmara não pode herdar o regime"
+    assert evs[1]["format_state"]["mode"] == "sprint", "turno perdeu o regime"
+
+
+def test_camara_restaura_o_regime_mesmo_com_erro():
+    """O restore está em `finally` — exceção da câmara não pode comer o regime."""
+    import inspect
+    fonte = inspect.getsource(EDPRuntime._llm_call_for_chamber)
+    pos_finally = fonte.rindex("finally:")
+    assert "_set_fmt(_fmt_turno)" in fonte[pos_finally:], \
+        "restauração do format_state precisa estar no finally"
+
+
+# ── População da Fase 2 como predicado, não como convenção ──────────────────
+
+from edp.runtime.pareto_store import amostra_valida_fase2  # noqa: E402
+
+
+def test_amostra_do_turno_entra_na_populacao(flag, isolated_base_dir):
+    flag(True)
+    set_current_format_state(snapshot_formato("cognitive"))
+    emite()
+    assert amostra_valida_fase2(eventos()[0])
+
+
+def test_amostra_sem_regime_fica_fora(flag, isolated_base_dir):
+    """
+    Câmara e cognitive_decisions. Não são inválidas — são OUTRA população.
+    Ficam gravadas (podem servir a outra pergunta) e fora do estrato.
+    """
+    flag(True)
+    clear_current_format_state()
+    emite()
+    assert not amostra_valida_fase2(eventos()[0])
+
+
+def test_evento_de_outro_tipo_fica_fora():
+    assert not amostra_valida_fase2({"event": "task_started", "format_state": {}})
+    assert not amostra_valida_fase2(None)
+    assert not amostra_valida_fase2({})
+
+
+def test_provider_e_gravado_e_exigido(flag, isolated_base_dir):
+    """
+    "anthropic" é redundante hoje (só ele emite) — e é por isso que vai
+    gravado: no dia em que o Ollama for instrumentado, amostra antiga sem o
+    campo vira ambígua retroativamente, sem como desambiguar depois.
+    """
+    flag(True)
+    set_current_format_state(snapshot_formato("cognitive"))
+    emite()
+    e = eventos()[0]
+    assert e["provider"] == "anthropic"
+    assert not amostra_valida_fase2({**e, "provider": "ollama"})
+
+
+def test_amostra_com_tokens_incompletos_fica_fora():
+    """Defesa contra log editado à mão — o emissor já descarta na origem."""
+    base = {"event": "token_usage", "format_state": {"mode": "x"},
+            "provider": "anthropic", "usage": {"input_tokens": 10}}
+    assert not amostra_valida_fase2(base)

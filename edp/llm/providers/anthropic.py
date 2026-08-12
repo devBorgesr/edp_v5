@@ -287,7 +287,8 @@ class AnthropicProvider(LLMProviderBase):
         """Completion síncrono com retry automático."""
         return self._retry(self._do_complete, request)
 
-    def _do_complete(self, request: CompletionRequest) -> CompletionResponse:
+    def _do_complete(self, request: CompletionRequest,
+                     telemetria: bool = True) -> CompletionResponse:
         payload = self._build_payload(request, stream=False)
         req = self._request(payload, stream=False)
 
@@ -335,7 +336,8 @@ class AnthropicProvider(LLMProviderBase):
         )
         # Fase 1 (12/08/2026): `usage` cru, não `ptoks`/`ctoks` — os extraídos
         # já têm default 0, que apagaria a distinção entre "veio 0" e "não veio".
-        self._telemetria_tokens(payload, req, usage, "complete", eff_model)
+        if telemetria:
+            self._telemetria_tokens(payload, req, usage, "complete", eff_model)
         return CompletionResponse(
             text=text,
             model=eff_model,
@@ -521,7 +523,13 @@ class AnthropicProvider(LLMProviderBase):
                 max_tokens=1,
                 temperature=0.0,
             )
-            self._do_complete(req)
+            # Fase 1: `telemetria=False` de propósito. Esta chamada existe para
+            # testar credencial — prompt "1", max_tokens=1 — e não é um turno.
+            # Uma amostra de ~1 token entraria no dataset como se fosse uso
+            # real e puxaria a razão chars/token do estrato inteiro, porque em
+            # prompt minúsculo o andaime JSON domina (medido no smoke: 379
+            # bytes de fio para 194 chars de texto).
+            self._do_complete(req, telemetria=False)
             return True
         except AuthError:
             logger.error("[anthropic] credenciais inválidas")

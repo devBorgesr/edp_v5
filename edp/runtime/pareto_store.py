@@ -59,6 +59,7 @@ Princípios EDP aplicados (Renato, 04/06/2026):
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -123,6 +124,55 @@ def clear_current_correlation_id() -> None:
     """Limpa correlation_id da thread atual (chamado ao fim do turno)."""
     if hasattr(_thread_local, "correlation_id"):
         del _thread_local.correlation_id
+
+
+# ── Regime de formato por turno (thread-local, 12/08/2026) ───────────────────
+# Mesmo mecanismo do correlation_id acima, e de propósito: o provider (que tem
+# o token real) não conhece modo, flags nem caps; quem conhece é o adapter. Um
+# segundo mecanismo de propagação daria duas verdades sobre "em que regime este
+# turno rodou". Este reusa a thread — o provider roda na mesma onde o adapter
+# tira o snapshot.
+
+
+def set_current_format_state(estado: Optional[dict]) -> None:
+    """Registra o regime de formato do turno atual (chamado no início do turno)."""
+    _thread_local.format_state = estado
+
+
+def get_current_format_state() -> Optional[dict]:
+    """Regime de formato do turno atual, ou None se não registrado."""
+    return getattr(_thread_local, "format_state", None)
+
+
+def clear_current_format_state() -> None:
+    if hasattr(_thread_local, "format_state"):
+        del _thread_local.format_state
+
+
+def hash_format_state(estado: Optional[dict]) -> Optional[str]:
+    """
+    Identidade determinística do regime — sha256 truncado do JSON canônico.
+
+    O hash não carrega informação nova (é derivável dos campos), e é isso que
+    torna ele barato. O que ele muda é a natureza da garantia: sem hash, a
+    Fase 2 confia que as configurações eram iguais; com hash, ela PROVA qual
+    regime produziu cada amostra e agrupa por igualdade de string em vez de
+    comparar dicts aninhados. É a diferença entre "mecanismo real" e "só
+    confiança" que `docs/AVISO_INSTANCIA_LIMPA.md` distingue.
+
+    `sort_keys=True` não é cosmético: sem ele, dois dicts com o mesmo conteúdo
+    e ordem de inserção diferente produziriam hashes diferentes e a Fase 2 veria
+    dois regimes onde só há um.
+    """
+    if not isinstance(estado, dict):
+        return None
+    try:
+        canonico = json.dumps(estado, sort_keys=True, ensure_ascii=False,
+                              separators=(",", ":"))
+        return hashlib.sha256(canonico.encode("utf-8")).hexdigest()[:16]
+    except Exception as e:
+        logger.debug("[pareto] hash_format_state falhou: %s", e)
+        return None
 
 
 # ── Interface (Arquitetura Forward) ──────────────────────────────────────────
@@ -640,6 +690,40 @@ def classificar_conteudo(texto: str) -> dict:
     }
 
 
+def amostra_valida_fase2(evt: dict) -> bool:
+    """
+    A população experimental da Fase 2, como PREDICADO e não como convenção.
+
+    Existe porque a regra em prosa ("filtre por format_state não-nulo") tem um
+    modo de falha conhecido e barato: alguém escreve `carrega_tudo()`, esquece
+    o filtro, e a contaminação volta pela porta que o `format_state` foi criado
+    para fechar. O harness da Fase 2 importa isto em vez de re-derivar.
+
+    Três classes de chamada produzem eventos, e só a primeira é observação:
+
+      A. turno principal          -> format_state preenchido    -> ENTRA
+      B. câmara, cognitive_decisions -> format_state None        -> fica fora
+      C. validate()               -> não emite (telemetria=False) -> nem existe
+
+    (B) são chamadas legítimas ao mesmo provider, com token real — mas de
+    composição própria (system de refutação, prompt de extração congelado).
+    Não são inválidas; são outra população. Descartá-las na emissão perderia
+    dado que pode servir a outra pergunta; misturá-las aqui responderia a
+    pergunta errada.
+    """
+    if not isinstance(evt, dict) or evt.get("event") != "token_usage":
+        return False
+    if evt.get("format_state") is None:
+        return False
+    if evt.get("provider") != "anthropic":
+        return False
+    usage = evt.get("usage")
+    if not isinstance(usage, dict):
+        return False
+    return (usage.get("input_tokens") is not None
+            and usage.get("output_tokens") is not None)
+
+
 def emit_token_usage(
     model:         str,
     modo:          str,
@@ -712,10 +796,24 @@ def emit_token_usage(
 
         cls = classificar_conteudo(amostra_texto)
 
+        # Regime de formato que produziu ESTA amostra. Sem ele, uma mudança de
+        # modo ou de flag no meio da coleta mistura regimes de forma
+        # indetectável; com ele, vira estrato separável pelo hash.
+        formato = get_current_format_state()
+
         evt = {
             "event":          "token_usage",
             "ts":             _now(),
             "clock_verified": clock_ok,
+            "format_state":   formato,
+            "format_hash":    hash_format_state(formato),
+            # Hoje só o provider Anthropic emite, então "anthropic" é
+            # redundante — e é exatamente por isso que vai gravado. A regra de
+            # população da Fase 2 nomeia o provider; deixá-lo implícito
+            # significa que, no dia em que o Ollama for instrumentado, as
+            # amostras antigas viram ambíguas retroativamente e não há como
+            # desambiguar depois.
+            "provider":       "anthropic",
             "model":          model,
             "modo":           modo,
             "usage":          dict(usage),

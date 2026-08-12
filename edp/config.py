@@ -295,3 +295,40 @@ EDP_ANCHOR_COMPACT = os.environ.get("EDP_ANCHOR_COMPACT", "0") == "1"
 # Fase 2 (calcular a razão) e Fase 3 (aplicar) não existem ainda e exigem
 # pré-registro próprio. Ver lab_edp_novo/docs/sujeito_edp/AUDITORIA_FASE1_TOKENS.md.
 EDP_TOKEN_TELEMETRY = os.environ.get("EDP_TOKEN_TELEMETRY", "0") == "1"
+
+# ── Regime de formato — o que precisa ser gravado JUNTO de cada amostra ─────────
+# O congelamento de formato da Fase 1 era só convenção: nada registrava qual
+# formato valia em cada amostra. Se uma destas mudar no meio da coleta, o
+# dataset mistura regimes e a contaminação fica INDETECTÁVEL — não dá erro, dá
+# um número errado com cara de medido.
+#
+# Com o estado gravado por amostra, mudar de regime deixa de ser veneno e vira
+# ESTRATO SEPARÁVEL: as amostras de antes e de depois ficam distinguíveis pelo
+# hash, e a Fase 2 analisa cada uma no seu regime em vez de jogar tudo fora.
+#
+# O princípio, e não a lista: **tudo que altera a composição do prompt entra
+# aqui**. A lista é só a instância de hoje. `tests/test_token_telemetry.py`
+# trava isso — enumera os `EDP_*` deste módulo e falha se algum não estiver
+# classificado numa das duas tuplas. Flag nova obriga uma decisão explícita, em
+# vez de deixar o próximo desenvolvedor supor que "essa provavelmente não
+# importa".
+FORMAT_STATE_FLAGS = (
+    "EDP_HYBRID_RETRIEVAL",    # troca o mecanismo de retrieval
+    "EDP_CTX_SLOTS",           # muda o que entra na contagem do corte
+    "EDP_WRITE_PROVENANCE",    # muda o que é gravado -> muda prompts futuros
+    "EDP_TOXIC_GUARDS",        # piso/exclusão -> muda o conjunto recuperado
+    "EDP_RETRIEVE_DEDUP",      # muda o conjunto recuperado
+    "EDP_RETRIEVE_SHUFFLE",    # muda a ORDEM do conjunto recuperado
+    "EDP_RETRIEVE_RANDOM_DROP",# remove itens do conjunto recuperado
+    "EDP_ANCHOR_COMPACT",      # muda o bloco da âncora de tarefa
+    "EDP_STORE_QUARANTINE",    # no caminho degradado, muda o que o store carrega
+)
+
+# Classificadas como NÃO afetando o prompt — com o motivo, porque "não importa"
+# sem motivo é a suposição que esta lista existe para impedir.
+FORMAT_STATE_FLAGS_IGNORADAS = (
+    "EDP_WIKI",            # governa endpoint HTTP, não o prompt
+    "EDP_WIKI_CONVERSAS",  # idem
+    "EDP_GRAPH_VIEWER",    # idem
+    "EDP_TOKEN_TELEMETRY", # é a própria coleta
+)
