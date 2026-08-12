@@ -293,5 +293,5 @@ EDP_ANCHOR_COMPACT = os.environ.get("EDP_ANCHOR_COMPACT", "0") == "1"
 # medido. Ligar é, portanto, uma decisão explícita de "estou coletando agora".
 #
 # Fase 2 (calcular a razão) e Fase 3 (aplicar) não existem ainda e exigem
-# pré-registro próprio. Ver AUDITORIA_FASE1_TOKENS.md.
+# pré-registro próprio. Ver lab_edp_novo/docs/sujeito_edp/AUDITORIA_FASE1_TOKENS.md.
 EDP_TOKEN_TELEMETRY = os.environ.get("EDP_TOKEN_TELEMETRY", "0") == "1"

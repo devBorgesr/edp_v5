@@ -172,7 +172,7 @@ class AnthropicProvider(LLMProviderBase):
     def _medir_prompt(payload: dict) -> tuple[int, int, int, str]:
         """
         Mede o prompt já montado, para a Fase 1 da calibração de tokens
-        (AUDITORIA_FASE1_TOKENS.md).
+        (lab_edp_novo/docs/sujeito_edp/AUDITORIA_FASE1_TOKENS.md).
 
         Mede o PAYLOAD, não o `CompletionRequest`: `_build_payload` move
         mensagens `system` para o campo `system`, injeta `"(continue)"` quando

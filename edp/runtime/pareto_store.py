@@ -91,7 +91,7 @@ EVENT_TYPES = frozenset({
     # subsistema novo — CognitiveHealthIndex foi avaliado primeiro e não
     # serve (calculador de score, não event log genérico).
     "store_degraded",
-    # Fase 1 da calibração de tokens (12/08/2026, AUDITORIA_FASE1_TOKENS.md):
+    # Fase 1 da calibração de tokens (12/08/2026, lab_edp_novo/docs/sujeito_edp/AUDITORIA_FASE1_TOKENS.md):
     # par (chars enviados, tokens REAIS cobrados) por chamada de LLM. Mesmo
     # motivo do store_degraded acima — reusa este event log em vez de criar
     # canal paralelo, e assim o dado cai onde bayes/gauss já olham.
@@ -577,7 +577,7 @@ def emit_store_degraded(
 
 
 # ── Fase 1 da calibração de tokens (12/08/2026) ──────────────────────────────
-# AUDITORIA_FASE1_TOKENS.md. Coleta o par (chars enviados, tokens REAIS
+# lab_edp_novo/docs/sujeito_edp/AUDITORIA_FASE1_TOKENS.md. Coleta o par (chars enviados, tokens REAIS
 # cobrados) para substituir o `4 chars ≈ 1 token` de
 # runtime/context_window_manager.py:12-13, que nunca foi medido.
 
@@ -596,7 +596,7 @@ def classificar_conteudo(texto: str) -> dict:
 
     DEVOLVE OS SINAIS CRUS, não só o rótulo — de propósito. Os limiares abaixo
     são escolha minha, sem medição por trás (mesmo defeito que
-    AUDITORIA_CONSTANTES_NAO_CALIBRADAS.md cataloga em ~90 constantes). A
+    lab_edp_novo/docs/sujeito_edp/AUDITORIA_CONSTANTES_NAO_CALIBRADAS.md cataloga em ~90 constantes). A
     diferença é que aqui isso é inofensivo: nenhum deles entra em ranking, eles
     só PARTICIONAM o dataset, e como os sinais crus vão gravados junto, a Fase 2
     pode re-particionar com outros limiares sem recoletar nada. O que seria

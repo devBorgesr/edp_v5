@@ -1,7 +1,7 @@
 """
 test_token_telemetry.py — Fase 1 da calibração de tokens (12/08/2026).
 
-Especificação congelada: `AUDITORIA_FASE1_TOKENS.md §5`.
+Especificação congelada: `lab_edp_novo/docs/sujeito_edp/AUDITORIA_FASE1_TOKENS.md §5`.
 
 A Fase 1 grava o par (chars enviados, tokens REAIS cobrados) para substituir o
 `4 chars ≈ 1 token` de `runtime/context_window_manager.py:12-13`, que nunca foi
