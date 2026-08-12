@@ -54,10 +54,23 @@ Volta para [[pagina]].
 
 
 def roda(pasta: Path, env: dict | None = None) -> subprocess.CompletedProcess:
+    """
+    `encoding="utf-8"` explícito é o ponto central deste helper — não é
+    detalhe. `lint_wiki.py` (filho) força stdout UTF-8 desde a1ecdc9, mas
+    sem isto aqui o PAI decodifica com `locale.getpreferredencoding()`, que
+    no CI real (Windows, `windows-latest`) é cp1252, não UTF-8. Byte de
+    UTF-8 multibyte sem mapeamento em cp1252 (ex. `0x81`, indefinido em
+    cp1252) derrubava a thread leitora do `subprocess` com
+    `UnicodeDecodeError`, deixando `r.stdout` como `None` num teste e
+    corrompendo os demais (`�`) sem crashar nos outros — sintomas
+    diferentes, mesma causa. `errors="replace"` é rede de segurança: byte
+    genuinamente indecodível vira `�` em vez de exceção.
+    """
     import os
     ambiente = {**os.environ, **(env or {})}
     return subprocess.run([sys.executable, str(_LINT), "--paginas", str(pasta)],
-                          capture_output=True, text=True, cwd=_ROOT, env=ambiente)
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", cwd=_ROOT, env=ambiente)
 
 
 def escreve(pasta: Path, nome: str, conteudo: str) -> None:
