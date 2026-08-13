@@ -100,6 +100,9 @@ EVENT_TYPES = frozenset({
     # Telemetria de ranking (13/08/2026): a cascata dos quatro cortes que
     # decidem quais memórias chegam ao prompt.
     "ranking_decision",
+    # Telemetria de reflexão (13/08/2026): o ReflectionResult que roda em todo
+    # turno e é descartado inteiro (pipeline.py:383, "dead store" em :280).
+    "reflection",
 })
 
 
@@ -741,6 +744,97 @@ def emit_ranking_decision(
         get_pareto_store().emit(evt)
     except Exception as e:
         logger.warning("[pareto] emit_ranking_decision falhou: %s", e)
+
+
+def resumo_reweights(rw: dict) -> dict:
+    """
+    O `reweights` do MetaReasoner reduzido a uma forma que cabe no log.
+
+    Guardar o dict inteiro seria guardar texto de chunk como CHAVE, todo turno,
+    sem limite — o volume mata a rotação e o conteúdo duplica o que já está no
+    prompt. O que a decisão de aplicar-ou-remover precisa saber é uma coisa só:
+    **o peso VARIA entre os chunks?** Se `amplitude` for ~0, aplicar `reweights`
+    é multiplicar tudo pela mesma constante — ligar ruído com custo. Se variar,
+    é alavanca e vale um pré-registro.
+
+    Por isso o campo central é `amplitude` (max-min), e não a média: a média
+    alta com amplitude zero é exatamente o caso em que o sinal parece forte e
+    não decide nada.
+    """
+    vals = [float(v) for v in rw.values()]
+    if not vals:
+        return {"n": 0}
+    n = len(vals)
+    media = sum(vals) / n
+    ordenados = sorted(vals)
+    return {
+        "n":         n,
+        "min":       round(ordenados[0], 4),
+        "max":       round(ordenados[-1], 4),
+        "media":     round(media, 4),
+        "mediana":   round(ordenados[n // 2], 4),
+        "amplitude": round(ordenados[-1] - ordenados[0], 4),
+        # desvio populacional; n=1 dá 0.0 em vez de ZeroDivisionError
+        "desvio":    round((sum((v - media) ** 2 for v in vals) / n) ** 0.5, 4),
+    }
+
+
+def emit_reflection(
+    confidence:         float,
+    hallucination_risk: float,
+    n_conflitos:        int,
+    n_redundancias:     int,
+    n_ctx_items:        int,
+    n_mem_entries:      int,
+    reweights:          dict,
+    depth:              int,
+    skipped:            bool,
+    skip_reason:        str,
+) -> None:
+    """
+    Hook: o que a reflexão concluiu no turno — que hoje ninguém lê.
+
+    `MetaReasoner.reflect()` roda em todo turno pelo caminho vivo
+    (llm_adapter.py:2071 -> pipeline.py:383), paga três matrizes
+    `cosine_similarity` sobre os chunks, e o `ReflectionResult` inteiro morre na
+    variável. `pipeline.py:280` já registrava isso como "dead store".
+
+    Três coisas que só a medição resolve, e que decidem entre aplicar e remover:
+
+    1. `skipped`/`skip_reason` — `REFLECTION_COOLDOWN=5.0s` faz `reflect()`
+       devolver um stub constante (`confidence=0.5`) quando dois turnos vêm
+       juntos. Se a maioria dos turnos cair no stub, o subsistema é ainda mais
+       inerte do que o código sugere, e o número 0.5 que apareceria num painel
+       seria um placeholder, não uma medida.
+    2. `n_mem_entries` — hoje é SEMPRE 0: `pipeline.py:283` fixa
+       `mem_results=[]` desde o corte da Fase 0.5. Isso força `anchor=0.5` em
+       `_conf` e o `+0.20` em `_risk`. Gravar o zero põe a degradação no DADO,
+       em vez de deixá-la só num comentário que a próxima pessoa não lê.
+       (`reweights` NÃO depende disso — sai só dos chunks.)
+    3. `resumo_reweights` — ver o docstring de lá.
+
+    Governado por `EDP_REFLECTION_TELEMETRY` (default OFF). NÃO aplica nada:
+    aplicar `reweights` ao corte de chunks muda a resposta e é outro item, com
+    flag própria e pré-registro próprio.
+    """
+    try:
+        evt = {
+            "event":              "reflection",
+            "ts":                 _now(),
+            "confidence":         float(confidence),
+            "hallucination_risk": float(hallucination_risk),
+            "n_conflitos":        int(n_conflitos),
+            "n_redundancias":     int(n_redundancias),
+            "n_ctx_items":        int(n_ctx_items),
+            "n_mem_entries":      int(n_mem_entries),
+            "reweights":          resumo_reweights(reweights or {}),
+            "depth":              int(depth),
+            "skipped":            bool(skipped),
+            "skip_reason":        str(skip_reason or ""),
+        }
+        get_pareto_store().emit(evt)
+    except Exception as e:
+        logger.warning("[pareto] emit_reflection falhou: %s", e)
 
 
 def amostra_valida_fase2(evt: dict) -> bool:

@@ -337,8 +337,22 @@ FORMAT_STATE_FLAGS = (
 # flag-off byte-idêntico do NORTE §4.7.
 EDP_RANKING_TELEMETRY = os.environ.get("EDP_RANKING_TELEMETRY", "0") == "1"
 
+# ── Telemetria de reflexão (13/08/2026) ─────────────────────────────────────────
+# `MetaReasoner.reflect()` roda em TODO turno pelo caminho vivo
+# (llm_adapter.py:2071 -> pipeline.py:383) e o `ReflectionResult` inteiro é
+# descartado — não só `reweights`: confidence, hallucination_risk, conflitos,
+# redundâncias e critique também. `pipeline.py:280` já chamava isso de "dead
+# store" e deixou o subsistema de pé porque o escopo daquela fase proibia
+# removê-lo. Custa três matrizes cosine_similarity por turno para ninguém ler.
+#
+# Antes de decidir entre APLICAR (`reweights` no corte de chunks) ou REMOVER,
+# é preciso saber a distribuição: se o reweight quase não varia entre chunks,
+# aplicá-lo é ligar ruído; se varia, é alavanca. Isto mede — não aplica nada.
+EDP_REFLECTION_TELEMETRY = os.environ.get("EDP_REFLECTION_TELEMETRY", "0") == "1"
+
 FORMAT_STATE_FLAGS_IGNORADAS = (
     "EDP_RANKING_TELEMETRY",  # telemetria de seleção; não muda o prompt
+    "EDP_REFLECTION_TELEMETRY",  # lê o ReflectionResult; não aplica nada
     "EDP_WIKI",            # governa endpoint HTTP, não o prompt
     "EDP_WIKI_CONVERSAS",  # idem
     "EDP_GRAPH_VIEWER",    # idem
