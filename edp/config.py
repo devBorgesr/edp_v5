@@ -326,7 +326,19 @@ FORMAT_STATE_FLAGS = (
 
 # Classificadas como NÃO afetando o prompt — com o motivo, porque "não importa"
 # sem motivo é a suposição que esta lista existe para impedir.
+# ── Telemetria de ranking (13/08/2026) ──────────────────────────────────────────
+# Quatro cortes decidem o que chega ao prompt e três eram invisíveis: min_score
+# (aplicado ANTES do append, então a candidata nem existia), filtro adaptativo
+# de sessão, e filtro_recusa. Só o top_k final aparecia, como `memory_hits`.
+#
+# Grava a cascata da SELEÇÃO — mesma disciplina do §10 do contrato da Fase 1,
+# toda redução explicável — mais os DEZ fatores multiplicativos das ~20 do topo.
+# Não altera prompt, ranking nem resposta: é leitura. Default OFF pelo padrão de
+# flag-off byte-idêntico do NORTE §4.7.
+EDP_RANKING_TELEMETRY = os.environ.get("EDP_RANKING_TELEMETRY", "0") == "1"
+
 FORMAT_STATE_FLAGS_IGNORADAS = (
+    "EDP_RANKING_TELEMETRY",  # telemetria de seleção; não muda o prompt
     "EDP_WIKI",            # governa endpoint HTTP, não o prompt
     "EDP_WIKI_CONVERSAS",  # idem
     "EDP_GRAPH_VIEWER",    # idem

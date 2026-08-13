@@ -97,6 +97,9 @@ EVENT_TYPES = frozenset({
     # motivo do store_degraded acima — reusa este event log em vez de criar
     # canal paralelo, e assim o dado cai onde bayes/gauss já olham.
     "token_usage",
+    # Telemetria de ranking (13/08/2026): a cascata dos quatro cortes que
+    # decidem quais memórias chegam ao prompt.
+    "ranking_decision",
 })
 
 
@@ -688,6 +691,56 @@ def classificar_conteudo(texto: str) -> dict:
             "simbolos":   round(r_simbolos, 4),
         },
     }
+
+
+def emit_ranking_decision(
+    n_avaliadas:          int,
+    n_acima_do_piso:      int,
+    n_apos_filtro_sessao: int,
+    n_apos_filtro_recusa: int,
+    n_entregues:          int,
+    min_score:            float,
+    top_k:                int,
+    detalhe:              list,
+) -> None:
+    """
+    Hook: por que estas memórias chegaram ao prompt, e não aquelas.
+
+    Todo turno o ranking decompõe cada candidata em DEZ fatores multiplicativos
+    e aplica quatro cortes sucessivos — e até 13/08/2026 nada disso sobrevivia
+    ao turno. `memory_hits` reportava só o número final de sobreviventes, que é
+    o único dos cinco números que NÃO explica nada.
+
+    A cascata aqui é a mesma disciplina do §10 do contrato da Fase 1, aplicada
+    à seleção em vez da amostra: cada redução tem de ser explicável, e um
+    "recuperou 8 memórias" solto não é resultado.
+
+    DETALHE LIMITADO ÀS ~20 DO TOPO, de propósito. A resposta de "por que esta
+    e não aquela" mora na fronteira do corte — as que entraram e as que quase
+    entraram. Gravar as 594 episódicas por turno encheria a rotação de 10MB em
+    poucos dias e afogaria o sinal no volume.
+
+    Governado por `EDP_RANKING_TELEMETRY` (default OFF). O `correlation_id` é
+    preenchido por `emit()` a partir do thread-local, então esta decisão junta
+    com o `token_usage` do mesmo turno — o custo em token e a razão da escolha
+    ficam do mesmo lado da junção.
+    """
+    try:
+        evt = {
+            "event":                "ranking_decision",
+            "ts":                   _now(),
+            "n_avaliadas":          int(n_avaliadas),
+            "n_acima_do_piso":      int(n_acima_do_piso),
+            "n_apos_filtro_sessao": int(n_apos_filtro_sessao),
+            "n_apos_filtro_recusa": int(n_apos_filtro_recusa),
+            "n_entregues":          int(n_entregues),
+            "min_score":            float(min_score),
+            "top_k":                int(top_k),
+            "detalhe":              list(detalhe),
+        }
+        get_pareto_store().emit(evt)
+    except Exception as e:
+        logger.warning("[pareto] emit_ranking_decision falhou: %s", e)
 
 
 def amostra_valida_fase2(evt: dict) -> bool:
