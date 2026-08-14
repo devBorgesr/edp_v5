@@ -223,3 +223,43 @@ erram (o re-rank só reordena o pool) — limitação simétrica e honesta.
 | condições | `baseline`, `tratamento`, `tratamento_control_shuffle` |
 
 **CONGELADO ao primeiro disparo. Mudou a régua → é o Experimento 009, não o 008.**
+
+---
+
+## §9-bis. Desvios do congelamento (errata — NORTE §4.4)
+
+A tabela do §9 acima fica **como foi congelada**. Esta seção registra onde a
+encarnação divergiu dela — não corrige a §9 para "bater", porque reescrever o
+pré-registro para caber no código é exatamente a falha que um pré-registro
+existe para impedir.
+
+| constante | congelado (§9) | valor real na encarnação | quando | onde |
+|---|---|---|---|---|
+| `POOL_SIZE` | `50` | `100` | 2026-06-27 | `a855240` — *"lab/exp008: POOL_SIZE 50->100; fixes A+B; segundo disparo real"* |
+
+**O que aconteceu.** O commit que dobrou o `POOL_SIZE` é o mesmo que anuncia um
+**segundo disparo real**. Ou seja: uma constante da tabela "CONGELADAS" foi
+alterada **depois** do primeiro disparo, e o cabeçalho de `exp008.py` continuou
+afirmando *"CONGELADO apos o primeiro disparo"*. Não havia nota de desvio em
+lugar nenhum do repositório — este documento é a primeira.
+
+**Consequência para os resultados.** `POOL_SIZE` não é cosmético: o §6 declara
+que o Recall é medido **dentro do pool**, e que um alvo fora dele erra nas duas
+condições. Dobrar o pool muda quantos alvos são alcançáveis. O efeito é
+simétrico (favorece baseline e tratamento igualmente) e tende a **elevar** os
+dois recalls, mas os disparos **antes e depois de `a855240` não são a mesma
+medição** e não podem ser agrupados. Qualquer resultado do 008 precisa dizer sob
+qual `POOL_SIZE` rodou.
+
+**Por que não reverter para 50.** Reverter apagaria o fato de que houve disparo
+a 100. O valor real fica em `exp008.py` e declarado aqui; quem for reportar o
+008 lê as duas linhas.
+
+**Mecanismo, não promessa.** `tests/test_preregistro_espelha_encarnacao.py`
+passa a comparar cada constante da tabela §9 contra o atributo do módulo, com
+esta tabela §9-bis como única exceção admitida. Divergência **não declarada**
+quebra o build — que é o que faltava para o desvio ter sido pego em junho em vez
+de agora.
+
+Registrado em 13/08/2026 ao trabalhar o item "cognitive_decisions fora do
+ranking", que é a pergunta deste experimento.
