@@ -280,8 +280,15 @@ class ContradictionFlagger:
         results: List[dict],
         similarities: Optional[List[List[float]]] = None,
     ) -> int:
-        """Escaneia pares dentro de uma lista de resultados."""
+        """
+        Escaneia pares dentro de uma lista de resultados.
+
+        A telemetria (13/08/2026) grava por que NÃO flagou, não só quanto
+        flagou: `data/flags/` vazio é ambíguo entre "não rodou", "abortou" e
+        "rodou e nada cruzou o limiar". Ver `emit_contradiction_scan`.
+        """
         if len(results) < 2:
+            self._telemetria(len(results), 0, None, 0, 0, "menos_de_2")
             return 0
 
         flagged = 0
@@ -294,21 +301,49 @@ class ContradictionFlagger:
                 for r in results:
                     emb = r.get("embedding")
                     if emb is None:
+                        # UM resultado sem embedding cancela o par-a-par INTEIRO.
+                        self._telemetria(len(results), 0, None, 0, 0, "sem_embedding")
                         return 0
                     embs.append(np.array(emb, dtype=np.float32))
                 M = np.vstack(embs)
                 similarities = cosine_similarity(M).tolist()
             except Exception as e:
                 logger.debug("[contradiction] sim calc falhou: %s", e)
+                self._telemetria(len(results), 0, None, 0, 0, "sim_calc_falhou")
                 return 0
 
+        n_pares = 0
+        n_acima = 0
+        max_sim = None
         for i in range(len(results)):
             for j in range(i + 1, len(results)):
                 sim = float(similarities[i][j])
+                # acumulado no laço que já existe — sem segunda passada
+                n_pares += 1
+                if max_sim is None or sim > max_sim:
+                    max_sim = sim
+                if sim >= SIMILARITY_THRESHOLD:
+                    n_acima += 1
                 if self.check_pair(results[i], results[j], sim):
                     flagged += 1
 
+        self._telemetria(len(results), n_pares, max_sim, n_acima, flagged, "")
         return flagged
+
+    @staticmethod
+    def _telemetria(n_resultados, n_pares, max_sim, n_acima, n_flagados, abortou):
+        """Nunca levanta: telemetria não derruba retrieve."""
+        try:
+            from ..config import EDP_CONTRADICTION_TELEMETRY as _ct
+            if _ct:
+                from .pareto_store import emit_contradiction_scan
+                emit_contradiction_scan(
+                    n_resultados=n_resultados, n_pares=n_pares, max_sim=max_sim,
+                    n_acima_do_limiar=n_acima, n_flagados=n_flagados,
+                    limiar=SIMILARITY_THRESHOLD, abortou=abortou,
+                )
+        except Exception:
+            pass
 
     # ── Review API ───────────────────────────────────────────────────────────
 

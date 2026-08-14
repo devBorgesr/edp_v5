@@ -350,9 +350,19 @@ EDP_RANKING_TELEMETRY = os.environ.get("EDP_RANKING_TELEMETRY", "0") == "1"
 # aplicá-lo é ligar ruído; se varia, é alavanca. Isto mede — não aplica nada.
 EDP_REFLECTION_TELEMETRY = os.environ.get("EDP_REFLECTION_TELEMETRY", "0") == "1"
 
+# ── Telemetria do detector de contradição (13/08/2026) ──────────────────────────
+# `scan_results` roda em todo retrieve com top_k>=2 e o `data/flags/` está VAZIO.
+# Zero flags é AMBÍGUO: não rodou / abortou por embedding ausente / rodou e nada
+# cruzou o limiar. Medido por leitura pura em 13/08: os 153 pares do
+# default_cognitive dão máximo 0.778 contra SIMILARITY_THRESHOLD=0.85 — o limiar
+# está acima do máximo do corpus, enquanto 16 de 18 textos têm negação. Grava
+# `max_sim` por scan, que é o número que falta para calibrar o 0.85 um dia.
+EDP_CONTRADICTION_TELEMETRY = os.environ.get("EDP_CONTRADICTION_TELEMETRY", "0") == "1"
+
 FORMAT_STATE_FLAGS_IGNORADAS = (
     "EDP_RANKING_TELEMETRY",  # telemetria de seleção; não muda o prompt
     "EDP_REFLECTION_TELEMETRY",  # lê o ReflectionResult; não aplica nada
+    "EDP_CONTRADICTION_TELEMETRY",  # lê o scan; não muda limiar nem flag
     "EDP_WIKI",            # governa endpoint HTTP, não o prompt
     "EDP_WIKI_CONVERSAS",  # idem
     "EDP_GRAPH_VIEWER",    # idem

@@ -40,7 +40,7 @@ from .pareto_store import (
     emit_memory_added, emit_memory_accessed, emit_mode_switched,
     emit_task_started, emit_task_completed,
     emit_token_usage, emit_ranking_decision, classificar_conteudo,
-    emit_reflection, resumo_reweights,
+    emit_reflection, resumo_reweights, emit_contradiction_scan,
     amostra_valida_fase2,
     set_current_format_state, get_current_format_state,
     clear_current_format_state, hash_format_state,
@@ -109,7 +109,7 @@ __all__ = [
     "emit_task_started", "emit_task_completed",
     # Fase 1 da calibração de tokens (12/08/2026)
     "emit_token_usage", "emit_ranking_decision", "classificar_conteudo",
-    "emit_reflection", "resumo_reweights",
+    "emit_reflection", "resumo_reweights", "emit_contradiction_scan",
     "amostra_valida_fase2",
     "set_current_format_state", "get_current_format_state",
     "clear_current_format_state", "hash_format_state",

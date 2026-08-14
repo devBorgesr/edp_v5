@@ -103,6 +103,9 @@ EVENT_TYPES = frozenset({
     # Telemetria de reflexão (13/08/2026): o ReflectionResult que roda em todo
     # turno e é descartado inteiro (pipeline.py:383, "dead store" em :280).
     "reflection",
+    # Telemetria do detector de contradição (13/08/2026): zero flags é um
+    # resultado AMBÍGUO — não rodou, abortou, ou rodou e não achou?
+    "contradiction_scan",
 })
 
 
@@ -835,6 +838,67 @@ def emit_reflection(
         get_pareto_store().emit(evt)
     except Exception as e:
         logger.warning("[pareto] emit_reflection falhou: %s", e)
+
+
+def emit_contradiction_scan(
+    n_resultados:      int,
+    n_pares:           int,
+    max_sim:           float | None,
+    n_acima_do_limiar: int,
+    n_flagados:        int,
+    limiar:            float,
+    abortou:           str = "",
+) -> None:
+    """
+    Hook: por que o detector de contradição não flagou nada.
+
+    `scan_results` roda em todo retrieve com `top_k >= 2`
+    (`memory/store.py:1594` e `:1808`), e o `data/flags/` deste store está
+    VAZIO. Zero flags, porém, é ambíguo entre pelo menos quatro histórias:
+
+      a) o scan nunca rodou (`len(final_top) < 2`);
+      b) abortou no `return 0` por um resultado sem `embedding` — UM basta
+         para cancelar o par-a-par inteiro (`contradiction_flagger.py:297`);
+      c) rodou e nenhum par cruzou o limiar;
+      d) cruzou o limiar e caiu num filtro posterior de `check_pair`.
+
+    Sem `max_sim`, as três últimas são indistinguíveis. COM ele, a distância
+    até o limiar vira número: medido neste store em 13/08/2026 (leitura pura,
+    sem instanciar o flagger), 153 pares do `default_cognitive` dão
+    **máximo 0.778 contra `SIMILARITY_THRESHOLD = 0.85`** — nenhum par chega
+    perto, enquanto 16 dos 18 textos têm marcador de negação. O gargalo é a
+    similaridade, não a negação, e o limiar está acima do máximo do corpus.
+    É o mesmo padrão do estrato `ascii` da Fase 1: estruturalmente inalcançável,
+    então "não achou nada" significa **falta de dado**, não ausência de efeito.
+
+    `limiar` vai DENTRO do evento de propósito. Se alguém recalibrar o 0.85, as
+    amostras de antes e depois têm de ser separáveis — mesma lição do
+    `format_state`: regime que muda sem ficar registrado vira contaminação
+    silenciosa.
+
+    LIMITE DECLARADO: não se separa (c) de (d). Distinguir exigiria `check_pair`
+    devolver o motivo da rejeição, mudando o contrato de uma função no caminho
+    vivo do retrieve. Hoje nada cruza o limiar, então a distinção ainda não é
+    observável; quando `n_acima_do_limiar > 0` aparecer no dado, aí vale mexer.
+
+    Governado por `EDP_CONTRADICTION_TELEMETRY` (default OFF). Não muda o que é
+    flagado, nem o limiar, nem o que vai ao dashboard.
+    """
+    try:
+        evt = {
+            "event":             "contradiction_scan",
+            "ts":                _now(),
+            "n_resultados":      int(n_resultados),
+            "n_pares":           int(n_pares),
+            "max_sim":           None if max_sim is None else round(float(max_sim), 4),
+            "n_acima_do_limiar": int(n_acima_do_limiar),
+            "n_flagados":        int(n_flagados),
+            "limiar":            float(limiar),
+            "abortou":           str(abortou or ""),
+        }
+        get_pareto_store().emit(evt)
+    except Exception as e:
+        logger.warning("[pareto] emit_contradiction_scan falhou: %s", e)
 
 
 def amostra_valida_fase2(evt: dict) -> bool:
