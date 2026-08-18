@@ -30,13 +30,31 @@ LAB = Path(__file__).resolve().parent.parent / "edp" / "lab"
 
 # Linha de tabela markdown com UM nome de constante e UM literal:
 #   | `POOL_SIZE` | `100` |
-# Linhas com dois nomes na mesma célula (`TOP_K` / `MIN_SCORE`) ou com prosa no
-# valor são deliberadamente ignoradas — ver `test_cobertura_e_declarada`, que
-# imprime o que ficou de fora para a lacuna ser visível em vez de silenciosa.
 # O sufixo `[^|`]*` aceita a glosa da célula do nome (`` `BETA` (peso do overlap) ``)
-# mas NÃO um segundo backtick — assim `` `K3`, `K5` `` (dois nomes numa célula)
-# continua fora, que é o certo: não dá para casar dois nomes com um valor.
+# mas NÃO um segundo backtick, então esta regex sozinha só vê 1-nome/1-valor.
+#
+# ERRATA 18/08/2026: este bloco dizia que linhas de dois nomes "são
+# deliberadamente ignoradas ... que é o certo". Não era — ver NOME_N abaixo, que
+# passou a pareá-las quando as contagens batem. O texto original fica porque
+# `test_cobertura_e_declarada` foi escrito confiando nele: a lacuna era visível
+# no stdout desde 13/08 e ninguém (eu incluído) leu o número.
 LINHA = re.compile(r"^\|\s*`([A-Z][A-Z0-9_]*)`[^|`]*\|\s*`([^`]+)`\s*\|\s*$", re.M)
+
+# ── 18/08/2026: a exclusão acima era larga demais ──────────────────────────────
+# "Não dá para casar dois nomes com um valor" é verdade — mas a linha real não
+# tem um valor, tem dois:
+#
+#     | `TOP_K` / `MIN_SCORE` | `10` / `0.0` |
+#
+# Com N nomes e N literais na mesma ordem, o pareamento é único. A objeção só
+# vale quando as contagens divergem, e aí a linha continua fora.
+#
+# Custo de manter a exclusão: `TOP_K` e `MIN_SCORE` do exp009 E do exp010 nunca
+# foram conferidos. O exp010 é o experimento cujo resultado promoveu o híbrido a
+# default de produção (`config.py:53`) — seus dois parâmetros de recuperação
+# estavam fora do gate que existe para vigiá-los.
+NOME_N  = re.compile(r"`([A-Z][A-Z0-9_]*)`")
+VALOR_N = re.compile(r"`([^`]+)`")
 
 
 def _literal(txt: str):
@@ -56,6 +74,20 @@ def _tabelas(md: str) -> tuple[dict, dict]:
         lit = _literal(val)
         if lit is not None:
             congeladas[nome] = lit
+
+    # Linhas de N nomes / N valores (ver NOME_N acima). Só duas colunas, para
+    # não invadir a tabela de desvio, que tem três e semântica diferente.
+    for ln in principal.splitlines():
+        celulas = [c.strip() for c in ln.split("|")[1:-1]]
+        if len(celulas) != 2:
+            continue
+        nomes, vals = NOME_N.findall(celulas[0]), VALOR_N.findall(celulas[1])
+        if len(nomes) < 2 or len(nomes) != len(vals):
+            continue
+        for nome, val in zip(nomes, vals):
+            lit = _literal(val)
+            if lit is not None:
+                congeladas.setdefault(nome, lit)
 
     # Na tabela de desvio a coluna do valor REAL é a terceira:
     #   | `POOL_SIZE` | `50` | `100` | ... |
@@ -172,4 +204,39 @@ def test_divergencia_nao_declarada_seria_pega():
     from edp.lab import exp008
     assert exp008.POOL_SIZE != congeladas["POOL_SIZE"], (
         "sem a §9-bis o gate teria de acusar POOL_SIZE — se não acusa, é teatro"
+    )
+
+
+def test_linha_de_dois_nomes_e_conferida():
+    """
+    Prova que o pareamento N-nomes/N-valores extrai — e morde.
+
+    Até 18/08/2026 a linha `| `TOP_K` / `MIN_SCORE` | `10` / `0.0` |` era
+    ignorada de propósito. A justificativa ("não dá para casar dois nomes com um
+    valor") descrevia um caso que a linha não é: há dois valores, na mesma
+    ordem. O custo silencioso foi o exp010 — cujo resultado promoveu o híbrido a
+    default de produção — ter os dois parâmetros de recuperação fora do gate.
+    """
+    md = (LAB / "preregistro_experimento_010.md").read_text(encoding="utf-8")
+    congeladas, _ = _tabelas(md)
+
+    assert congeladas.get("TOP_K") == 10, "pareamento não extraiu TOP_K do exp010"
+    assert congeladas.get("MIN_SCORE") == 0.0, "pareamento não extraiu MIN_SCORE"
+
+    # morde: uma encarnação com TOP_K trocado teria de divergir
+    assert 5 != congeladas["TOP_K"], "comparação seria teatro"
+
+
+def test_contagem_desigual_continua_fora():
+    """
+    A exclusão original vale onde a contagem diverge — e continua valendo.
+
+    Dois nomes com UM valor não têm pareamento único; adivinhar ali seria pior
+    que não conferir, porque congelaria a constante errada em silêncio.
+    """
+    assert _tabelas("| `A_X` / `B_Y` | `7` |\n")[0] == {}, (
+        "2 nomes / 1 valor não pode ser pareado — o parser adivinhou"
+    )
+    assert _tabelas("| `A_X` | `7` / `8` |\n")[0] == {}, (
+        "1 nome / 2 valores não pode ser pareado — o parser adivinhou"
     )

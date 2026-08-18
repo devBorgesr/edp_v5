@@ -296,3 +296,47 @@ Isso **não** reabre o §9-bis: o desvio do `POOL_SIZE` (50 congelado, 100
 rodando) é independente do corpus e continua valendo. Quem disparar o exp008
 agora precisa das duas notas — a do desvio e a de que o abort anterior foi
 diagnóstico contra o store errado.
+
+---
+
+### §9-quater. Errata — o tratamento congelado é incomensurável com o caminho vivo
+
+**18/08/2026.** O §3 congela
+
+```
+treatment_score(entry) = ranking_score(entry) + 0.25 * overlap(entry)
+```
+
+com `overlap ∈ [0, 1]`. Quando isso foi congelado, `ranking_score` era **cosseno
+(escala ~0.4)** e o termo aditivo valia, no máximo, ~60% da base — um ajuste.
+
+Desde **08/07/2026** o default é `EDP_HYBRID_RETRIEVAL=1` (`config.py:53`), e
+`MemoryStore.retrieve:1511` devolve pelo caminho híbrido. Ali `ranking_score` é
+**escala RRF** com `rrf_k=60` sobre dois rankers (`store.py:1680`): ~0.016
+(declarado em `config.py:50` e `store.py:1518`).
+
+O termo aditivo passa a valer **até ~16× a base que deveria ajustar.**
+
+Consequência: o tratamento não ajusta a ordenação — ele a **substitui**. Ordenar
+por `0.25·overlap + ε` é ordenar por `overlap`. O experimento mediria *"ordenar
+por overlap puro vence a baseline?"* e reportaria como *"concepts/domain melhora
+a recuperação"*. São afirmações diferentes, e a segunda não seria sustentada
+pelo dado produzido.
+
+**Isto não é calibração.** Reajustar `BETA` para a escala nova é editar a régua
+congelada, o que o próprio §9 proíbe: *mudou a régua → é o expNNN+1*.
+
+A dívida de escala está declarada em `config.py:50` — mas só para
+**dashboards e telemetria**, com a nota "não quebra função". Não quebra a função
+do retrieve; quebra a **fórmula congelada deste experimento**. Esta errata fecha
+essa lacuna: a declaração de 08/07 não alcançava o exp008.
+
+**Veredito: o exp008 não dispara como está.** O §9-ter (o abort por corpus foi
+diagnóstico contra o store errado) continua válido e continua irrelevante — o
+corpus nunca foi o impedimento real.
+
+**H1 e H0 seguem abertas.** O que está morto é o instrumento, não a pergunta. O
+sucessor natural funde `overlap` como **terceiro ranker dentro do RRF** — livre
+de escala por construção, e sem `BETA`. Precisa de número novo.
+
+Fonte: `AUDITORIA_MECANISMO_APOSENTADO.md` (lab, `f1da6e4`).
