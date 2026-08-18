@@ -12,6 +12,12 @@ disco): 153 pares do `default_cognitive`, **máximo 0.778 contra
 SIMILARITY_THRESHOLD = 0.85** — o limiar está acima do máximo do corpus,
 enquanto 16 de 18 textos têm marcador de negação. O gargalo é a similaridade.
 
+ERRATA 18/08/2026: os 153 pares vieram de um store LATERAL de 18 entradas
+(`<repo>/data`), nao da producao. No store real: 11.935 pares, maximo 1.000,
+**89 acima do limiar**, e o detector ja disparou duas vezes (`loaded=2` no log
+de producao). "Inalcancavel" e FALSO. O texto acima fica preservado porque o
+erro nao foi de medicao — foi de nunca ter verificado QUAL corpus eu media.
+
 Este arquivo NÃO recalibra o 0.85. Recalibrar é decisão com pré-registro; aqui
 só se instala o número que falta para tomá-la.
 """
@@ -150,6 +156,12 @@ def test_o_limiar_continua_o_gargalo_declarado():
     contra o limiar da época. Se alguém baixar o SIMILARITY_THRESHOLD para
     <= 0.778 sem refazer a medição, a conclusão registrada nos comentários vira
     falsa e este teste força a revisita.
+
+    ERRATA 18/08: o "corpus" da frase acima era o store lateral de 18 entradas.
+    No real sao 89 pares acima de 0.85. A ASSERCAO continua valendo — o limiar
+    e 0.85 e mudanca dele precisa de nova medicao — mas o MOTIVO mudou: nao se
+    trata mais de um limiar que nunca dispara, e sim de um que dispara e nunca
+    foi calibrado.
     """
     assert SIMILARITY_THRESHOLD == 0.85, (
         "limiar mudou — a medição de 13/08 (máx 0.778 em 153 pares) precisa "

@@ -357,6 +357,29 @@ EDP_REFLECTION_TELEMETRY = os.environ.get("EDP_REFLECTION_TELEMETRY", "0") == "1
 # default_cognitive dão máximo 0.778 contra SIMILARITY_THRESHOLD=0.85 — o limiar
 # está acima do máximo do corpus, enquanto 16 de 18 textos têm negação. Grava
 # `max_sim` por scan, que é o número que falta para calibrar o 0.85 um dia.
+#
+# ── ERRATA — 18/08/2026 ──────────────────────────────────────────────────────
+# A afirmação acima está ERRADA, e o erro é de corpus, não de leitura.
+#
+# Os "153 pares" vieram de `<repo>/data`, um store LATERAL de 18 entradas que
+# o EDP criou entre 12 e 13/08 porque `EDP_BASE_DIR` tem três defaults
+# diferentes no código (config.py:9, pareto_store.py:223, lineage.py:315) e
+# ficou indefinida. Eu li `data/` porque havia arquivos ali e nunca verifiquei
+# que era produção.
+#
+# Medido em 18/08 sobre o store real (155 entradas, união reconstruída):
+#
+#     11.935 pares   máximo = 1.000   p99 = 0.774   mediana = 0.380
+#     acima de SIMILARITY_THRESHOLD=0.85:  89        <- eu afirmei ZERO
+#
+# E o log do servidor mostra `[contradiction] ... loaded=2`: o detector JÁ
+# DISPAROU duas vezes neste store. "Estruturalmente inalcançável" é falso.
+#
+# O que SOBREVIVE da medição original: a negação não é o gargalo (16 de 18
+# textos tinham marcador). O que CAI: que o limiar seja inatingível. Ele é
+# atingido, e a telemetria de `max_sim` continua sendo o instrumento certo —
+# agora para calibrar um limiar que dispara, não para explicar um que nunca
+# dispara.
 EDP_CONTRADICTION_TELEMETRY = os.environ.get("EDP_CONTRADICTION_TELEMETRY", "0") == "1"
 
 # ── Propagação do correlation_id (18/08/2026) ───────────────────────────────

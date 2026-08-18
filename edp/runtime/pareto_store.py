@@ -702,12 +702,14 @@ def classificar_conteudo(texto: str) -> dict:
 def emit_ranking_decision(
     n_avaliadas:          int,
     n_acima_do_piso:      int,
-    n_apos_filtro_sessao: int,
-    n_apos_filtro_recusa: int,
+    n_apos_filtro_sessao: Optional[int],
+    n_apos_filtro_recusa: Optional[int],
     n_entregues:          int,
     min_score:            float,
     top_k:                int,
     detalhe:              list,
+    metodo:               str = "cosine",
+    n_apos_dedup:         Optional[int] = None,
 ) -> None:
     """
     Hook: por que estas memórias chegaram ao prompt, e não aquelas.
@@ -737,8 +739,17 @@ def emit_ranking_decision(
             "ts":                   _now(),
             "n_avaliadas":          int(n_avaliadas),
             "n_acima_do_piso":      int(n_acima_do_piso),
-            "n_apos_filtro_sessao": int(n_apos_filtro_sessao),
-            "n_apos_filtro_recusa": int(n_apos_filtro_recusa),
+            # None onde o ESTAGIO NAO EXISTE naquele caminho — 18/08. Repetir
+            # o numero anterior faria a cascata parecer completa e descreveria
+            # um filtro que nao rodou; zero pareceria corte total. `None` diz
+            # a verdade: nao se aplica.
+            "n_apos_filtro_sessao": None if n_apos_filtro_sessao is None else int(n_apos_filtro_sessao),
+            "n_apos_filtro_recusa": None if n_apos_filtro_recusa is None else int(n_apos_filtro_recusa),
+            "n_apos_dedup":         None if n_apos_dedup is None else int(n_apos_dedup),
+            # Qual mecanismo produziu isto. O cosseno tem DEZ fatores
+            # multiplicativos; o hibrido tem {method, bm25, vec}. Sem este
+            # campo, `detalhe` de formatos diferentes ficaria indistinguivel.
+            "metodo":               str(metodo),
             "n_entregues":          int(n_entregues),
             "min_score":            float(min_score),
             "top_k":                int(top_k),
@@ -870,6 +881,13 @@ def emit_contradiction_scan(
     similaridade, não a negação, e o limiar está acima do máximo do corpus.
     É o mesmo padrão do estrato `ascii` da Fase 1: estruturalmente inalcançável,
     então "não achou nada" significa **falta de dado**, não ausência de efeito.
+
+    **ERRATA 18/08/2026 — o parágrafo acima está errado.** Os 153 pares vieram
+    de um store LATERAL de 18 entradas (`<repo>/data`), criado porque
+    `EDP_BASE_DIR` ficou indefinida e tem três defaults distintos no código.
+    Medido no store real: **11.935 pares, máximo 1.000, 89 acima do limiar** —
+    e o log de produção mostra `loaded=2`, o detector já disparou. O limiar é
+    atingível. Sobrevive: a negação não é o gargalo. Cai: a inalcançabilidade.
 
     `limiar` vai DENTRO do evento de propósito. Se alguém recalibrar o 0.85, as
     amostras de antes e depois têm de ser separáveis — mesma lição do
