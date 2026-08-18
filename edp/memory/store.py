@@ -1502,7 +1502,16 @@ class MemoryStore:
         from ..embeddings import embed_one as _e1
         query_emb = _e1(query)
 
-        # ── EDP_HYBRID_RETRIEVAL (exp010, 07/2026) — flag DESLIGADA por padrão ─
+        # ── EDP_HYBRID_RETRIEVAL (exp010, 07/2026) — DEFAULT **LIGADA** ────────
+        # ERRATA 18/08/2026: este comentário dizia "flag DESLIGADA por padrão".
+        # É FALSO desde a promoção de 08/07 (config.py:53 -> default "1"), e
+        # ele enganou três raciocínios meus num único dia: a telemetria de
+        # ranking foi instalada no caminho cosseno (código morto até 18/08), o
+        # laço "acessos -> access_boost" foi descrito como vivo (não é), e eu
+        # quase recomendei o exp009, que manipula campos sem efeito aqui.
+        # ONZE de dezoito mecanismos do cosseno não decidem nada em produção —
+        # os dez fatores multiplicativos inteiros e o filtro adaptativo de
+        # sessão. Ver lab/docs/sujeito_edp/AUDITORIA_MECANISMO_APOSENTADO.md.
         # Ligada, a SELEÇÃO/RANKING passa a ser BM25+vetorial+RRF (sem MMR);
         # todo o pós-processamento (monitor, contradiction, formato final_top)
         # é o mesmo. min_score do chamador (escala cosine) NÃO se aplica ao RRF
