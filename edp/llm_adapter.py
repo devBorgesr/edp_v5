@@ -1559,6 +1559,7 @@ REGRAS ABSOLUTAS:
         user_message: str,
         system: str = "",
         store_to_memory: bool = True,
+        correlation_id: Optional[str] = None,
     ) -> ChatResponse:
         """
         Envia mensagem com contexto cognitivo EDP.
@@ -1590,7 +1591,12 @@ REGRAS ABSOLUTAS:
                 new_correlation_id, set_current_correlation_id,
                 set_current_format_state,
             )
-            _cid = new_correlation_id()
+            # 18/08: id RECEBIDO vence o gerado. O corpo desta funcao roda
+            # numa thread do pool (websocket.py:882 -> run_in_executor), entao
+            # um id gerado aqui e invisivel para quem monta o lineage na thread
+            # do handler. Com correlation_id=None o comportamento e o de
+            # sempre — gerar — e por isso flag-off e byte-identico.
+            _cid = correlation_id or new_correlation_id()
             set_current_correlation_id(_cid)
             # Fase 1: snapshot do regime de formato, na mesma thread e no mesmo
             # instante do correlation_id — os dois respondem "que turno é este"
@@ -1649,7 +1655,8 @@ REGRAS ABSOLUTAS:
             compression_pct=compression_pct,
         )
 
-    def stream_chat(self, user_message: str, system: str = "") -> Generator[str, None, None]:
+    def stream_chat(self, user_message: str, system: str = "",
+                    correlation_id: Optional[str] = None) -> Generator[str, None, None]:
         """
         Streaming de chat com instrumentação de métricas.
 
@@ -1678,7 +1685,12 @@ REGRAS ABSOLUTAS:
                 new_correlation_id, set_current_correlation_id,
                 set_current_format_state,
             )
-            _cid = new_correlation_id()
+            # 18/08: id RECEBIDO vence o gerado. O corpo desta funcao roda
+            # numa thread do pool (websocket.py:882 -> run_in_executor), entao
+            # um id gerado aqui e invisivel para quem monta o lineage na thread
+            # do handler. Com correlation_id=None o comportamento e o de
+            # sempre — gerar — e por isso flag-off e byte-identico.
+            _cid = correlation_id or new_correlation_id()
             set_current_correlation_id(_cid)
             set_current_format_state(  # Fase 1 — ver nota em chat()
                 snapshot_formato(getattr(self, "_operational_mode", "cognitive"))

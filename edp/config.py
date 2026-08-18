@@ -359,10 +359,24 @@ EDP_REFLECTION_TELEMETRY = os.environ.get("EDP_REFLECTION_TELEMETRY", "0") == "1
 # `max_sim` por scan, que é o número que falta para calibrar o 0.85 um dia.
 EDP_CONTRADICTION_TELEMETRY = os.environ.get("EDP_CONTRADICTION_TELEMETRY", "0") == "1"
 
+# ── Propagação do correlation_id (18/08/2026) ───────────────────────────────
+# Medido: `correlation_id` nulo em 18/18 registros de lineage e em 18/18
+# `memory_added`, contra 38/38 em `token_usage`. Causa em
+# docs/sujeito_edp/ACHADO_CORRELATION_ID.md (lab): o id é gravado num
+# thread-local dentro do executor (llm_adapter.py:1682) e lido na thread do
+# handler (websocket.py:1318). `contextvars` NÃO resolve — `run_in_executor`
+# não copia contexto, e mutação lá dentro não volta.
+#
+# Com a flag LIGADA o turno passa a ser dono do id: o handler gera antes de
+# entrar no executor e o passa explicitamente. Com ela DESLIGADA todo caminho
+# recebe None e cada função gera o próprio id — byte-idêntico ao de hoje.
+EDP_CORRELATION_PROPAGATION = os.environ.get("EDP_CORRELATION_PROPAGATION", "0") == "1"
+
 FORMAT_STATE_FLAGS_IGNORADAS = (
     "EDP_RANKING_TELEMETRY",  # telemetria de seleção; não muda o prompt
     "EDP_REFLECTION_TELEMETRY",  # lê o ReflectionResult; não aplica nada
     "EDP_CONTRADICTION_TELEMETRY",  # lê o scan; não muda limiar nem flag
+    "EDP_CORRELATION_PROPAGATION",  # muda de ONDE vem o id, não o prompt
     "EDP_WIKI",            # governa endpoint HTTP, não o prompt
     "EDP_WIKI_CONVERSAS",  # idem
     "EDP_GRAPH_VIEWER",    # idem

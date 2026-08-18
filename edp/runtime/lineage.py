@@ -133,6 +133,7 @@ class LineageTracker:
         quality_score: Optional[float] = None,
         quality_verdict: Optional[str] = None,
         session_marker: Optional[str] = None,
+        correlation_id: Optional[str] = None,
     ) -> LineageRecord:
         """
         Monta LineageRecord a partir do que o WS handler já tem em escopo.
@@ -171,12 +172,16 @@ class LineageTracker:
 
         # correlation_id: melhor esforço via thread-local do Pareto.
         # Pode ser None (WS async vs thread do stream) — campo opcional.
-        correlation_id: Optional[str] = None
-        try:
-            from .pareto_store import get_current_correlation_id
-            correlation_id = get_current_correlation_id()
-        except Exception:
-            pass
+        # 18/08: o argumento explícito vence o thread-local. O thread-local é
+        # lido na thread do handler, e o id é gravado numa thread do pool
+        # (websocket.py:882 -> run_in_executor) — falha SEMPRE, não às vezes.
+        # Passar explicitamente é o único caminho que atravessa o executor.
+        if not correlation_id:
+            try:
+                from .pareto_store import get_current_correlation_id
+                correlation_id = get_current_correlation_id()
+            except Exception:
+                pass
 
         return LineageRecord(
             response_id=str(uuid.uuid4()),

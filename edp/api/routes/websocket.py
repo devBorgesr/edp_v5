@@ -621,6 +621,20 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                     "stage":      "pipeline",
                 })
 
+                # ── correlation_id do turno (18/08/2026) ─────────────────────
+                # Gerado AQUI, na thread do handler, antes de qualquer
+                # run_in_executor. Com a flag desligada fica None e cada
+                # funcao gera o proprio id na thread do pool — exatamente o
+                # comportamento de hoje, que produz lineage sem id em 18/18.
+                _turn_cid = None
+                try:
+                    from ...config import EDP_CORRELATION_PROPAGATION as _prop
+                    if _prop:
+                        from ...runtime.pareto_store import new_correlation_id
+                        _turn_cid = new_correlation_id()
+                except Exception as _e:
+                    logger.debug("[WS] correlation_id do turno falhou: %s", _e)
+
                 # ── Pipeline cognitivo (com timeout) ─────────────────────────
                 try:
                     from ...pipeline import run_pipeline
@@ -875,7 +889,8 @@ async def ws_chat(websocket: WebSocket, session_id: str):
 
                                     async def _stream_with_timeout():
                                         loop = asyncio.get_event_loop()
-                                        gen  = runtime.stream_chat(message)
+                                        gen  = runtime.stream_chat(
+                                            message, correlation_id=_turn_cid)
                                         first_chunk = True
 
                                         async def _next_chunk():
@@ -1322,6 +1337,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             quality_score=lineage_quality.get("score"),
                             quality_verdict=lineage_quality.get("verdict"),
                             session_marker=_marker,
+                            correlation_id=_turn_cid,
                         )
                         get_lineage_tracker().persist(_rec)
                         await _safe_send(websocket, {
