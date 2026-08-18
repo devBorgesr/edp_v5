@@ -263,3 +263,36 @@ de agora.
 
 Registrado em 13/08/2026 ao trabalhar o item "cognitive_decisions fora do
 ranking", que é a pergunta deste experimento.
+
+---
+
+### §9-ter. Errata — o diagnóstico de "bloqueado por corpus" media o store errado
+
+**18/08/2026.** Em 13/08 registrei que o exp008 **abortava** por falta de
+dataset: *"18 entries no default_cognitive, 16 com cognitive_decisions, 9
+domínios únicos contra MIN_PAIRS=15 — bloqueado por DADO, não por
+engenharia."*
+
+**Está errado.** Aqueles 18 entries eram um store **lateral**, criado em
+`<repo>/data` entre 12 e 13/08 porque `EDP_BASE_DIR` tem três defaults
+diferentes no código (`config.py:9` → `/content/edp_v3_memory`,
+`pareto_store.py:223` → `data`, `lineage.py:315` → `C:/edp_data`) e ficou
+indefinida. Eu li `data/` porque havia arquivos ali, e **nunca verifiquei que
+era produção** — apesar de o `DIAGNOSTICO_SESSION_SUMMARY.md`, que li no mesmo
+dia, abrir com uma seção declarando exatamente esse risco.
+
+Medido em 18/08 sobre o store real, depois de fundir os dois:
+
+| | afirmado em 13/08 | real |
+|---|---|---|
+| entradas episódicas | 18 | **155+** |
+| domínios únicos válidos pelo §6 | 9 | **59** |
+| veredito | ABORTA | **RODA** |
+
+**O exp008 não está bloqueado.** Ele pode disparar, e o `MIN_PAIRS = 15` é
+folgado por quase 4×.
+
+Isso **não** reabre o §9-bis: o desvio do `POOL_SIZE` (50 congelado, 100
+rodando) é independente do corpus e continua valendo. Quem disparar o exp008
+agora precisa das duas notas — a do desvio e a de que o abort anterior foi
+diagnóstico contra o store errado.

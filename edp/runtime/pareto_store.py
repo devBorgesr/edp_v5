@@ -882,6 +882,13 @@ def emit_contradiction_scan(
     É o mesmo padrão do estrato `ascii` da Fase 1: estruturalmente inalcançável,
     então "não achou nada" significa **falta de dado**, não ausência de efeito.
 
+    **ERRATA 18/08/2026 — o parágrafo acima está errado.** Os 153 pares vieram
+    de um store LATERAL de 18 entradas (`<repo>/data`), criado porque
+    `EDP_BASE_DIR` ficou indefinida e tem três defaults distintos no código.
+    Medido no store real: **11.935 pares, máximo 1.000, 89 acima do limiar** —
+    e o log de produção mostra `loaded=2`, o detector já disparou. O limiar é
+    atingível. Sobrevive: a negação não é o gargalo. Cai: a inalcançabilidade.
+
     `limiar` vai DENTRO do evento de propósito. Se alguém recalibrar o 0.85, as
     amostras de antes e depois têm de ser separáveis — mesma lição do
     `format_state`: regime que muda sem ficar registrado vira contaminação
