@@ -1516,7 +1516,11 @@ class MemoryStore:
         # todo o pós-processamento (monitor, contradiction, formato final_top)
         # é o mesmo. min_score do chamador (escala cosine) NÃO se aplica ao RRF
         # (escala ~0.016) — o caminho híbrido usa HYBRID_MIN_SCORE (config).
-        # Desligada (default), o fluxo abaixo é EXATAMENTE o de antes.
+        # Desligada (EDP_HYBRID_RETRIEVAL=0, a rede de segurança — NÃO o
+        # default), o fluxo abaixo é EXATAMENTE o de antes. O "(default)" que
+        # estava aqui sobreviveu à errata acima, na mesma linha que ela corrige.
+        # test_mecanismo_aposentado_e_no_op.py trava as duas metades por
+        # comportamento, que é o que não apodrece.
         from ..config import EDP_HYBRID_RETRIEVAL
         if EDP_HYBRID_RETRIEVAL:
             return self._retrieve_hybrid(query, query_emb, top_k)
