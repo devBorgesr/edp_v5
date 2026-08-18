@@ -522,6 +522,11 @@ class EpisodicMemory:
         agora = _now()
         scored = []
         skipped_blocked = 0     # contagem de filtradas por epistemic_status
+        # Telemetria de ranking (13/08/2026): candidata que não passa do
+        # min_score NUNCA entra em `scored` — é descartada antes do append, na
+        # linha do gate. Sem este contador, "quantas competiram e perderam" não
+        # é recuperável nem em princípio da estrutura.
+        n_avaliadas = 0
 
         # ── Sprint v3.6: Source-type weighting + dominance penalty ──────────
         # Penaliza memórias hiperdominantes (top-3 por acessos).
@@ -614,6 +619,7 @@ class EpisodicMemory:
                 * nf_floor,
                 4,
             )
+            n_avaliadas += 1
             if rank_score >= min_score:
                 scored.append((rank_score, i, {
                     "sim": float(sim), "decay": d, "prio": prio,
@@ -621,9 +627,17 @@ class EpisodicMemory:
                     "src_weight": src_weight, "dom_penalty": dom_penalty,
                     "anchor_boost": anchor_boost,
                     "session_boost": session_boost,
+                    # nf_floor entrou no dict em 13/08. Ele SEMPRE esteve no
+                    # produto do rank_score (piso tóxico do exp012/exp016,
+                    # NOT_FOUND_FLOOR=0.05) e era o único dos dez fatores que
+                    # não ficava registrado — justamente o que implementa a
+                    # governança epistêmica, e o que sozinho derruba um score
+                    # em 20× quando dispara.
+                    "nf_floor": nf_floor,
                 }))
 
         scored.sort(key=lambda x: x[0], reverse=True)
+        _n_acima_piso = len(scored)   # telemetria: sobreviventes do min_score
 
         # Log apenas se removeu algo (acionável)
         if skipped_blocked > 0:
@@ -719,6 +733,7 @@ class EpisodicMemory:
         # As recusas PERMANECEM na episódica (auditoria/lineage intactos); só
         # deixam de ser injetadas e de ter acessos incrementados (quebra o
         # reforço). Filtrar ANTES de montar results é o que zera o incremento.
+        _n_apos_sessao = len(scored)  # telemetria: sobreviventes do filtro de sessão
         try:
             from ..echo_chamber import detectar_auto_sinal_de_limite
             _n_antes = len(scored)
@@ -737,6 +752,34 @@ class EpisodicMemory:
                 )
         except Exception as e:
             logger.debug("[retrieve] filtro_recusa falhou: %s", e)
+
+        # ── Telemetria de ranking (13/08/2026) ────────────────────────────
+        # Quatro cortes decidem o que chega ao prompt, e três eram invisíveis:
+        # min_score (antes do append), filtro adaptativo de sessão, e
+        # filtro_recusa. Só o top_k final aparecia, como `memory_hits`.
+        #
+        # Mesma disciplina da cascata do §10 do contrato da Fase 1, aplicada à
+        # SELEÇÃO em vez da amostra: toda redução explicável. Gate da flag antes
+        # de qualquer trabalho — com ela OFF isto é um `if`.
+        try:
+            from ..config import EDP_RANKING_TELEMETRY as _rt
+            if _rt:
+                from ..runtime.pareto_store import emit_ranking_decision
+                emit_ranking_decision(
+                    n_avaliadas=n_avaliadas,
+                    n_acima_do_piso=_n_acima_piso,
+                    n_apos_filtro_sessao=_n_apos_sessao,
+                    n_apos_filtro_recusa=len(scored),
+                    n_entregues=min(top_k, len(scored)),
+                    min_score=min_score,
+                    top_k=top_k,
+                    detalhe=[
+                        {"rank": r, "score": rs, "fatores": bd}
+                        for r, (rs, _i, bd) in enumerate(scored[:20], 1)
+                    ],
+                )
+        except Exception as e:
+            logger.debug("[retrieve] telemetria de ranking falhou: %s", e)
 
         results = []
         for rank_score, i, breakdown in scored[:top_k]:

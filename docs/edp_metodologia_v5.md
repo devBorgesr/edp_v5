@@ -191,6 +191,26 @@ nenhum consumidor fora do próprio arquivo. O retrieval vivo é
 zero consumidor — catalogados pela auditoria de 22/07 e ainda vivos
 (mortos) hoje.
 
+> **Errata — 13/08/2026.** O parágrafo acima está errado, e o próprio
+> comando que ele publica como evidência o refuta. Rodando
+> `grep -rln "from.*retrieval import\|import edp.retrieval"` hoje:
+> `benchmark_edp.py` e `run.py`. A linha é
+> `run.py:187: from edp.retrieval import RetrievalEngine`, dentro do
+> subcomando `bench_retrieval` — e `run.py:250` importa
+> `edp/vector_store.py` do mesmo jeito. Nenhum dos dois é código morto;
+> o correto é dizer que **não estão no caminho servido**.
+>
+> A recontagem por AST mostrou que o catálogo errava nas duas direções:
+> `analytics.py` e `reranker.py` estavam mortos e sem marca. Só
+> `memory_graph.py` estava certo, e foi deletado em 13/08 — o "ligar"
+> dele já estava fechado por `docs/design_wiki_conversas.md` §5, que
+> refuta aresta por similaridade de embedding.
+>
+> A lição não é a lista errada, é o método: um `grep` de substring foi
+> aceito como prova de ausência sem ser rodado de novo, e sobreviveu três
+> semanas em dois documentos. Agora quem confere é
+> `tests/test_catalogo_de_modulos_mortos.py`, por AST, no build.
+
 ---
 
 ## 5. Fronteiras explícitas — o que os resultados acima NÃO autorizam concluir

@@ -37,22 +37,52 @@ class MetaReasoner:
 
     def reflect(self, context_items, memory_entries, query=""):
         global _last_ts, _active
+        n_ctx = len(context_items or []); n_mem = len(memory_entries or [])
         if self.depth>=MAX_REFLECTION_DEPTH:
-            return ReflectionResult(0.5,[],[],0.5,"max depth",{},self.depth,True,"max_depth")
+            return self._telemetria(ReflectionResult(0.5,[],[],0.5,"max depth",{},self.depth,True,"max_depth"),n_ctx,n_mem)
         now=_now()
         if now-_last_ts<REFLECTION_COOLDOWN:
-            return ReflectionResult(0.5,[],[],0.5,"cooldown",{},self.depth,True,"cooldown")
+            return self._telemetria(ReflectionResult(0.5,[],[],0.5,"cooldown",{},self.depth,True,"cooldown"),n_ctx,n_mem)
         with _meta_lock:  # [P-F4] atomic check-and-set
             if _active > 0:
-                return ReflectionResult(0.5,[],[],0.5,"active",{},self.depth,True,"recursive")
+                return self._telemetria(ReflectionResult(0.5,[],[],0.5,"active",{},self.depth,True,"recursive"),n_ctx,n_mem)
             _active += 1
         _last_ts = now
         try:
             with M.timer("meta_reflection"):
-                return self._run(context_items, memory_entries)
+                return self._telemetria(self._run(context_items, memory_entries),n_ctx,n_mem)
         finally:
             with _meta_lock:
                 _active -= 1
+
+    @staticmethod
+    def _telemetria(res, n_ctx, n_mem):
+        """
+        Grava o `ReflectionResult` e devolve o MESMO objeto, intacto.
+
+        Passa por AQUI e não só pelo caminho feliz de propósito: os três desvios
+        de cima (max_depth, cooldown, recursive) devolvem `confidence=0.5`
+        FIXO, e sem contá-los não dá para distinguir "o contexto tem coerência
+        média" de "a reflexão nem rodou". O `REFLECTION_COOLDOWN` de 5s torna o
+        segundo caso comum em rajada, e é ele que decide se este subsistema tem
+        alguma medida ou só um placeholder.
+
+        Nunca levanta: telemetria não derruba caminho vivo.
+        """
+        try:
+            from .config import EDP_REFLECTION_TELEMETRY as _rt
+            if _rt:
+                from .runtime.pareto_store import emit_reflection
+                emit_reflection(
+                    confidence=res.confidence, hallucination_risk=res.hallucination_risk,
+                    n_conflitos=len(res.conflicts), n_redundancias=len(res.redundancies),
+                    n_ctx_items=n_ctx, n_mem_entries=n_mem,
+                    reweights=res.reweights, depth=res.depth,
+                    skipped=res.skipped, skip_reason=res.skip_reason,
+                )
+        except Exception:
+            pass
+        return res
 
     def _run(self, ctx, mem):
         def _embs(items):

@@ -273,3 +273,112 @@ EDP_WIKI_CONVERSAS = os.environ.get("EDP_WIKI_CONVERSAS", "0") == "1"
 #
 # Default OFF: muda o prompt que vai ao modelo (Tier 2/3, edp_metodologia.md).
 EDP_ANCHOR_COMPACT = os.environ.get("EDP_ANCHOR_COMPACT", "0") == "1"
+
+
+# ── Telemetria de tokens — Fase 1 da calibração (12/08/2026) ────────────────────
+# Grava o par (chars enviados, tokens REAIS cobrados pela API) por chamada, em
+# `pareto_store`, para trocar o `4 chars ≈ 1 token` de
+# `runtime/context_window_manager.py:12-13` — que nunca foi medido — por uma
+# razão medida no corpus real (PT-BR + código), onde a razão é comprovadamente
+# diferente da de inglês.
+#
+# NÃO altera prompt, resposta, ranking ou custo. É leitura pura: o dado já chega
+# em toda resposta da Anthropic (`usage.input_tokens`) e hoje é descartado.
+#
+# Default OFF, e o motivo NÃO é risco de comportamento (não há) — é disciplina de
+# coleta: **ligar esta flag abre a janela de coleta, e a janela de coleta congela
+# o formato de injeção**. Mudar o formato dos blocos (compactar, podar, encurtar)
+# no meio da coleta mistura dois regimes no mesmo dataset, e a razão resultante
+# não descreve nenhum dos dois — sem dar erro, só um número errado com cara de
+# medido. Ligar é, portanto, uma decisão explícita de "estou coletando agora".
+#
+# Fase 2 (calcular a razão) e Fase 3 (aplicar) não existem ainda e exigem
+# pré-registro próprio. Ver lab_edp_novo/docs/sujeito_edp/AUDITORIA_FASE1_TOKENS.md.
+EDP_TOKEN_TELEMETRY = os.environ.get("EDP_TOKEN_TELEMETRY", "0") == "1"
+
+# ── Regime de formato — o que precisa ser gravado JUNTO de cada amostra ─────────
+# O congelamento de formato da Fase 1 era só convenção: nada registrava qual
+# formato valia em cada amostra. Se uma destas mudar no meio da coleta, o
+# dataset mistura regimes e a contaminação fica INDETECTÁVEL — não dá erro, dá
+# um número errado com cara de medido.
+#
+# Com o estado gravado por amostra, mudar de regime deixa de ser veneno e vira
+# ESTRATO SEPARÁVEL: as amostras de antes e de depois ficam distinguíveis pelo
+# hash, e a Fase 2 analisa cada uma no seu regime em vez de jogar tudo fora.
+#
+# O princípio, e não a lista: **tudo que altera a composição do prompt entra
+# aqui**. A lista é só a instância de hoje. `tests/test_token_telemetry.py`
+# trava isso — enumera os `EDP_*` deste módulo e falha se algum não estiver
+# classificado numa das duas tuplas. Flag nova obriga uma decisão explícita, em
+# vez de deixar o próximo desenvolvedor supor que "essa provavelmente não
+# importa".
+FORMAT_STATE_FLAGS = (
+    "EDP_HYBRID_RETRIEVAL",    # troca o mecanismo de retrieval
+    "EDP_CTX_SLOTS",           # muda o que entra na contagem do corte
+    "EDP_WRITE_PROVENANCE",    # muda o que é gravado -> muda prompts futuros
+    "EDP_TOXIC_GUARDS",        # piso/exclusão -> muda o conjunto recuperado
+    "EDP_RETRIEVE_DEDUP",      # muda o conjunto recuperado
+    "EDP_RETRIEVE_SHUFFLE",    # muda a ORDEM do conjunto recuperado
+    "EDP_RETRIEVE_RANDOM_DROP",# remove itens do conjunto recuperado
+    "EDP_ANCHOR_COMPACT",      # muda o bloco da âncora de tarefa
+    "EDP_STORE_QUARANTINE",    # no caminho degradado, muda o que o store carrega
+)
+
+# Classificadas como NÃO afetando o prompt — com o motivo, porque "não importa"
+# sem motivo é a suposição que esta lista existe para impedir.
+# ── Telemetria de ranking (13/08/2026) ──────────────────────────────────────────
+# Quatro cortes decidem o que chega ao prompt e três eram invisíveis: min_score
+# (aplicado ANTES do append, então a candidata nem existia), filtro adaptativo
+# de sessão, e filtro_recusa. Só o top_k final aparecia, como `memory_hits`.
+#
+# Grava a cascata da SELEÇÃO — mesma disciplina do §10 do contrato da Fase 1,
+# toda redução explicável — mais os DEZ fatores multiplicativos das ~20 do topo.
+# Não altera prompt, ranking nem resposta: é leitura. Default OFF pelo padrão de
+# flag-off byte-idêntico do NORTE §4.7.
+EDP_RANKING_TELEMETRY = os.environ.get("EDP_RANKING_TELEMETRY", "0") == "1"
+
+# ── Telemetria de reflexão (13/08/2026) ─────────────────────────────────────────
+# `MetaReasoner.reflect()` roda em TODO turno pelo caminho vivo
+# (llm_adapter.py:2071 -> pipeline.py:383) e o `ReflectionResult` inteiro é
+# descartado — não só `reweights`: confidence, hallucination_risk, conflitos,
+# redundâncias e critique também. `pipeline.py:280` já chamava isso de "dead
+# store" e deixou o subsistema de pé porque o escopo daquela fase proibia
+# removê-lo. Custa três matrizes cosine_similarity por turno para ninguém ler.
+#
+# Antes de decidir entre APLICAR (`reweights` no corte de chunks) ou REMOVER,
+# é preciso saber a distribuição: se o reweight quase não varia entre chunks,
+# aplicá-lo é ligar ruído; se varia, é alavanca. Isto mede — não aplica nada.
+EDP_REFLECTION_TELEMETRY = os.environ.get("EDP_REFLECTION_TELEMETRY", "0") == "1"
+
+# ── Telemetria do detector de contradição (13/08/2026) ──────────────────────────
+# `scan_results` roda em todo retrieve com top_k>=2 e o `data/flags/` está VAZIO.
+# Zero flags é AMBÍGUO: não rodou / abortou por embedding ausente / rodou e nada
+# cruzou o limiar. Medido por leitura pura em 13/08: os 153 pares do
+# default_cognitive dão máximo 0.778 contra SIMILARITY_THRESHOLD=0.85 — o limiar
+# está acima do máximo do corpus, enquanto 16 de 18 textos têm negação. Grava
+# `max_sim` por scan, que é o número que falta para calibrar o 0.85 um dia.
+EDP_CONTRADICTION_TELEMETRY = os.environ.get("EDP_CONTRADICTION_TELEMETRY", "0") == "1"
+
+# ── Propagação do correlation_id (18/08/2026) ───────────────────────────────
+# Medido: `correlation_id` nulo em 18/18 registros de lineage e em 18/18
+# `memory_added`, contra 38/38 em `token_usage`. Causa em
+# docs/sujeito_edp/ACHADO_CORRELATION_ID.md (lab): o id é gravado num
+# thread-local dentro do executor (llm_adapter.py:1682) e lido na thread do
+# handler (websocket.py:1318). `contextvars` NÃO resolve — `run_in_executor`
+# não copia contexto, e mutação lá dentro não volta.
+#
+# Com a flag LIGADA o turno passa a ser dono do id: o handler gera antes de
+# entrar no executor e o passa explicitamente. Com ela DESLIGADA todo caminho
+# recebe None e cada função gera o próprio id — byte-idêntico ao de hoje.
+EDP_CORRELATION_PROPAGATION = os.environ.get("EDP_CORRELATION_PROPAGATION", "0") == "1"
+
+FORMAT_STATE_FLAGS_IGNORADAS = (
+    "EDP_RANKING_TELEMETRY",  # telemetria de seleção; não muda o prompt
+    "EDP_REFLECTION_TELEMETRY",  # lê o ReflectionResult; não aplica nada
+    "EDP_CONTRADICTION_TELEMETRY",  # lê o scan; não muda limiar nem flag
+    "EDP_CORRELATION_PROPAGATION",  # muda de ONDE vem o id, não o prompt
+    "EDP_WIKI",            # governa endpoint HTTP, não o prompt
+    "EDP_WIKI_CONVERSAS",  # idem
+    "EDP_GRAPH_VIEWER",    # idem
+    "EDP_TOKEN_TELEMETRY", # é a própria coleta
+)

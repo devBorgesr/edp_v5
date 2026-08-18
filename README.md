@@ -48,20 +48,22 @@ edp/
 ├── observability/  (3 arquivos)  — métricas
 └── dashboard/      — estático (CSS/JS/HTML), zero .py, servido pela API
 
-+ 39 módulos de topo (lista completa, `find edp -maxdepth 1 -name "*.py"`):
-  adaptive_controller.py, affective_calibration.py, analytics.py,
++ 40 módulos de topo (lista completa, `find edp -maxdepth 1 -name "*.py"`):
+  adaptive_controller.py, affective_calibration.py, analytics.py (†),
   attention.py, blocks.py, cache.py, clock.py, cognitive_scheduler.py,
   compression.py, config.py, consolidation.py, context_builder.py,
   context_debug.py, co_occurrence.py, echo_chamber.py, embeddings.py,
   epistemic_classifier.py, exceptions.py, failsafe.py, filters.py,
   learning_gate.py, llm_adapter.py, memory_classifier.py,
-  memory_graph.py (†), meta_reasoner.py, metrics.py, model_router.py,
-  pipeline.py, pressure.py, reranker.py, retrieval.py (†),
+  meta_reasoner.py, metrics.py, model_router.py,
+  pipeline.py, pressure.py, reranker.py (†), retrieval.py,
   retrieval_hybrid.py, schema_v1.py, scoring.py, session_summary.py,
-  temporal.py, trajectory.py, types.py, vector_store.py (†),
+  temporal.py, trajectory.py, types.py, vector_store.py,
   wiki.py, write_provenance.py
 
-  (†) sem importador em todo o repositório — código morto, ver abaixo.
+  (†) sem importador em todo o repositório. A marca deixou de ser prosa:
+  `tests/test_catalogo_de_modulos_mortos.py` recalcula o conjunto por AST
+  e quebra o build se a lista, a contagem ou os (†) divergirem.
 ```
 
 Este mapa substitui a categorização anterior do README
@@ -79,10 +81,20 @@ mudanças.
 
 Retrieval vivo: `edp/retrieval_hybrid.py` (BM25 + vetorial, RRF), atrás
 da flag `EDP_HYBRID_RETRIEVAL` (default ON). `edp/retrieval.py` (que usa
-FAISS/hnswlib diretamente) **existe no repositório e não tem nenhum
-importador** — mesmo estado de `edp/vector_store.py` e
-`edp/memory_graph.py`, catalogados como código morto desde 22/07/2026 e
-ainda assim hoje.
+FAISS/hnswlib diretamente) **não está no caminho servido**, mas é
+importado por `run.py:187` no subcomando `bench_retrieval` — assim como
+`edp/vector_store.py` em `run.py:250`. Não são código morto.
+
+> **Errata — 13/08/2026.** Até esta data este parágrafo dizia que
+> `retrieval.py`, `vector_store.py` e `memory_graph.py` estavam "sem
+> nenhum importador", catalogados assim desde 22/07/2026. A recontagem
+> por AST mostrou que o catálogo errava nas **duas** direções: os dois
+> primeiros têm importador real em `run.py`, e `analytics.py` e
+> `reranker.py` estavam mortos sem marca. Só `memory_graph.py` estava
+> certo — e foi deletado em 13/08 (ver
+> `docs/design_wiki_conversas.md` §5, que refuta aresta por similaridade
+> de embedding). O erro sobreviveu três semanas porque "sem importador"
+> era conferido por leitura, não por ferramenta; agora é build gate.
 
 ---
 

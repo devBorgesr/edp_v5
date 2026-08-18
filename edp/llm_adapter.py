@@ -187,6 +187,72 @@ SESSION_GAP_THRESHOLD_SEC = 4 * 3600   # 4h sem atividade = fim de sessão
 HISTORICO_MAX_TURNS = 12               # cap de turnos no bloco histórico
 HISTORICO_TRUNCATE_CHARS = 80          # cap de chars por linha (pergunta)
 
+# Caps da janela imediata por modo operacional. Estava como literal DENTRO de
+# `_retrieve_context` (peça 2.5a); içado aqui em 12/08 porque a telemetria de
+# formato precisa do MESMO mapa — e duplicar `mode -> caps` em dois lugares é
+# exatamente o antipadrão que a auditoria de constantes catalogou
+# (`SESSION_GAP_THRESHOLD_SEC` definido duas vezes, concordando por
+# coincidência de manutenção). Uma fonte, dois leitores.
+#
+# Motivo dos valores (preservado da peça 2.5a): cognitive tem turno-1 enxuto
+# (4000) porque cap fixo de 12000 produzia inflação crônica em conversa técnica
+# contínua; sprint paga 12000 conscientemente para auto-referência em código
+# longo. Caps -2 a -6 iguais nos dois modos — validação da 2.5a preservada.
+CAPS_POR_MODO = {
+    "sprint":    (12000, 3000, 3000, 1500, 1500, 1500),
+    "cognitive": (4000,  3000, 3000, 1500, 1500, 1500),
+}
+
+FORMAT_STATE_SCHEMA = 1
+
+
+def snapshot_formato(modo: str) -> dict:
+    """
+    Fotografa o regime de formato NO INSTANTE em que o turno nasce.
+
+    É snapshot, não referência: a pergunta que a Fase 2 vai fazer é "como o EDP
+    estava quando esta observação nasceu", não "como o EDP está agora". Guardar
+    um ponteiro para estrutura viva responderia a segunda por acidente — e o
+    dado já teria sido gravado com o valor errado sem ninguém notar.
+
+    Grava o ESTADO EFETIVO, não só a configuração que o implica: `modo="sprint"`
+    obriga quem analisar a reconstruir "logo, o cap era 12000"; `caps=(12000,…)`
+    já responde. Configuração é causa indireta; o que entrou no prompt é o que
+    interessa.
+
+    `EDP_USE_CTX_MGR` entra explicitamente porque é lido de `os.environ` direto
+    aqui (`stream_chat`), não de `config.py` — o teste de completude varre
+    `config.py` e NÃO o pegaria. Ele troca `_build_enriched_context` pelo
+    caminho de fallback, que monta o prompt de outro jeito: é a flag mais
+    disruptiva do conjunto e a única fora do módulo de config.
+    """
+    flags = {}
+    try:
+        from . import config as _cfg
+        for nome in _cfg.FORMAT_STATE_FLAGS:
+            flags[nome] = bool(getattr(_cfg, nome, None))
+    except Exception as e:
+        logger.debug("[formato] leitura de flags falhou: %s", e)
+    flags["EDP_USE_CTX_MGR"] = os.environ.get("EDP_USE_CTX_MGR", "1") == "1"
+
+    return {
+        "schema_version": FORMAT_STATE_SCHEMA,
+        "mode":           modo,
+        "caps":           list(CAPS_POR_MODO.get(modo, CAPS_POR_MODO["cognitive"])),
+        "flags":          flags,
+    }
+
+
+# LIMITE DECLARADO: este snapshot captura o regime de RUNTIME (modo, flags,
+# caps), não o de CÓDIGO. Constantes que só mudam com deploy — `JANELA_IMEDIATA_N`
+# (local a `_retrieve_context`), os caps de `BLOCO_CAP_CHARS`, o texto dos
+# templates de prompt — não podem variar entre duas amostras da mesma build, e
+# por isso não ajudam a estratificar. Mas mudam entre builds, e nada aqui
+# detecta isso: duas amostras de versões diferentes do código podem ter hashes
+# de formato IDÊNTICOS. Coleta que atravesse um deploy que mexa em composição
+# de prompt precisa ser cortada na data do deploy à mão. Fechar isso exigiria
+# carimbar o commit em cada amostra — decisão para a Fase 2, não para esta.
+
 
 def _detect_sessao_atual(entries_sorted_asc: list, now_ts: float) -> list:
     """
@@ -1493,6 +1559,7 @@ REGRAS ABSOLUTAS:
         user_message: str,
         system: str = "",
         store_to_memory: bool = True,
+        correlation_id: Optional[str] = None,
     ) -> ChatResponse:
         """
         Envia mensagem com contexto cognitivo EDP.
@@ -1522,9 +1589,22 @@ REGRAS ABSOLUTAS:
         try:
             from .runtime.pareto_store import (
                 new_correlation_id, set_current_correlation_id,
+                set_current_format_state,
             )
-            _cid = new_correlation_id()
+            # 18/08: id RECEBIDO vence o gerado. O corpo desta funcao roda
+            # numa thread do pool (websocket.py:882 -> run_in_executor), entao
+            # um id gerado aqui e invisivel para quem monta o lineage na thread
+            # do handler. Com correlation_id=None o comportamento e o de
+            # sempre — gerar — e por isso flag-off e byte-identico.
+            _cid = correlation_id or new_correlation_id()
             set_current_correlation_id(_cid)
+            # Fase 1: snapshot do regime de formato, na mesma thread e no mesmo
+            # instante do correlation_id — os dois respondem "que turno é este"
+            # e "em que regime ele rodou", e separá-los abriria janela para um
+            # descrever um turno e o outro descrever o seguinte.
+            set_current_format_state(
+                snapshot_formato(getattr(self, "_operational_mode", "cognitive"))
+            )
         except Exception as e:
             logger.debug("[chat] pareto correlation_id falhou: %s", e)
 
@@ -1575,7 +1655,8 @@ REGRAS ABSOLUTAS:
             compression_pct=compression_pct,
         )
 
-    def stream_chat(self, user_message: str, system: str = "") -> Generator[str, None, None]:
+    def stream_chat(self, user_message: str, system: str = "",
+                    correlation_id: Optional[str] = None) -> Generator[str, None, None]:
         """
         Streaming de chat com instrumentação de métricas.
 
@@ -1602,9 +1683,18 @@ REGRAS ABSOLUTAS:
         try:
             from .runtime.pareto_store import (
                 new_correlation_id, set_current_correlation_id,
+                set_current_format_state,
             )
-            _cid = new_correlation_id()
+            # 18/08: id RECEBIDO vence o gerado. O corpo desta funcao roda
+            # numa thread do pool (websocket.py:882 -> run_in_executor), entao
+            # um id gerado aqui e invisivel para quem monta o lineage na thread
+            # do handler. Com correlation_id=None o comportamento e o de
+            # sempre — gerar — e por isso flag-off e byte-identico.
+            _cid = correlation_id or new_correlation_id()
             set_current_correlation_id(_cid)
+            set_current_format_state(  # Fase 1 — ver nota em chat()
+                snapshot_formato(getattr(self, "_operational_mode", "cognitive"))
+            )
         except Exception as e:
             logger.debug("[stream_chat] pareto correlation_id falhou: %s", e)
 
@@ -1897,6 +1987,24 @@ REGRAS ABSOLUTAS:
             }
         import time as _time
         t0 = _time.perf_counter()
+        # Fase 1 (12/08/2026): a câmara roda DENTRO do turno, na MESMA thread —
+        # então herdaria o `format_state` do turno por acidente. Isso seria pior
+        # que não rotular: o prompt da câmara tem composição própria (system de
+        # refutação, sem retrieval nem âncora), e carimbá-lo com o regime do
+        # prompt principal afirmaria algo falso. Limpo antes e restauro depois:
+        # a amostra da câmara sai com `format_state=None` e a Fase 2 a exclui
+        # do estrato do turno em vez de contaminá-lo.
+        _fmt_turno = None
+        try:
+            from .runtime.pareto_store import (
+                get_current_format_state as _get_fmt,
+                set_current_format_state as _set_fmt,
+            )
+            _fmt_turno = _get_fmt()
+            _set_fmt(None)
+        except Exception as e:
+            logger.debug("[camara] isolamento de format_state falhou: %s", e)
+            _set_fmt = None
         try:
             # Override temporário do modelo para esta chamada específica
             original_model = self._client._cfg.model
@@ -1917,6 +2025,8 @@ REGRAS ABSOLUTAS:
                     cost = 0.0
             finally:
                 self._client._cfg.model = original_model
+                if _set_fmt is not None:
+                    _set_fmt(_fmt_turno)   # devolve o regime ao turno
             latency_ms = (_time.perf_counter() - t0) * 1000.0
             return {
                 "text": text or "",
@@ -2157,10 +2267,9 @@ REGRAS ABSOLUTAS:
             # Demais caps (-2 a -6) inalterados em ambos modos: validação da
             # peça 2.5a original preservada.
             current_mode = getattr(self, "_operational_mode", "cognitive")
-            if current_mode == "sprint":
-                CAPS_POR_POSICAO = [12000, 3000, 3000, 1500, 1500, 1500]
-            else:  # cognitive (default)
-                CAPS_POR_POSICAO = [4000, 3000, 3000, 1500, 1500, 1500]
+            CAPS_POR_POSICAO = list(
+                CAPS_POR_MODO.get(current_mode, CAPS_POR_MODO["cognitive"])
+            )
             # Labels pela ordem cronológica (mais antigo primeiro → mais novo por último)
             LABELS_POR_DISTANCIA = [
                 "6 turnos atrás",

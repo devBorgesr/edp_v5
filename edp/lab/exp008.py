@@ -37,6 +37,11 @@ logger = logging.getLogger("edp.lab.exp008")
 # ── Constantes CONGELADAS (§9 do pre-registro) ────────────────────────────────
 EXPERIMENTO     = "008"
 BETA            = 0.25          # peso do overlap concepts/domain no tratamento
+# DESVIO DECLARADO (§9-bis do pre-registro): congelado em 50, mudado para 100 em
+# a855240 (27/06/2026) — o MESMO commit que anuncia "segundo disparo real". Nao
+# revertido de proposito: reverter apagaria que houve disparo a 100. Disparos
+# antes e depois desse commit NAO sao a mesma medicao (o §6 mede Recall DENTRO
+# do pool). Quem reportar o 008 tem de dizer sob qual POOL_SIZE rodou.
 POOL_SIZE       = 100           # candidatos por query (retrieve REAL)
 K3              = 3
 K5              = 5
@@ -723,8 +728,15 @@ def main(argv=None) -> int:
     if res.aborted:
         print(f"  ABORTADO        : {res.aborted}")
     print(f"  runs gravados   : {res.runs_gravados}")
-    print(f"  retrieve REAL   : MemoryStore.retrieve chamado sobre clone isolado "
-          f"({res.n_pares} queries x pool={POOL_SIZE})")
+    # A linha abaixo era INCONDICIONAL e afirmava que o retrieve REAL rodou —
+    # inclusive quando o abort de MIN_PAIRS retorna ANTES da chamada (linha 366).
+    # Com 9 pares abortados ela imprimia "9 queries x pool=100": numero
+    # especifico, plausivel e FALSO, num relatorio cuja funcao e ser evidencia.
+    if res.aborted:
+        print(f"  retrieve REAL   : NAO chamado — abortou antes (nenhuma query rodou)")
+    else:
+        print(f"  retrieve REAL   : MemoryStore.retrieve chamado sobre clone isolado "
+              f"({res.n_pares} queries x pool={POOL_SIZE})")
     print(f"  isolamento      : leak_ok={res.leak_ok} "
           f"(fingerprint cognitive de producao inalterado?)")
     print(f"    before hash   : {res.fingerprint_before.get('hash')}")
@@ -737,7 +749,13 @@ def main(argv=None) -> int:
                 print(f"    {rot:<28} R@3={r['recall_at_3']*100:>4.0f}%  "
                       f"R@5={r['recall_at_5']*100:>4.0f}%  MRR={r['mrr']:.3f}  (n={r['n']})")
     print("=" * 70)
-    if res.dry_run:
+    if res.dry_run and res.aborted:
+        # "OK" era impresso mesmo abortado. A prova-no-espelho existe para
+        # exercitar o encanamento ANTES do disparo; se abortou no dataset, o
+        # encanamento (retrieve, re-rank, score) nao foi exercitado uma vez.
+        print("  Prova-no-espelho INCOMPLETA: abortou no dataset, o encanamento")
+        print("  (retrieve REAL, re-rank, Recall@K) NAO foi exercitado.")
+    elif res.dry_run:
         print("  Prova-no-espelho OK. Para o disparo REAL: EDP_LAB_ARMED=1 e rode sem --dry-run.")
         print("  Depois: python -m edp.lab.exp008 --score   (e --audit para os exemplos).")
     return 0
