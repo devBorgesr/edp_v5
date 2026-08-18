@@ -773,6 +773,7 @@ class EpisodicMemory:
                     n_entregues=min(top_k, len(scored)),
                     min_score=min_score,
                     top_k=top_k,
+                    metodo="cosine",
                     detalhe=[
                         {"rank": r, "score": rs, "fatores": bd}
                         for r, (rs, _i, bd) in enumerate(scored[:20], 1)
@@ -1808,6 +1809,40 @@ class MemoryStore:
                 get_flagger().scan_results(final_top)
             except Exception:
                 pass
+
+        # ── Telemetria de ranking (paridade) — 18/08/2026 ─────────────────
+        # ESTA FALTAVA. A telemetria de 13/08 foi instalada so no caminho
+        # cosseno (EpisodicMemory.retrieve), e `MemoryStore.retrieve:1511`
+        # devolve por AQUI quando EDP_HYBRID_RETRIEVAL=1 — que e o default
+        # desde 08/07. Resultado medido em 18/08: zero eventos apos quatro
+        # turnos reais com a flag ligada. Nao era bug de emissao; era codigo
+        # morto no caminho vivo.
+        #
+        # A cascata daqui NAO e a do cosseno, e por isso o esquema marca
+        # `metodo` e usa None onde o estagio nao existe. Repetir os numeros
+        # do cosseno descreveria filtros que este caminho nao tem.
+        try:
+            from ..config import EDP_RANKING_TELEMETRY as _rt
+            if _rt:
+                from ..runtime.pareto_store import emit_ranking_decision
+                emit_ranking_decision(
+                    n_avaliadas=len(index["entries"]),
+                    n_acima_do_piso=len(res.indices),
+                    n_apos_filtro_sessao=None,   # nao existe no hibrido
+                    n_apos_filtro_recusa=None,   # idem
+                    n_apos_dedup=len(final_top),
+                    n_entregues=len(final_top),
+                    min_score=HYBRID_MIN_SCORE,
+                    top_k=top_k,
+                    metodo="rrf",
+                    detalhe=[
+                        {"rank": i, "score": r.get("ranking_score", 0.0),
+                         "fatores": r.get("ranking_breakdown", {})}
+                        for i, r in enumerate(final_top[:20], 1)
+                    ],
+                )
+        except Exception as _e_rt:
+            logger.debug("[retrieve-hibrido] telemetria de ranking falhou: %s", _e_rt)
 
         return final_top
 
