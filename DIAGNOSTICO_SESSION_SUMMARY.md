@@ -173,6 +173,27 @@ Note como cada um é uma **generalização** — não um fato específico ancor�
 ```
 rank_score = sim * decay * prio * access_boost * epi_multiplier * src_weight * dom_penalty * anchor_boost * session_boost
 ```
+
+> **Errata — 13/08/2026 (registrada no original em 18/08).** A fórmula acima
+> tem **nove** fatores e o produto real tinha **dez**. Falta `nf_floor`
+> (`NOT_FOUND_FLOOR`, derruba o score em 20× quando a entrada é de classe
+> tóxica e `EDP_WRITE_PROVENANCE` está ligada). Ele já estava no produto na
+> mesma revisão auditada — `memory.py:723-724` (definição) e `:748-751`
+> (multiplicação) —, fora do trecho `739-743` citado. Hoje o mesmo produto
+> vive em `edp/memory/store.py:611-616`.
+>
+> A omissão **não muda a conclusão desta seção**: para uma `session_summary`,
+> `nf_floor = 1.0` (não é classe tóxica), então o décimo fator é neutro
+> justamente no caso analisado. O que ela mostra é que a fórmula foi enumerada
+> de memória em vez de lida por inteiro — o mesmo erro se repetiu em 13/08 na
+> instrumentação do ranking, e foi o que motivou o teste de guarda
+> `tests/test_ranking_telemetry.py::test_nf_floor_esta_no_dict_do_ranking`,
+> que trava os dez juntos. Texto original preservado.
+>
+> **Nota de localização:** esta errata esteve por engano na cópia do
+> `lab_edp_novo` (`docs_edp_v5/`), pasta que a `docs/DIVISAO.md:87` daquele
+> repo declara como herdada e **não editável**. Revertida lá, registrada aqui
+> — no original, que é a fonte.
 Para uma `session_summary` (episódica), cada fator joga a favor:
 
 | fator | valor p/ session_summary | valor p/ llm_response típico | fonte |
