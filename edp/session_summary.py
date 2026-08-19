@@ -209,6 +209,11 @@ def generate_session_summary(
     # 4) Procura tags similares existentes (reuso de tema)
     reused = False
     final_label = label
+    # Ligados ANTES do try: a guarda do 4-bis os lê, e sem isto um erro aqui
+    # deixaria lá um NameError engolido pelo except — a guarda desligaria em
+    # silêncio, que é o pior modo de falha para uma flag.
+    summary_emb = None
+    existing_summaries: list = []
     try:
         from .embeddings import embed_one
         summary_emb = embed_one(summary_text)
@@ -234,6 +239,84 @@ def generate_session_summary(
                     break
     except Exception as e:
         logger.debug("[summary] tag matching falhou: %s", e)
+
+    # ── 4-bis) Guarda de duplicata (18/08/2026) ──────────────────────────────
+    # O laço acima NÃO serve para isto e não foi tocado: ele para no PRIMEIRO
+    # resumo acima de 0.75 (`break`), então o `sim` dele é o do primeiro
+    # encontrado, não o máximo. Para decidir "isto já está gravado" é preciso o
+    # MÁXIMO sobre todos — varredura completa, que só roda com flag ligada.
+    #
+    # Medido no store vivo: 4 dos 5 grupos de texto exatamente repetido são
+    # session_summary. O passo 5 grava mesmo quando o passo 4 já detectou a
+    # duplicata. Ver ACHADO_DUPLICATA_EXPLICA_DOMINANCIA.md (lab).
+    _dup_sim: float | None = None
+    _dup_de = ""
+    try:
+        from .config import (
+            EDP_SUMMARY_TELEMETRY as _st,
+            EDP_SUMMARY_DEDUP as _sd,
+            SUMMARY_DEDUP_THRESHOLD as _lim,
+        )
+        if (_st or _sd) and existing_summaries and summary_emb is not None:
+            import numpy as np
+            from sklearn.metrics.pairwise import cosine_similarity
+            # DEFEITO ACHADO POR TESTE (18/08/2026): `summary_emb` acima é o
+            # embedding do texto NU, mas o passo 5 grava
+            # `f"[session_summary] {summary_text}"` — com prefixo. O laço do
+            # passo 4 compara portanto nu-contra-prefixado, e duplicata EXATA
+            # dá 0.769, não 1.0. Ele passa raspando o TAG_SIMILARITY_THRESHOLD
+            # de 0.75 por sorte, e um limiar de guarda calibrado para texto
+            # igual (~1.0) seria INALCANÇÁVEL contra esse número.
+            #
+            # Aqui compara-se igual com igual: o texto COMO SERÁ GRAVADO.
+            # A correção fica confinada a este bloco de propósito — mexer no
+            # laço acima mudaria o reuso de rótulo com as flags desligadas, e
+            # o §4.7 exige que desligada seja byte-idêntica.
+            from .embeddings import embed_one as _e1
+            _emb_como_gravado = _e1(f"[session_summary] {summary_text}")
+            for prev in existing_summaries:
+                prev_emb = np.array(prev.get("embedding", []), dtype=np.float32)
+                if prev_emb.size == 0:
+                    continue
+                s = float(cosine_similarity([prev_emb], [_emb_como_gravado])[0][0])
+                if _dup_sim is None or s > _dup_sim:
+                    _dup_sim, _dup_de = s, str(prev.get("id") or "")
+    except Exception as e:
+        logger.debug("[summary] varredura de duplicata falhou: %s", e)
+
+    try:
+        from .config import (
+            EDP_SUMMARY_DEDUP as _sd2,
+            SUMMARY_DEDUP_THRESHOLD as _lim2,
+        )
+        _pula = bool(_sd2 and _dup_sim is not None and _dup_sim >= _lim2)
+        from .runtime.pareto_store import emit_summary_write
+        emit_summary_write(
+            max_sim=_dup_sim,
+            n_anteriores=len(existing_summaries),
+            limiar=_lim2,
+            gravou=not _pula,
+            guarda_ativa=bool(_sd2),
+            topic_tag=final_label,
+            n_chars=len(summary_text),
+        )
+        if _pula:
+            # NÃO grava. Devolve o mesmo formato dos callers (`label`, `reused`,
+            # `entry_id`) para que websocket.py:1388, memory.py:337 e
+            # consolidator.py:52 sigam funcionando sem saber desta guarda.
+            logger.info(
+                "[summary] duplicata PULADA sim=%.4f >= %.4f (de %s) label=%s",
+                _dup_sim, _lim2, _dup_de[:8], final_label,
+            )
+            return {
+                "summary":  summary_text,
+                "label":    final_label,
+                "reused":   True,
+                "entry_id": _dup_de or None,
+                "skipped_duplicate": True,
+            }
+    except Exception as e:
+        logger.debug("[summary] guarda de duplicata falhou (ignorado): %s", e)
 
     # 5) Persiste como memória especial
     try:

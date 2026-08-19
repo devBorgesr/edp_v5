@@ -106,6 +106,11 @@ EVENT_TYPES = frozenset({
     # Telemetria do detector de contradição (13/08/2026): zero flags é um
     # resultado AMBÍGUO — não rodou, abortou, ou rodou e não achou?
     "contradiction_scan",
+    # Escrita de session_summary (18/08/2026): a duplicata é detectada no
+    # passo 4 e gravada assim mesmo no passo 5. Este evento registra o max_sim
+    # contra os resumos anteriores para o limiar da guarda ser CALIBRADO em vez
+    # de escolhido. Ver ACHADO_DUPLICATA_EXPLICA_DOMINANCIA.md (lab).
+    "summary_write",
 })
 
 
@@ -1056,3 +1061,68 @@ def emit_token_usage(
         get_pareto_store().emit(evt)
     except Exception as e:
         logger.warning("[pareto] emit_token_usage falhou: %s", e)
+
+
+def emit_summary_write(
+    max_sim:     Optional[float],
+    n_anteriores: int,
+    limiar:      float,
+    gravou:      bool,
+    guarda_ativa: bool,
+    topic_tag:   str = "",
+    n_chars:     int = 0,
+) -> None:
+    """
+    Hook: cada escrita de `session_summary`, com a distância até a duplicata.
+
+    Governado por `EDP_SUMMARY_TELEMETRY` (default OFF) — com a flag OFF esta
+    função retorna antes de qualquer trabalho.
+
+    POR QUE ESTE EVENTO EXISTE
+
+    Medido no store vivo em 18/08/2026: 14 cópias extras em 5 grupos de texto
+    EXATAMENTE igual, e QUATRO dos cinco grupos são `session_summary`. A
+    dominância dos resumos no top-5 não vem de ranking — vem de estarem lá
+    várias vezes.
+
+    A origem é determinística: `generate_session_summary` dispara em CADA
+    `WebSocketDisconnect` sobre `entries[-10:]`. Dois disconnects sem conversa
+    nova produzem o mesmo prompt e o mesmo resumo. O passo 4 já calcula o
+    cosseno contra os resumos anteriores e DETECTA a duplicata — e usa isso só
+    para copiar o `topic_tag`.
+
+    O QUE `max_sim` RESOLVE
+
+    O limiar da guarda (`SUMMARY_DEDUP_THRESHOLD`) é Tier A: escolhido, não
+    medido. Para as duplicatas OBSERVADAS ele é indiferente — texto igual dá
+    cosseno 1.0, e qualquer valor em (0.75, 1.0] as pega. O que ninguém sabe é
+    se existe o caso QUASE-duplicado: texto diferente, conteúdo igual, cosseno
+    entre 0.75 e 0.98. Se existir, a guarda o deixa passar e a duplicação
+    continua por outra porta.
+
+    Gravando `max_sim` em TODA escrita — inclusive nas que gravam — a
+    distribuição aparece e o limiar passa a ser calibrado com dado. É a mesma
+    função do `max_sim` em `emit_contradiction_scan`, e pelo mesmo motivo:
+    medir a distância até o corte antes de defender o corte.
+
+    `gravou` e `guarda_ativa` separados de propósito: com a guarda DESLIGADA
+    todo evento tem `gravou=True`, e a coluna registra o que TERIA sido pulado
+    se ela estivesse ligada — contrafactual sem mudar comportamento.
+    """
+    try:
+        from ..config import EDP_SUMMARY_TELEMETRY
+        if not EDP_SUMMARY_TELEMETRY:
+            return
+        get_pareto_store().emit({
+            "event":        "summary_write",
+            "ts":           _now(),
+            "max_sim":      (float(max_sim) if max_sim is not None else None),
+            "n_anteriores": int(n_anteriores),
+            "limiar":       float(limiar),
+            "gravou":       bool(gravou),
+            "guarda_ativa": bool(guarda_ativa),
+            "topic_tag":    str(topic_tag or "")[:64],
+            "n_chars":      int(n_chars),
+        })
+    except Exception as e:
+        logger.debug("[pareto] emit_summary_write falhou: %s", e)
