@@ -1232,9 +1232,22 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                             confidence=0.65,
                             epistemic_status="hypothesis",
                         )
-                        # ── exp012 (EDP_WRITE_PROVENANCE, default OFF) ─────
-                        # Default DEFENSIVO: sem runtime/atributo/proveniência,
-                        # nada muda (a Camada B nunca quebra a gravação).
+                        # ── exp012 (EDP_WRITE_PROVENANCE) ──────────────────
+                        # ERRATA 19/08/2026: aqui dizia "default OFF". É FALSO —
+                        # config.py:87 usa default "1" desde a promoção. Terceiro
+                        # comentário em dois dias mentindo sobre o próprio default
+                        # (os outros: EDP_HYBRID_RETRIEVAL em store.py:1504, e o
+                        # "Desligada (default)" que sobreviveu DENTRO da errata que
+                        # corrigia esse mesmo tipo de afirmação).
+                        # O que continua verdadeiro: sem runtime/atributo/
+                        # proveniência nada muda — a Camada B nunca quebra a
+                        # gravação. Isso é a guarda `_prov and isinstance(...)`
+                        # abaixo, não o default da flag.
+                        #
+                        # NOTA de escopo (ACHADO_DETECTOR_DE_NEGACAO_TEM_RECALL_BAIXO.md):
+                        # este é o ÚNICO chamador de stamp_and_classify. O caminho
+                        # que gera `camara_response` não passa por aqui, e 0 de 10
+                        # dessas entradas no store têm carimbo.
                         try:
                             from ...config import EDP_WRITE_PROVENANCE
                             _prov = getattr(runtime, "_last_ctx_provenance", None) if runtime_ok else None
