@@ -290,3 +290,42 @@ semântica) sob BM25+RRF — e deve nascer do que a telemetria `ranking_decision
 mostrar, não de palpite. Número novo.
 
 Fonte: `AUDITORIA_MECANISMO_APOSENTADO.md` (lab, `f1da6e4`).
+
+---
+
+## §8-ter. Errata — o disparo aconteceu e não foi registrado aqui
+
+**18/08/2026.** O §8-bis acima diz que o exp009 não dispara *como está*. Isso
+vale para **hoje**. Este documento, porém, também não registra que ele **já
+disparou** — e disparou.
+
+A evidência é indireta mas convergente:
+
+- `edp/session_summary.py:324` afirma, num comentário de produção, *"exp009 (H1
+  confirmada, limiares §6) … a dominância cai 86.7%→33% nas queries vagas"*.
+- o store `edp_data_exp009` existe, com **813 eventos**, o último em **02/07/2026**.
+- em 02/07 o caminho vivo era o **cosseno** — a promoção do híbrido a default é
+  de 08/07 (`config.py:53`).
+
+Ou seja: o resultado foi medido, é plausivelmente válido **para o caminho
+cosseno**, e vive **apenas num comentário de código**. O pré-registro que o
+governa não tem seção de resultado, não tem data de disparo, e não tem os
+números.
+
+**Por que isto importa mais que a formalidade.** Um número que existe só em
+comentário de produção não tem escopo declarado. Foi exatamente assim que ele
+sobreviveu à mudança de 08/07: nada o obrigava a dizer *contra qual caminho*
+tinha sido medido, então continuou lido como fato sobre o sistema atual — por
+mim inclusive, até a auditoria de 18/08.
+
+**O que NÃO se faz aqui.** Não transcrevo `86.7%→33%` para uma tabela de
+resultado. O número não foi reproduzido, não sei o N, não sei as condições
+exatas do disparo, e promovê-lo de comentário a resultado registrado seria dar
+a ele um selo que a medição original não ganhou. Fica citado como **alegação de
+origem conhecida e escopo cosseno**, Tier B (anedótico) — que é o que ele é.
+
+Quem quiser convertê-lo em Tier D precisa do log do disparo de 02/07, não deste
+documento.
+
+Fonte: `AUDITORIA_MECANISMO_APOSENTADO.md` e
+`ACHADO_DUPLICATA_EXPLICA_DOMINANCIA.md` (lab).

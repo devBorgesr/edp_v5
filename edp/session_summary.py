@@ -326,6 +326,25 @@ def generate_session_summary(
         # dos summaries no retrieve cai (86.7%→33% nas queries vagas) e a memória
         # de conteúdo volta ao topo, sem quebrar o caso legítimo. Defaults do add
         # valem: prioridade="media", epistemic_status="hypothesis".
+        #
+        # ERRATA 18/08/2026 — o texto acima fica, o escopo dele muda.
+        # O 86.7%→33% foi medido no caminho COSSENO (o store `edp_data_exp009`
+        # tem 813 eventos terminando em 02/07). Desde 08/07 o default é o
+        # híbrido (config.py:53), onde `prioridade` só aparece numa f-string de
+        # exibição (store.py:1898) e `epistemic_status` só na exclusão binária
+        # de contradicted/quarantined (store.py:1654). Nenhum dos dois ordena.
+        #
+        # A ESCRITA ABAIXO NÃO MUDA e continua certa — não conceder privilégio
+        # é correto em qualquer caminho. O que caducou é a CAUSA declarada: hoje
+        # não há privilégio a conceder, então também não há efeito a atribuir.
+        # A dominância medida em 18/08 acontece COM os defaults já aplicados, e
+        # a causa é outra — os resumos estão DUPLICADOS no store (4 dos 5 grupos
+        # de texto repetido). Ver ACHADO_DUPLICATA_EXPLICA_DOMINANCIA.md (lab) e
+        # a guarda `EDP_SUMMARY_DEDUP` acima.
+        #
+        # Nota de método: este número não está registrado no próprio
+        # pré-registro do exp009 — ele existe só aqui, num comentário de
+        # produção. Ver §8-ter de `edp/lab/preregistro_experimento_009.md`.
         entry = memory_store.add(
             text=text_to_store,
             score=0.85,
