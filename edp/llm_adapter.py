@@ -2816,7 +2816,18 @@ REGRAS ABSOLUTAS:
             logger.debug("[ctx] #46 filtro blocks falhou: %s", _e46b)
 
         # Constrói contexto otimizado
-        # ── exp011 (EDP_CTX_SLOTS, default OFF): metadados fora da contagem ──
+        # ── exp011 (EDP_CTX_SLOTS) — DEFAULT **LIGADA** ──────────────────
+        # ERRATA 22/08/2026: aqui dizia "default OFF". É FALSO desde a promoção
+        # de 08/07/2026 (config.py:65 -> default "1"), feita JUNTO com o
+        # EDP_HYBRID_RETRIEVAL. Achei o comentário obsoleto do híbrido em 18/08
+        # e este ficou — os dois foram promovidos no mesmo dia e os dois
+        # deixaram comentário para trás.
+        #
+        # Quinta ocorrência do padrão em três dias, e a primeira encontrada por
+        # MECANISMO em vez de releitura: tests/test_comentario_nao_mente_sobre_
+        # default.py compara a afirmação com o 2º argumento do os.environ.get.
+        # A descrição OFF/ON abaixo continua correta — o que estava errado era
+        # dizer qual dos dois é o padrão.
         # OFF: chamada IDENTICA a atual (metadata=None e no-op no manager).
         # ON: separa `blocks` por identidade — memorias recuperadas (coletadas
         # em _last_similarity_blocks pelo _retrieve_context) vao ao slot
