@@ -197,6 +197,35 @@ dívidas referenciadas em código.
 
 ---
 
+### 4.14 Concordância não é verdade
+
+Dois procedimentos concordarem **não** estabelece que algum dos dois está certo.
+Estabelece que concordam — e concordância alta pode significar que o segundo
+aprendeu a imitar o critério do primeiro.
+
+Vale para toda medição de acordo: juiz-LLM contra humano, dois anotadores,
+consenso de ensemble, auto-consistência de um modelo consigo mesmo.
+
+Instâncias neste projeto:
+
+- **E10** — verificador léxico como crítico autônomo. H1 refutada; a tarefa que
+  se supôs extrativa era abstrativa.
+- **exp019** — `FRASES_NEGACAO` tinha recall **0/22**. Se um segundo instrumento
+  com o mesmo viés a confirmasse, o zero pareceria validado.
+- **REL-001 §9** — mesmo com κ = 0,85, a afirmação permitida é *"o juiz LLM
+  concorda com ESTE anotador"*, e não *"o ground truth foi validado"*.
+
+Consequência prática: um número de acordo entra no relatório com o **referente
+nomeado** — concordou com quem, sob qual rubric, medido em qual estrato. "O
+instrumento é confiável" exige mais que acordo, e o que exige a mais precisa
+estar dito.
+
+*(Acrescentada em 30/08/2026 a partir do REL-001, por sugestão de auditoria
+externa. Numeração é append-only: §4.13 continua sendo a nota de fechamento
+escrita antes desta regra, e não foi renumerada.)*
+
+---
+
 ## 5. TESTE DE ESCOPO (antes de todo prompt)
 
 Duas perguntas, nesta ordem:
