@@ -226,6 +226,61 @@ escrita antes desta regra, e não foi renumerada.)*
 
 ---
 
+### 4.15 Verifique com a grandeza que o defeito moveria
+
+Uma verificação só vale se a grandeza medida **mudaria** caso o defeito estivesse
+presente. Se o defeito deixa o número intacto, aquele número não é evidência de
+ausência — é evidência de nada.
+
+A pergunta a fazer antes de aceitar qualquer checagem:
+
+> **se o defeito que temo estivesse aqui, este número seria diferente?**
+
+Se a resposta for não, a checagem passa igual nos dois mundos, e passar não
+informa.
+
+Instâncias neste projeto — todas são verificações que **passaram** e não
+deveriam ter tranquilizado ninguém:
+
+- **REL-001A** — "documentos para ranking de 50 posições: 198, OK". 198 é a
+  contagem de *entradas do índice*, e a duplicação epi/sem é justamente o que
+  **infla entradas**. A grandeza que se move é *documentos distintos*: 137 no
+  arquivo, 133 no índice.
+- **REL-001A** — a checagem empírica contou *slots devolvidos*: 50/50. Com
+  `top_k=50` o retriever devolve 50 slots **haja ou não duplicação** — é a única
+  contagem que o defeito não toca. Distintos: 29–40.
+- **smoke do REL-001** — conferiu formato, parse e latência. Um ranking fabricado
+  a partir da ordem do arquivo passa nos três de forma idêntica. A pergunta que
+  se movia — *o `topo` é mesmo o top-5?* — não foi feita, e custou 500 pares e
+  492 rótulos.
+- **`ACHADO_MESMO_ID…` §4 (30/08)** — "deduplicar antes de fatiar; isso não
+  altera o protocolo". Verificado contra o **texto** do `§3.2`, que de fato não
+  muda. A grandeza que se move é o **comprimento do ranking**: 50 slots viram 36
+  distintos, e o `§3.2` pede 50. A correção estava certa e tornou o protocolo
+  insatisfazível.
+- **`session_summary.py` (18/08)** — `SUMMARY_DEDUP_THRESHOLD = 0.98`, calibrado
+  contra "texto idêntico dá ~1.0". Mas o embedding comparado é do texto nu e o
+  gravado leva prefixo: duplicata exata mede **0.769**. O limiar foi conferido
+  contra o valor que a teoria previa, não contra o que o código produz.
+
+Os três primeiros são do mesmo ciclo; os dois últimos são independentes.
+
+**Consequência prática.** Toda checagem de viabilidade, todo smoke e todo limiar
+declaram, junto do número, **qual defeito aquele número detectaria** — e, quando
+houver um defeito conhecido no sistema, que a grandeza escolhida é sensível a
+ele. Contagem de slots, contagem de entradas, "o formato está certo" e "a teoria
+diz ~1.0" são as quatro formas que já falharam aqui.
+
+**O que esta regra NÃO é.** Não é "verificar mais". Nos cinco casos a verificação
+existia, rodou e passou. O erro foi de *escolha de grandeza*, não de esforço —
+mais checagens da mesma grandeza teriam passado mais vezes.
+
+*(Acrescentada em 31/08/2026 a partir da invalidação do REL-001. Numeração é
+append-only: o §4.13 continua sendo a nota de fechamento anterior ao §4.14, e
+nada foi renumerado.)*
+
+---
+
 ## 5. TESTE DE ESCOPO (antes de todo prompt)
 
 Duas perguntas, nesta ordem:
