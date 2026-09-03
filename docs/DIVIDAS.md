@@ -245,6 +245,18 @@ providers, que é onde ele responde uma pergunta que alguém fez.
 Qualquer das duas muda comportamento do caminho quente do kernel num
 repositório público — decisão antes de código, como o resto do projeto.
 
+### Atualização 03/09/2026 — decisão preparada, aguardando assinatura
+[`docs/DECISAO_probe_por_turno.md`](DECISAO_probe_por_turno.md), no mesmo
+formato de `DECISAO_TRANSPORTE.md`: três opções com custo, e a verificação de
+que **os seis chamadores de `is_connected()` usam o valor como guarda**, não
+como relatório de saúde. Recomendação: opção A (ler estado; probe fica em
+`/connect` e `/providers`). Não implementada — é caminho quente do kernel em
+repositório público, e aqui decisão vem antes de código.
+
+Achado de reforço: `health.py:25` já documenta ter recusado o probe pelo mesmo
+motivo — *"NÃO chama provider.validate() (isso pinga a rede)"*. A decisão já
+foi tomada uma vez, num lugar só.
+
 ### Workaround
 Nenhum. O sistema funciona; só espera mais do que precisa.
 
