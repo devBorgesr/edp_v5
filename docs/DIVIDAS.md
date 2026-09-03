@@ -161,6 +161,60 @@ Reabre quando `edp.profiles` for versionado por inteiro: nesse momento os
 
 ---
 
+## Dívida #54 — Caminho com LLM real do runtime flow nunca foi exercitado
+
+**Status:** ABERTA
+**Origem:** validação visual do Dashboard v3.5 (03/09/2026)
+
+### O problema
+A validação em navegador real provou o turno cognitivo sem LLM
+(`request → pipeline → stream → response`). O caminho com provider real
+(`request → pipeline → model → stream → response`) foi **lido no código**, não
+executado: `advanceFlow('model')` no handler de `llm_start`
+(`edp/dashboard/static/dashboard.js`) exige chave de provider.
+
+A distinção importa porque a correção de `concluiSeAtivo` mudou justamente
+quando um nó pode ser marcado concluído. Com LLM ausente o comportamento está
+medido; com LLM presente está deduzido.
+
+### Caminho de correção
+Smoke test de um turno com provider real, verificando que `model` chega a
+`active` antes de `done`, e que `flow-sub` não usa a redação "sem LLM".
+
+### Workaround
+Nenhum necessário — o comportamento sem LLM é o correto e está validado.
+
+---
+
+## Dívida #55 — `avg_top` não tem definição fechada
+
+**Status:** ABERTA
+**Origem:** validação visual do Dashboard v3.5 (03/09/2026)
+
+### O problema
+`/dashboard/state` devolve `retrieval_quality` com série diária contendo
+`avg_top` e `turns`. O dashboard lê apenas `trend` e `total_turns`; a série é
+descartada. Existe aí um gráfico de tendência sem custo de backend.
+
+O bloqueio não é de engenharia: **não está escrito o que `avg_top`
+representa** — sobre qual população, com qual ranking, e o que pode ser
+afirmado a partir de uma variação dele. Sem isso, plotar a série transforma um
+indicador operacional (NÍVEL 1) em alegação de qualidade de recuperação
+(NÍVEL 3), que é a fronteira que o resto do projeto sustenta.
+
+### Caminho de correção
+1. Documentar a grandeza a partir do código que a produz: definição, unidade,
+   população, e o que uma queda pode e não pode significar.
+2. Só então decidir se vai ao dashboard, e com qual ressalva na tela.
+
+### Workaround
+Nenhum. O dado segue disponível no payload para quem quiser inspecioná-lo
+diretamente; nada é exibido, então nada é afirmado.
+
+Referência: [`docs/VEREDITO_dashboard_v3.5.md`](VEREDITO_dashboard_v3.5.md) §5.
+
+---
+
 ## Notas de decisão
 
 Retrieval duplo (caminho cosine puro + caminho híbrido) é requisito de
