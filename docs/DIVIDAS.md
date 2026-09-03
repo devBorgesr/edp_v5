@@ -184,6 +184,70 @@ Smoke test de um turno com provider real, verificando que `model` chega a
 ### Workaround
 Nenhum necessário — o comportamento sem LLM é o correto e está validado.
 
+### Atualização 03/09/2026 — precondição medida, render ainda não
+Log de execução em produção (host Windows, store `C:\edp_data_todo\edp_data`,
+`claude-haiku-4-5`) mostra a cadeia completa no servidor: `msg recebida` →
+`pipeline ok` → `LLM stream iniciando` → `LLM primeiro chunk` → `LLM done` →
+`done llm_used=True`. A ordem é a que o frontend espera e `llm_used=True`
+chega ao cliente.
+
+Isso fecha a metade de trás: existe um `llm_start` real para ativar o nó
+`model` antes do `chunk`. Não fecha a dívida — o log é do servidor, e o que
+falta medir é o **render**. Ver `VEREDITO_dashboard_v3.5.md` §4.2.
+
+---
+
+## Dívida #56 — `is_connected()` faz round-trip de rede no caminho do turno
+
+**Status:** ABERTA
+**Origem:** log de execução em produção, 03/09/2026
+
+### O problema
+`edp/api/routes/websocket.py:765` chama `runtime.is_connected()` no caminho
+quente do turno, logo depois de `pipeline_done` e imediatamente antes de
+iniciar o streaming. Para Anthropic essa cadeia é:
+
+```
+is_connected() -> LLMClient.is_available()   (llm_adapter.py:1898, :636)
+               -> AnthropicProvider.validate()  (anthropic.py:515)
+               -> chamada real a api.anthropic.com, prompt "1", max_tokens=1
+```
+
+Para Ollama/OpenAI o mesmo `is_available()` é um GET local com timeout de 3 s.
+Só o caminho Anthropic paga uma ida e volta à rede.
+
+### A medida
+No log, o probe do turno levou **21.782 s**, entre o fim da recuperação de
+memória (04:54:16,192) e o `LLM stream iniciando` (04:54:37,999). O turno
+inteiro — `msg recebida` a `done` — levou **49,6 s**. O probe foi **~44% do
+turno**, para produzir 1 token.
+
+Cinco probes `tok_in=9 tok_out=1` aparecem em ~5 minutos de operação, com
+latências de 22.065, 9.836, 21.818, 21.782 e 11.091 ms: **86,6 s somados**.
+Além de `websocket.py:765`, alcançam `is_available()` os caminhos de
+`session_summary.py:154`, `ingest/consolidator.py:47`, `api/routes/llm.py:59`
+e `:89` — ou seja, jobs de fundo também pagam o probe.
+
+O custo em dinheiro é desprezível (`cost=$0.0000`, e `validate()` já passa
+`telemetria=False` justamente para não sujar o dataset). O custo é **latência
+percebida**: quase metade da espera do usuário é o sistema perguntando ao
+provider se ele está lá, antes de perguntar o que o usuário quis saber.
+
+### Caminho de correção
+Não é remover a verificação — é não fazê-la por turno. Estado de conexão já é
+conhecido: `_connect()` validou na conexão, e um turno que falha por
+credencial já levanta `AuthError` no lugar certo. As opções, em ordem de
+custo: cachear o resultado de `validate()` com TTL no `LLMClient`; ou trocar
+`is_connected()` por uma leitura de estado (`self._client is not None`) no
+caminho do turno, deixando o probe para `/connect` e para o endpoint de
+providers, que é onde ele responde uma pergunta que alguém fez.
+
+Qualquer das duas muda comportamento do caminho quente do kernel num
+repositório público — decisão antes de código, como o resto do projeto.
+
+### Workaround
+Nenhum. O sistema funciona; só espera mais do que precisa.
+
 ---
 
 ## Dívida #55 — `avg_top` não tem definição fechada

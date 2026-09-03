@@ -106,6 +106,32 @@ Provado: `request → pipeline → stream → response` (turno cognitivo sem LLM
 `advanceFlow('model')` no handler de `llm_start` foi lido no código, não
 executado — exige provider real com chave. Fica como smoke test posterior.
 
+#### Atualização (03/09/2026, log de execução em produção)
+
+Uma execução no host Windows, contra o store produtivo
+(`C:\edp_data_todo\edp_data`), com `claude-haiku-4-5` conectado, fecha **a
+metade de trás** desta lacuna. A cadeia de eventos existe, na ordem certa:
+
+```
+04:54:15,985  [WS] msg recebida            -> request
+04:54:15,988  [WS] pipeline ok             -> pipeline
+04:54:16,192  [WS] memory | hits=7
+04:54:37,999  [WS] LLM stream iniciando    -> llm_start   (nó `model`)
+04:55:00,098  [WS] LLM primeiro chunk      -> chunk       (nó `stream`)
+04:55:02,968  [WS] LLM done | tokens~100
+04:55:05,545  [WS] done llm_used=True      -> done        (nó `response`)
+```
+
+`llm_used=True` chega de fato ao cliente, que é o campo de que depende a
+correção de §2.3(a). O nó `model` tem, portanto, um `llm_start` real para
+ativá-lo antes do `chunk`.
+
+**O que isto NÃO fecha:** o log é do *servidor*. Ele prova que os eventos são
+emitidos na ordem que o frontend espera — não prova o que o dashboard
+renderizou. `concluiSeAtivo` é código de navegador, e a evidência dele
+continua sendo a que §3 registra: a do turno sem LLM. A dívida #54 permanece
+aberta, agora com a precondição medida e só o render faltando.
+
 ### 4.3 Fronteira de escopo mantida de propósito
 
 Este é o dashboard do **`edp_v5`**, e visualiza o pipeline que este backend de
