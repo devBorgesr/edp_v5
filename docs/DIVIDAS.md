@@ -267,9 +267,31 @@ indicador operacional (NÍVEL 1) em alegação de qualidade de recuperação
 (NÍVEL 3), que é a fronteira que o resto do projeto sustenta.
 
 ### Caminho de correção
-1. Documentar a grandeza a partir do código que a produz: definição, unidade,
-   população, e o que uma queda pode e não pode significar.
-2. Só então decidir se vai ao dashboard, e com qual ressalva na tela.
+1. ~~Documentar a grandeza a partir do código que a produz.~~ **FEITO**
+   03/09/2026: [`docs/DEFINICAO_avg_top.md`](DEFINICAO_avg_top.md).
+2. Implementar os quatro pré-requisitos do §5 daquele documento.
+3. Só então decidir se vai ao dashboard, e com qual ressalva na tela.
+
+### O que a definição revelou
+Três coisas que o nome escondia:
+
+**(a) `avg_top` mistura duas grandezas.** `turn_count` conta todo turno,
+`sum_top` só os não-vazios — então
+`avg_top = média(top-1 | não-vazio) × (1 − empty_rate)`. Uma queda pode ser
+score caindo ou retrieval vazio subindo, e o número não distingue.
+
+**(b) `ranking_score` tem três escalas**, conforme o caminho: cosseno
+(`store.py:1560`), `rank_score` composto (`:792`) e **RRF** (`:1750`),
+`~1/(60+rank)`, máx ≈0,016.
+
+**(c) O mostrador atual não tem interpretação.** O dashboard exibe
+`Score médio 0.010` e o payload trouxe `avg_top: 0.0123`. Lido como
+similaridade seria quase ortogonal — sistema recuperando lixo. Lido como RRF
+é `1/81`, perto do teto de `0,016` — normal. **É o mesmo número**, e o
+payload não carrega `ranking_breakdown.method`, então não dá para saber qual.
+
+Isto reforça a dívida em vez de fechá-la: plotar a série sem publicar a
+escala junto transformaria mudança de caminho em "queda de qualidade".
 
 ### Workaround
 Nenhum. O dado segue disponível no payload para quem quiser inspecioná-lo
