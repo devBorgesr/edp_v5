@@ -77,6 +77,17 @@ console.log('[dashboard] script carregado');
     if (m) m.textContent = MARK[state] || MARK.waiting;
   }
 
+  // So marca 'done' o no que ESTAVA rodando. Um no que nunca ficou 'active'
+  // nao pode exibir ✓: a validacao visual de 03/09 pegou `model` indo direto
+  // para 'done' quando nao ha LLM conectado — llm_start nunca dispara, e o
+  // handler de `chunk` concluia o no assim mesmo. Exibir etapa concluida que
+  // nao aconteceu e o tipo de mentira visual que o dashboard existe para nao
+  // contar.
+  function concluiSeAtivo(node) {
+    const e = document.querySelector('[data-node="' + node + '"]');
+    if (e && e.getAttribute('data-state') === 'active') setFlow(node, 'done');
+  }
+
   function resetFlow(state) {
     FLOW.forEach(function(n) { setFlow(n, state || 'waiting'); });
   }
@@ -258,21 +269,28 @@ console.log('[dashboard] script carregado');
     }
 
     // PRESSAO: chegava ao navegador e so ia para console.log.
-    if (data.pressure) {
-      const lvl = data.pressure.level;
+    // Secao ausente NAO e o mesmo que secao com valores: o bloco roda sempre,
+    // com objeto vazio, para os guards de campo abaixo caírem em '—'. Antes
+    // isto era `if (data.pressure)`, e um payload sem a secao deixava no DOM o
+    // valor do poll anterior — a validacao visual de 03/09 leu 'critical' com
+    // `pressure` fora do payload. Valor velho apresentado como atual e a
+    // mentira que a REGRA do topo deste arquivo existe para impedir.
+    {
+      const pr = data.pressure || {};
+      const lvl = pr.level;
       setVal('p-level', lvl || NA,
              lvl === 'ok' || lvl === 'normal' ? 'ok'
              : lvl === 'warning' ? 'warn'
              : lvl === 'critical' ? 'err' : '');
-      setText('p-ram', data.pressure.available_gb != null
-        ? Number(data.pressure.available_gb).toFixed(1) + ' GB' : null);
-      if (lvl === 'critical') console.error('[pressure] CRITICAL', data.pressure);
-      else if (lvl === 'warning') console.warn('[pressure] WARNING', data.pressure);
+      setText('p-ram', pr.available_gb != null
+        ? Number(pr.available_gb).toFixed(1) + ' GB' : null);
+      if (lvl === 'critical') console.error('[pressure] CRITICAL', pr);
+      else if (lvl === 'warning') console.warn('[pressure] WARNING', pr);
     }
 
     // FILA: idem — active/queued eram so console.log.
-    if (data.queue && !data.queue.error) {
-      const q = data.queue;
+    {
+      const q = (data.queue && !data.queue.error) ? data.queue : {};
       setVal('q-active', q.active != null ? q.active : NA,
              q.active > 0 ? 'ok' : '');
       setText('q-capacity', q.max_concurrent != null
@@ -284,27 +302,29 @@ console.log('[dashboard] script carregado');
     }
 
     // RETRIEVAL QUALITY: o backend devolvia e o front nunca lia.
-    if (data.retrieval_quality && !data.retrieval_quality.error) {
-      const rq = data.retrieval_quality;
+    {
+      const rq = (data.retrieval_quality && !data.retrieval_quality.error)
+        ? data.retrieval_quality : {};
       setText('r-trend', rq.trend);
       setText('r-turns', num(rq.total_turns));
     }
 
     // CONTRADICOES: idem.
-    if (data.contradictions && data.contradictions.stats) {
-      const cs = data.contradictions.stats;
+    {
+      const cs = (data.contradictions && data.contradictions.stats) || {};
       setVal('c-flags', cs.total_flags != null ? cs.total_flags : NA,
              cs.total_flags > 0 ? 'warn' : '');
     }
 
     // Memory
-    if (data.memory && !data.memory.error) {
-      setVal('m-episodic', data.memory.episodic != null ? data.memory.episodic : '?', '');
-      setVal('m-semantic', data.memory.semantic != null ? data.memory.semantic : '?', '');
-      setVal('m-working',  data.memory.working  != null ? data.memory.working  : '?', '');
-      setVal('m-total',    data.memory.total    != null ? data.memory.total    : '?', '');
+    {
+      const mm = (data.memory && !data.memory.error) ? data.memory : {};
+      setVal('m-episodic', mm.episodic != null ? mm.episodic : NA, '');
+      setVal('m-semantic', mm.semantic != null ? mm.semantic : NA, '');
+      setVal('m-working',  mm.working  != null ? mm.working  : NA, '');
+      setVal('m-total',    mm.total    != null ? mm.total    : NA, '');
 
-      const mm = data.memory, tot = mm.total || 0;
+      const tot = mm.total || 0;
       setBar('bar-episodic', mm.episodic, tot);
       setBar('bar-semantic', mm.semantic, tot);
       setBar('bar-working',  mm.working,  tot);
@@ -314,23 +334,20 @@ console.log('[dashboard] script carregado');
     }
 
     // LLM metrics
-    if (data.llm_metrics) {
-      const m = data.llm_metrics;
-      if (m.model)    setVal('llm-model',    m.model, '');
-      if (m.provider) setVal('llm-provider', m.provider, '');
-      if (m.avg_latency_ms != null) {
-        setVal('llm-lat', Math.round(m.avg_latency_ms) + 'ms', '');
-      }
-      if (m.total_requests != null) setVal('llm-req', m.total_requests, '');
-      if (m.avg_memory_hits != null) {
-        setVal('llm-hits', m.avg_memory_hits.toFixed(1), '');
-      }
-      if (m.total_errors != null) {
-        setVal('llm-err', m.total_errors, m.total_errors > 0 ? 'err' : 'ok');
-      }
-      if (m.avg_first_token_ms != null && m.avg_first_token_ms > 0) {
-        setText('llm-ttft', Math.round(m.avg_first_token_ms) + 'ms');
-      }
+    {
+      const m = data.llm_metrics || {};
+      setVal('llm-model',    m.model    || NA, '');
+      setVal('llm-provider', m.provider || NA, '');
+      setVal('llm-lat', m.avg_latency_ms != null
+        ? Math.round(m.avg_latency_ms) + 'ms' : NA, '');
+      setVal('llm-req',  m.total_requests != null ? m.total_requests : NA, '');
+      setVal('llm-hits', m.avg_memory_hits != null
+        ? m.avg_memory_hits.toFixed(1) : NA, '');
+      setVal('llm-err',  m.total_errors != null ? m.total_errors : NA,
+             m.total_errors > 0 ? 'err' : (m.total_errors === 0 ? 'ok' : ''));
+      // TTFT so existe com stream medido; 0 aqui e ausencia, nao medicao de 0.
+      setText('llm-ttft', (m.avg_first_token_ms != null && m.avg_first_token_ms > 0)
+        ? Math.round(m.avg_first_token_ms) + 'ms' : null);
     }
 
     // System metrics
@@ -576,7 +593,7 @@ console.log('[dashboard] script carregado');
           addMsg('assistant', d.text);
         }
         el('chat-box').scrollTop = el('chat-box').scrollHeight;
-        setFlow('model', 'done');
+        concluiSeAtivo('model');
         setFlow('stream', 'active');
       } else if (d.type === 'done') {
         el('send-btn').disabled = false;
@@ -599,9 +616,16 @@ console.log('[dashboard] script carregado');
             console.log('[metrics] first_token=' + Math.round(m.avg_first_token_ms) + 'ms throughput=' + (m.avg_throughput_tps || 0).toFixed(2) + 'tps');
           }
         }
-        setFlow('stream', 'done');
+        concluiSeAtivo('stream');
         setFlow('response', 'done');
-        setText('flow-sub', '\u2014 turno concluido');
+        if (!d.llm_used) {
+          // turno cognitivo sem LLM: o no `model` nao rodou. Deixa explicito
+          // em vez de fingir que concluiu.
+          setFlow('model', 'waiting');
+          setText('flow-sub', '\u2014 turno concluido sem LLM');
+        } else {
+          setText('flow-sub', '\u2014 turno concluido');
+        }
         addEvent('turn.done', (d.llm_used ? 'com LLM' : 'sem LLM'), 'ok');
         setTimeout(function() { setStage(''); }, 4000);
       } else if (d.type === 'warn') {

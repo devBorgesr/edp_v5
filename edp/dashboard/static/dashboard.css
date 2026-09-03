@@ -49,7 +49,13 @@ header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 20px;
+  /* 62px = 12 (left do toggle) + 38 (largura) + 12 (respiro).
+     A sidebar compartilhada (_sidebar.py) posiciona #edp-sb-toggle como
+     `position: fixed; top:12px; left:12px; 38x38`, SEM media query e SEM
+     empurrar o conteudo — e overlay puro, em toda largura. Sem esta reserva
+     o botao cobre a primeira letra do titulo: a renderizacao headless mostrou
+     "DP RUNTIME". Achado da validacao visual de 03/09. */
+  padding: 0 20px 0 62px;
   height: 52px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -468,7 +474,7 @@ pre {
   .span-3, .span-4, .span-5, .span-6 { grid-column: span 12 }
   .stat .value { font-size: 24px }
   .chat-box { height: 260px }
-  header { padding: 0 12px }
+  header { padding: 0 12px 0 60px }
   .hdr-right { gap: 10px }
   .badge { display: none }
 }
