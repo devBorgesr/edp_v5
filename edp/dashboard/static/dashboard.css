@@ -1,213 +1,474 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   EDP COGNITIVE RUNTIME — console operacional
+   ──────────────────────────────────────────────────────────────────────────
+   Cor indica ESTADO, não decora bloco. Roxo identifica o EDP; ciano é
+   atividade/telemetria; verde/âmbar/vermelho são saúde.
+
+   RESTRIÇÃO REAL do JS (dashboard.js:34-39): `setVal()` faz
+   `e.className = 'value' + cls`, ou seja SOBRESCREVE a classe do elemento.
+   Por isso todo alvo de setVal é FOLHA com classe `value`, e o layout vive
+   sempre no elemento-pai. Pôr classe de layout num alvo de setVal a apagaria
+   no primeiro refresh.
+   ══════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --bg: #0a0a0f;
-  --surface: #12121a;
-  --border: #1e1e2e;
-  --accent: #7c3aed;
-  --accent2: #06b6d4;
-  --text: #e2e8f0;
-  --muted: #64748b;
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --err: #ef4444;
-  --font: 'JetBrains Mono', 'Fira Code', monospace;
+  --bg:          #07090D;
+  --surface:     #0D1117;
+  --surface-2:   #111722;
+  --border:      #1B2430;
+  --text:        #E6EDF3;
+  --muted:       #7D8A99;
+  --accent:      #8B5CF6;
+  --cyan:        #22D3EE;
+  --ok:          #22C55E;
+  --warn:        #F59E0B;
+  --err:         #EF4444;
+
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ui:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
+  --r:   8px;
+  --gap: 14px;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; }
 
 body {
+  margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font);
+  font-family: var(--ui);
   font-size: 13px;
-  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ── Header ───────────────────────────────────────────────────────────── */
 
 header {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 16px 24px;
-  padding-left: 64px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  padding: 0 20px;
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
-header h1 { font-size: 18px; color: var(--accent); letter-spacing: 1px; }
+header h1 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .14em;
+  margin: 0;
+  text-transform: uppercase;
+}
 
-header .badge {
-  background: var(--accent);
-  color: white;
+.badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 11px;
+  padding: 2px 7px;
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 8px; height: 8px;
   border-radius: 50%;
-  background: var(--ok);
-  animation: pulse 2s infinite;
+  background: var(--muted);
+  flex: none;
+  transition: background .3s;
+}
+.status-dot.live { animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+
+.hdr-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
+/* ── Layout ───────────────────────────────────────────────────────────── */
 
 main {
+  padding: var(--gap);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
-  padding: 24px;
+  gap: var(--gap);
+  grid-template-columns: repeat(12, 1fr);
+  max-width: 1600px;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--r);
+  padding: 14px 16px;
+  grid-column: span 12;
+  min-width: 0;
 }
 
-.card h2 {
-  font-size: 12px;
+.card > h2 {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .16em;
   text-transform: uppercase;
-  letter-spacing: 1px;
   color: var(--muted);
-  margin-bottom: 12px;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+
+.span-3 { grid-column: span 3 }
+.span-4 { grid-column: span 4 }
+.span-5 { grid-column: span 5 }
+.span-6 { grid-column: span 6 }
+.span-7 { grid-column: span 7 }
+.span-8 { grid-column: span 8 }
+
+/* ── Métricas de topo ─────────────────────────────────────────────────── */
+
+.stat        { display: flex; flex-direction: column; gap: 2px }
+.stat-label  { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted) }
+.stat-sub    { font-family: var(--mono); font-size: 10.5px; color: var(--muted) }
+
+/* alvo de setVal — só tipografia, nunca layout */
+.stat .value,
+.metric .value {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--text);
+}
+.stat .value { font-size: 30px; line-height: 1.15; letter-spacing: -.02em }
+
+.value.ok   { color: var(--ok) }
+.value.warn { color: var(--warn) }
+.value.err  { color: var(--err) }
+
+/* ── Linha rótulo/valor ───────────────────────────────────────────────── */
 
 .metric {
   display: flex;
   justify-content: space-between;
-  padding: 6px 0;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
   border-bottom: 1px solid var(--border);
 }
+.metric:last-child { border-bottom: 0 }
+.metric .label { color: var(--muted); font-size: 12px }
+.metric .value { font-size: 12.5px }
 
-.metric:last-child { border: none; }
-.metric .label { color: var(--muted); }
-.metric .value { color: var(--text); font-weight: bold; }
-.value.ok   { color: var(--ok); }
-.value.warn { color: var(--warn); }
-.value.err  { color: var(--err); }
+/* ── Runtime flow ─────────────────────────────────────────────────────── */
 
-.chat-area { grid-column: 1 / -1; }
+.flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding: 4px 0 2px;
+}
 
-.chat-box {
-  height: 320px;
-  overflow-y: auto;
-  background: var(--bg);
+.flow-node {
+  flex: 1 1 0;
+  min-width: 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 6px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 8px;
+  background: var(--surface-2);
+  position: relative;
+  transition: border-color .25s, background .25s;
+}
+.flow-node + .flow-node { margin-left: 18px }
+.flow-node + .flow-node::before {
+  content: '';
+  position: absolute;
+  left: -18px; top: 50%;
+  width: 18px; height: 1px;
+  background: var(--border);
 }
 
-.msg { margin-bottom: 12px; }
-
-.msg.user .bubble {
-  background: var(--accent);
-  color: white;
-  border-radius: 12px 12px 2px 12px;
-  padding: 8px 12px;
-  display: inline-block;
-  max-width: 80%;
-}
-
-.msg.assistant .bubble {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px 12px 12px 2px;
-  padding: 8px 12px;
-  display: inline-block;
-  max-width: 80%;
-  white-space: pre-wrap;
-}
-
-.msg.user { text-align: right; }
-
-#stage-info {
-  font-size: 11px;
+.flow-name {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
   color: var(--muted);
-  padding: 6px 2px;
-  min-height: 18px;
+  text-align: center;
+}
+.flow-mark {
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  color: var(--muted);
 }
 
-.input-row { display: flex; gap: 8px; }
+.flow-node[data-state="active"]    { border-color: var(--cyan); background: rgba(34,211,238,.06) }
+.flow-node[data-state="active"] .flow-mark { border-color: var(--cyan); color: var(--cyan); animation: pulse 1.6s ease-in-out infinite }
+.flow-node[data-state="active"] .flow-name { color: var(--cyan) }
 
-.input-row input {
-  flex: 1;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 6px;
-  padding: 10px 14px;
-  font-family: inherit;
+.flow-node[data-state="done"]      { border-color: rgba(34,197,94,.4) }
+.flow-node[data-state="done"] .flow-mark { border-color: var(--ok); color: var(--ok) }
+.flow-node[data-state="done"] .flow-name { color: var(--text) }
+
+.flow-node[data-state="blocked"]   { border-color: var(--warn) }
+.flow-node[data-state="blocked"] .flow-mark { border-color: var(--warn); color: var(--warn) }
+
+.flow-node[data-state="error"]     { border-color: var(--err); background: rgba(239,68,68,.06) }
+.flow-node[data-state="error"] .flow-mark { border-color: var(--err); color: var(--err) }
+
+.flow-legend {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  margin-top: 10px;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
 }
+.flow-legend span { display: inline-flex; align-items: center; gap: 5px }
+.dot { width: 7px; height: 7px; border-radius: 50% }
+.dot.a { background: var(--cyan) } .dot.d { background: var(--ok) }
+.dot.w { background: var(--muted) } .dot.b { background: var(--warn) }
+.dot.e { background: var(--err) }
 
-.input-row input:focus { outline: none; border-color: var(--accent); }
+/* ── Barras proporcionais ─────────────────────────────────────────────── */
 
-.input-row button {
+.bar {
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 5px;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
   background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 10px 20px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
+  border-radius: 2px;
+  transition: width .5s ease;
+}
+.bar > i.cy { background: var(--cyan) }
+
+/* ── Timeline de atividade ────────────────────────────────────────────── */
+
+.event-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.event {
+  display: grid;
+  grid-template-columns: 62px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.event:last-child { border-bottom: 0 }
+.event.new { animation: flash .9s ease-out }
+@keyframes flash { from { background: rgba(34,211,238,.1) } to { background: transparent } }
+.ev-time { font-family: var(--mono); font-size: 10.5px; color: var(--muted) }
+.ev-what { font-family: var(--mono); font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ev-meta { font-family: var(--mono); font-size: 10.5px; color: var(--muted); white-space: nowrap }
+.ev-meta.ok { color: var(--ok) } .ev-meta.warn { color: var(--warn) } .ev-meta.err { color: var(--err) }
+
+.empty {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+  padding: 10px 2px;
 }
 
-.input-row button:hover { opacity: 0.85; }
-.input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* ── Componentes (saúde) ──────────────────────────────────────────────── */
+
+.comp {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11.5px;
+}
+.comp:last-child { border-bottom: 0 }
+.comp-name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis }
+.comp-err  { color: var(--err); font-size: 10.5px; max-width: 45%; overflow: hidden; text-overflow: ellipsis }
+
+/* ── Console ──────────────────────────────────────────────────────────── */
+
+.console-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+}
+.conn-pill {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted);
+}
 
 .connect-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
+  display: flex; flex-wrap: wrap; gap: 7px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
 }
 
-.connect-row input {
-  flex: 1;
-  min-width: 120px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+select, input, button {
+  font-family: var(--ui);
+  font-size: 12px;
+  background: var(--surface-2);
   color: var(--text);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-family: inherit;
-}
-
-.connect-row select {
-  background: var(--surface);
   border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 5px;
+  padding: 7px 9px;
+  outline: none;
+  min-width: 0;
 }
+input { font-family: var(--mono) }
+select:focus, input:focus { border-color: var(--accent) }
+input::placeholder { color: var(--muted) }
 
-.connect-row button {
-  background: var(--accent2);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
+button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
+}
+button:hover:not(:disabled) { filter: brightness(1.12) }
+button:disabled { opacity: .45; cursor: not-allowed }
+
+.chat-box {
+  height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px;
 }
 
-#conn-status { font-size: 11px; color: var(--muted); }
-#conn-status.ok  { color: var(--ok); }
-#conn-status.err { color: var(--err); }
+.msg { display: flex; flex-direction: column; gap: 3px; max-width: 88% }
+.msg.user { align-self: flex-end; align-items: flex-end }
+.msg::before {
+  content: 'Runtime';
+  font-family: var(--mono);
+  font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted);
+}
+.msg.user::before { content: 'You'; color: var(--accent) }
+
+.bubble {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+}
+.msg.user .bubble { border-color: rgba(139,92,246,.35) }
+
+/* bloco técnico do console (decisão do runtime, não raciocínio do modelo) */
+.op-block {
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--cyan);
+  border-radius: 5px;
+  background: var(--surface-2);
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  max-width: 88%;
+}
+.op-title {
+  font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--cyan); margin-bottom: 4px;
+}
+.op-row { display: flex; gap: 8px; color: var(--muted) }
+.op-row b { color: var(--text); font-weight: 500 }
+
+#stage-info {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--cyan);
+  min-height: 16px;
+  padding: 6px 2px 0;
+}
+
+.input-row { display: flex; gap: 7px; margin-top: 10px }
+.input-row input { flex: 1 }
+
+/* ── System / debug (camada secundária) ───────────────────────────────── */
+
+details.sys { grid-column: span 12 }
+details.sys > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+details.sys[open] > summary { border-radius: var(--r) var(--r) 0 0; color: var(--text) }
+details.sys > summary::-webkit-details-marker { display: none }
+details.sys > summary::before { content: '▸ '; color: var(--accent) }
+details.sys[open] > summary::before { content: '▾ ' }
+
+.sys-body {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 var(--r) var(--r);
+  padding: 14px 16px;
+  background: var(--surface);
+}
 
 pre {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px;
-  overflow-x: auto;
-  font-size: 11px;
+  border-radius: 6px;
+  padding: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
   color: var(--muted);
-  max-height: 200px;
-  overflow-y: auto;
+  overflow: auto;
+  max-height: 260px;
+  margin: 0;
+}
+
+/* ── Responsivo ───────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .span-3, .span-4, .span-5 { grid-column: span 6 }
+  .span-7, .span-8 { grid-column: span 12 }
+}
+@media (max-width: 720px) {
+  main { padding: 10px; gap: 10px }
+  .span-3, .span-4, .span-5, .span-6 { grid-column: span 12 }
+  .stat .value { font-size: 24px }
+  .chat-box { height: 260px }
+  header { padding: 0 12px }
+  .hdr-right { gap: 10px }
+  .badge { display: none }
 }

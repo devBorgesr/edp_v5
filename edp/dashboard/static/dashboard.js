@@ -38,6 +38,160 @@ console.log('[dashboard] script carregado');
     e.className = 'value' + (cls ? ' ' + cls : '');
   }
 
+  // ── Helpers da v3.5 ───────────────────────────────────────────────────────
+  //
+  // REGRA: campo ausente vira '—'. Nunca 0, nunca 'ok', nunca valor
+  // inventado — o backend responde parcial em degradação, e um zero
+  // fabricado ali seria indistinguivel de um zero medido.
+
+  const NA = '\u2014';  // travessão
+
+  function setText(id, val) {
+    const e = el(id);
+    if (e) e.textContent = (val === null || val === undefined || val === '') ? NA : val;
+  }
+
+  function num(v) {
+    if (v === null || v === undefined || isNaN(v)) return null;
+    return Number(v).toLocaleString('pt-BR');
+  }
+
+  function setBar(id, part, total) {
+    const e = el(id);
+    if (!e) return;
+    const pct = (total > 0 && part >= 0) ? Math.min(100, (part / total) * 100) : 0;
+    e.style.width = pct.toFixed(1) + '%';
+  }
+
+  // Runtime flow — dirigido pelos eventos REAIS do WebSocket.
+  // Não é o pipeline do agent_runtime (outro repositório, sem fonte aqui).
+  const FLOW = ['request', 'pipeline', 'model', 'stream', 'response'];
+  const MARK = { waiting: '\u25CB', active: '\u25CF', done: '\u2713',
+                 blocked: '!', error: '\u00D7' };
+
+  function setFlow(node, state) {
+    const e = document.querySelector('[data-node="' + node + '"]');
+    if (!e) return;
+    e.setAttribute('data-state', state);
+    const m = e.querySelector('.flow-mark');
+    if (m) m.textContent = MARK[state] || MARK.waiting;
+  }
+
+  function resetFlow(state) {
+    FLOW.forEach(function(n) { setFlow(n, state || 'waiting'); });
+  }
+
+  // Avança: tudo antes de `node` vira done, `node` vira active.
+  function advanceFlow(node) {
+    const i = FLOW.indexOf(node);
+    if (i < 0) return;
+    FLOW.forEach(function(n, j) {
+      setFlow(n, j < i ? 'done' : (j === i ? 'active' : 'waiting'));
+    });
+  }
+
+  function addEvent(what, meta, cls) {
+    const list = el('event-list');
+    if (!list) return;
+    const vazio = list.querySelector('.empty');
+    if (vazio) vazio.remove();
+
+    const row = document.createElement('div');
+    row.className = 'event new';
+
+    const t = document.createElement('span');
+    t.className = 'ev-time';
+    t.textContent = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+
+    const w = document.createElement('span');
+    w.className = 'ev-what';
+    w.textContent = what;
+
+    const m = document.createElement('span');
+    m.className = 'ev-meta' + (cls ? ' ' + cls : '');
+    m.textContent = meta || '';
+
+    row.appendChild(t); row.appendChild(w); row.appendChild(m);
+    list.insertBefore(row, list.firstChild);
+
+    while (list.children.length > 60) list.removeChild(list.lastChild);
+  }
+
+  // Bloco técnico no console: decisão do RUNTIME, não raciocínio do modelo.
+  function addOpBlock(titulo, linhas) {
+    const box = el('chat-box');
+    if (!box) return;
+    const b = document.createElement('div');
+    b.className = 'op-block';
+    const t = document.createElement('div');
+    t.className = 'op-title';
+    t.textContent = titulo;
+    b.appendChild(t);
+    (linhas || []).forEach(function(par) {
+      const r = document.createElement('div');
+      r.className = 'op-row';
+      const k = document.createElement('span'); k.textContent = par[0] + ':';
+      const v = document.createElement('b');    v.textContent = par[1];
+      r.appendChild(k); r.appendChild(v);
+      b.appendChild(r);
+    });
+    box.appendChild(b);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function setConnDot(estado) {
+    const d = el('conn-dot');
+    if (d) d.className = 'dot ' + (estado || 'w');
+  }
+
+  function fmtDur(seg) {
+    if (seg == null || isNaN(seg)) return null;
+    const s2 = Math.floor(seg);
+    if (s2 < 60)   return s2 + 's';
+    if (s2 < 3600) return Math.floor(s2 / 60) + 'min';
+    if (s2 < 86400) return Math.floor(s2 / 3600) + 'h';
+    return Math.floor(s2 / 86400) + 'd';
+  }
+
+  // runtime_state.components — mapa nome -> {healthy, last_check, error}.
+  // Existia no payload desde a v3.4 e nunca chegou na tela.
+  function renderComponents(comps) {
+    const box = el('components');
+    if (!box) return;
+    const nomes = comps ? Object.keys(comps) : [];
+    if (!nomes.length) {
+      box.innerHTML = '';
+      const v = document.createElement('div');
+      v.className = 'empty';
+      v.textContent = 'Nenhum componente reportado.';
+      box.appendChild(v);
+      return;
+    }
+    box.innerHTML = '';
+    nomes.sort().forEach(function(nome) {
+      const c = comps[nome] || {};
+      const row = document.createElement('div');
+      row.className = 'comp';
+
+      const d = document.createElement('i');
+      d.className = 'dot ' + (c.healthy === true ? 'd' : c.healthy === false ? 'e' : 'w');
+
+      const n = document.createElement('span');
+      n.className = 'comp-name';
+      n.textContent = nome;
+
+      row.appendChild(d); row.appendChild(n);
+
+      if (c.healthy === false && c.error) {
+        const e2 = document.createElement('span');
+        e2.className = 'comp-err';
+        e2.textContent = String(c.error);
+        row.appendChild(e2);
+      }
+      box.appendChild(row);
+    });
+  }
+
   function setStage(text) {
     const stage = el('stage-info');
     if (stage) stage.textContent = text;
@@ -72,6 +226,8 @@ console.log('[dashboard] script carregado');
     const data = await fetchJSON('/dashboard/state?session_id=' + SESSION);
     if (!data) {
       setVal('h-status', 'OFFLINE', 'err');
+      const d0 = el('status-dot');
+      if (d0) { d0.style.background = 'var(--err)'; d0.classList.remove('live'); }
       return;
     }
 
@@ -93,18 +249,52 @@ console.log('[dashboard] script carregado');
       // Sobrescreve status com state real
       setVal('h-status', state, isHealthy ? 'ok' : (isDegraded ? 'warn' : 'err'));
     }
-    if (data.pressure && data.pressure.level) {
-      const level = data.pressure.level;
-      if (level === 'critical') {
-        console.error('[pressure] CRITICAL ram=' + data.pressure.available_gb + 'GB');
-      } else if (level === 'warning') {
-        console.warn('[pressure] WARNING ram=' + data.pressure.available_gb + 'GB');
-      }
+    // uptime + componentes (runtime_state ja vinha; nunca fora exibido)
+    if (data.runtime_state) {
+      const rs = data.runtime_state;
+      setText('rt-uptime', rs.uptime_s != null
+        ? 'up ' + fmtDur(rs.uptime_s) : null);
+      renderComponents(rs.components);
     }
-    if (data.queue) {
-      if (data.queue.queued > 0) {
-        console.log('[queue] active=' + data.queue.active + ' queued=' + data.queue.queued);
-      }
+
+    // PRESSAO: chegava ao navegador e so ia para console.log.
+    if (data.pressure) {
+      const lvl = data.pressure.level;
+      setVal('p-level', lvl || NA,
+             lvl === 'ok' || lvl === 'normal' ? 'ok'
+             : lvl === 'warning' ? 'warn'
+             : lvl === 'critical' ? 'err' : '');
+      setText('p-ram', data.pressure.available_gb != null
+        ? Number(data.pressure.available_gb).toFixed(1) + ' GB' : null);
+      if (lvl === 'critical') console.error('[pressure] CRITICAL', data.pressure);
+      else if (lvl === 'warning') console.warn('[pressure] WARNING', data.pressure);
+    }
+
+    // FILA: idem — active/queued eram so console.log.
+    if (data.queue && !data.queue.error) {
+      const q = data.queue;
+      setVal('q-active', q.active != null ? q.active : NA,
+             q.active > 0 ? 'ok' : '');
+      setText('q-capacity', q.max_concurrent != null
+        ? 'max ' + q.max_concurrent + ' simultaneas' : null);
+      setVal('q-queued', q.queued != null ? q.queued : NA,
+             q.queued > 0 ? 'warn' : '');
+      setText('q-wait', q.avg_wait_ms != null
+        ? 'espera media ' + Math.round(q.avg_wait_ms) + 'ms' : null);
+    }
+
+    // RETRIEVAL QUALITY: o backend devolvia e o front nunca lia.
+    if (data.retrieval_quality && !data.retrieval_quality.error) {
+      const rq = data.retrieval_quality;
+      setText('r-trend', rq.trend);
+      setText('r-turns', num(rq.total_turns));
+    }
+
+    // CONTRADICOES: idem.
+    if (data.contradictions && data.contradictions.stats) {
+      const cs = data.contradictions.stats;
+      setVal('c-flags', cs.total_flags != null ? cs.total_flags : NA,
+             cs.total_flags > 0 ? 'warn' : '');
     }
 
     // Memory
@@ -113,6 +303,14 @@ console.log('[dashboard] script carregado');
       setVal('m-semantic', data.memory.semantic != null ? data.memory.semantic : '?', '');
       setVal('m-working',  data.memory.working  != null ? data.memory.working  : '?', '');
       setVal('m-total',    data.memory.total    != null ? data.memory.total    : '?', '');
+
+      const mm = data.memory, tot = mm.total || 0;
+      setBar('bar-episodic', mm.episodic, tot);
+      setBar('bar-semantic', mm.semantic, tot);
+      setBar('bar-working',  mm.working,  tot);
+      setText('m-sub', tot > 0
+        ? (mm.episodic || 0) + ' ep \u00B7 ' + (mm.semantic || 0) + ' sem'
+        : null);
     }
 
     // LLM metrics
@@ -129,6 +327,9 @@ console.log('[dashboard] script carregado');
       }
       if (m.total_errors != null) {
         setVal('llm-err', m.total_errors, m.total_errors > 0 ? 'err' : 'ok');
+      }
+      if (m.avg_first_token_ms != null && m.avg_first_token_ms > 0) {
+        setText('llm-ttft', Math.round(m.avg_first_token_ms) + 'ms');
       }
     }
 
@@ -163,7 +364,10 @@ console.log('[dashboard] script carregado');
     const ts = el('last-update');
     if (ts) ts.textContent = new Date().toLocaleTimeString();
     const dot = el('status-dot');
-    if (dot) dot.style.background = '#22c55e';
+    if (dot) {
+      dot.style.background = 'var(--ok)';
+      dot.classList.add('live');
+    }
   }
 
   // ── LLM connection ────────────────────────────────────────────────────────
@@ -251,6 +455,7 @@ console.log('[dashboard] script carregado');
 
     statusEl.textContent = 'Conectando...';
     statusEl.className = '';
+    setConnDot('a');
 
     try {
       const payload = {
@@ -276,6 +481,7 @@ console.log('[dashboard] script carregado');
         console.log('[connect] OK', d);
         statusEl.textContent = 'Conectado: ' + d.model;
         statusEl.className = 'ok';
+        setConnDot('d');
         setVal('llm-model', d.model, '');
         setVal('llm-provider', provider, '');
 
@@ -298,6 +504,7 @@ console.log('[dashboard] script carregado');
         console.error('[connect] erro HTTP ' + r.status + ': ' + errMsg);
         statusEl.textContent = 'Erro: ' + errMsg.substring(0, 100);
         statusEl.className = 'err';
+        setConnDot('e');
       }
     } catch (e) {
       console.error('[connect] exception', e);
@@ -339,12 +546,28 @@ console.log('[dashboard] script carregado');
       } else if (d.type === 'start') {
         addMsg('assistant', '');
         setStage('Processando pipeline...');
+        advanceFlow('pipeline');
+        setFlow('request', 'done');
+        setText('flow-sub', '\u2014 turno em curso');
+        addEvent('turn.start', '', '');
       } else if (d.type === 'pipeline_done') {
         const ok = d.pipeline_ok ? '[OK]' : '[WARN]';
         setStage(ok + ' Pipeline | ' + d.compression_pct + '% | ' +
                  d.memory_hits + ' memorias');
+        setFlow('pipeline', d.pipeline_ok ? 'done' : 'blocked');
+        addEvent('pipeline', (d.memory_hits != null ? d.memory_hits + ' hits' : ''),
+                 d.pipeline_ok ? 'ok' : 'warn');
+        if (d.compression_pct != null || d.memory_hits != null) {
+          addOpBlock('PIPELINE', [
+            ['compressao', (d.compression_pct != null ? d.compression_pct + '%' : NA)],
+            ['memorias',   (d.memory_hits != null ? String(d.memory_hits) : NA)],
+          ]);
+        }
       } else if (d.type === 'llm_start') {
         setStage('LLM ' + d.model + ' gerando...');
+        advanceFlow('model');
+        addEvent('llm.start', d.model || '', '');
+        if (d.model) addOpBlock('MODEL', [['selecionado', d.model]]);
       } else if (d.type === 'chunk') {
         const last = el('chat-box').lastElementChild;
         if (last && last.classList.contains('assistant')) {
@@ -353,6 +576,8 @@ console.log('[dashboard] script carregado');
           addMsg('assistant', d.text);
         }
         el('chat-box').scrollTop = el('chat-box').scrollHeight;
+        setFlow('model', 'done');
+        setFlow('stream', 'active');
       } else if (d.type === 'done') {
         el('send-btn').disabled = false;
         setStage(d.llm_used ? '[OK] Resposta gerada' :
@@ -374,6 +599,10 @@ console.log('[dashboard] script carregado');
             console.log('[metrics] first_token=' + Math.round(m.avg_first_token_ms) + 'ms throughput=' + (m.avg_throughput_tps || 0).toFixed(2) + 'tps');
           }
         }
+        setFlow('stream', 'done');
+        setFlow('response', 'done');
+        setText('flow-sub', '\u2014 turno concluido');
+        addEvent('turn.done', (d.llm_used ? 'com LLM' : 'sem LLM'), 'ok');
         setTimeout(function() { setStage(''); }, 4000);
       } else if (d.type === 'warn') {
         const last = el('chat-box').lastElementChild;
@@ -383,10 +612,15 @@ console.log('[dashboard] script carregado');
         } else {
           addMsg('assistant', '[!] ' + d.error);
         }
+        addEvent('warn', String(d.error || '').slice(0, 60), 'warn');
       } else if (d.type === 'error') {
         addMsg('assistant', '[Erro]: ' + d.error);
         el('send-btn').disabled = false;
         setStage('[Erro]');
+        const ativo = document.querySelector('.flow-node[data-state="active"]');
+        if (ativo) setFlow(ativo.getAttribute('data-node'), 'error');
+        setText('flow-sub', '\u2014 falha no turno');
+        addEvent('error', String(d.error || '').slice(0, 60), 'err');
       }
     };
 
@@ -445,6 +679,9 @@ console.log('[dashboard] script carregado');
     addMsg('user', text);
     input.value = '';
     el('send-btn').disabled = true;
+    resetFlow('waiting');
+    setFlow('request', 'active');
+    setText('flow-sub', '\u2014 enviando');
     setStage('Enviando...');
 
     if (ws && ws.readyState === WebSocket.OPEN) {
