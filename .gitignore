@@ -72,3 +72,44 @@ dist/
 export_fase0.jsonl
 queries_exp017.txt
 *.egg-info/
+
+# ── Dado de cliente / corpus (28/08/2026, comercial/TRATAMENTO_DE_DADOS.md) ──
+# NEGADO POR CLASSE, nao por nome. As linhas acima listam export_fase0.jsonl e
+# queries_exp017.txt um a um — allowlist por omissao, onde esquecer de adicionar
+# um arquivo novo nao da sintoma nenhum ate ser tarde. Espelha a regra ja
+# vigente em lab_edp_novo/.gitignore (21/08, EDI-001).
+#
+# Arquivo de entrada de auditoria de cliente cai exatamente nesta classe.
+# Liberar um .jsonl exige `!` explicito E motivo declarado.
+*.jsonl
+*.csv
+comercial/dados/
+
+# ── Comercial: operacao interna nao vai para repo publico (05/09/2026) ────────
+# Mesma regra do bloco acima, aplicada a texto em vez de dado. UNIDADE_ECONOMICA
+# se declara "interno, nao mostrar a cliente" na propria primeira linha, e mesmo
+# assim tinha sido versionada — margem, R$/hora e o argumento de precificacao
+# ficariam legiveis para quem for negociar do outro lado da mesa. FUNIL e o
+# playbook de venda: preco, script e conversao esperada.
+#
+# SPEC_ENTRADA.md e TRATAMENTO_DE_DADOS.md NAO estao aqui de proposito. Sao
+# voltados ao cliente, e publica-los e coerente com o que prometem.
+comercial/UNIDADE_ECONOMICA.md
+comercial/FUNIL.md
+comercial/OFERTA.md
+comercial/PUBLICO_ALVO.md
+comercial/landing.html
+
+# ── Retido por decisao explicita em 5d30b89 ──────────────────────────────────
+# RELATORIO_DOGFOOD.md cita 5 TRECHOS DE CONVERSA REAL como exemplos de
+# duplicacao. Num repo publico isso e irreversivel: history nao se apaga. A
+# procedencia do numero fica provada pelo sha256 em audit/PROCEDENCIA_DOGFOOD.md,
+# sem publicar o conteudo.
+#
+# Estava protegido apenas por ninguem digitar `git add -A`. Agora esta escrito.
+RELATORIO_DOGFOOD.md
+
+# ── Saida de execucao solta na raiz ──────────────────────────────────────────
+# `python3` e arquivo de verdade: sobra de um heredoc que escapou em 11/08.
+resultado_*.json
+/python3
