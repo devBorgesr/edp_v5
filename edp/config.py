@@ -213,6 +213,20 @@ API_HOST    = os.environ.get("EDP_API_HOST", "127.0.0.1")
 API_PORT    = int(os.environ.get("EDP_API_PORT", "8000"))
 API_VERSION = "v3"
 
+# ── Cache da validacao de credencial do LLM (divida #56) ────────────────────────
+# `LLMClient.is_available()` para Anthropic faz uma chamada REAL ao provider
+# (prompt "1", max_tokens=1). Ela esta no caminho do turno via
+# `websocket.py:765 -> is_connected()`, e foi medida em producao valendo
+# 21,782s — ~44% de um turno de 49,6s.
+#
+# O TTL nao remove a verificacao; para de fazer-la a cada turno. Credencial nao
+# muda no meio de uma sessao. `0` desliga o cache e reproduz o comportamento
+# anterior byte a byte.
+#
+# So o resultado POSITIVO e cacheado: guardar um "falhou" manteria o sistema
+# fora do ar depois de o operador corrigir a chave.
+EDP_LLM_VALIDATE_TTL = float(os.environ.get("EDP_LLM_VALIDATE_TTL", "300"))
+
 # ── Live feed / sensor ingest (WEBSOCKET_API.md) ────────────────────────────────
 # Token vazio = aberto (default dev-friendly, igual ao CORS ["*"] acima).
 # Setar EDP_LIVE_FEED_TOKEN para exigir autenticação no WS /stream.

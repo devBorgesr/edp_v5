@@ -257,6 +257,26 @@ Achado de reforço: `health.py:25` já documenta ter recusado o probe pelo mesmo
 motivo — *"NÃO chama provider.validate() (isso pinga a rede)"*. A decisão já
 foi tomada uma vez, num lugar só.
 
+### Correção implementada 05/09/2026 — mas a dívida continua ABERTA
+
+`EDP_LLM_VALIDATE_TTL` (default `300 s`) cacheia o resultado **positivo** de
+`LLMClient.is_available()` no caminho Anthropic. `_connect()` passa
+`forcar=True`, porque ali a resposta importa de verdade. Negativo e exceção
+**nunca** são cacheados: guardar um "falhou" manteria o sistema fora do ar
+depois de o operador corrigir a chave. `EDP_LLM_VALIDATE_TTL=0` reproduz o
+comportamento anterior.
+
+11 testes em `tests/test_divida_56_probe.py`; suíte em 459 passed.
+
+**Por que continua ABERTA:** o critério do pré-registro
+(`docs/preregistro_divida_56_probe.md` §6) exige medida **em produção** — o
+gap entre `[WS] memory | hits=` e `[WS] LLM stream iniciando`, mediana de ao
+menos 3 turnos com LLM conectado, abaixo de 1,0 s, e zero chamadas
+`tok_in=9 tok_out=1` nesse intervalo.
+
+Código escrito não é dívida fechada. Fecha quando
+`docs/VEREDITO_divida_56_probe.md` existir com o número medido.
+
 ### Workaround
 Nenhum. O sistema funciona; só espera mais do que precisa.
 
