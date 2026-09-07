@@ -8,7 +8,8 @@ comercial.
 
 **Não faz nenhuma chamada de rede.** O programa que produz o relatório
 importa exclusivamente biblioteca padrão do Python (`argparse`, `hashlib`,
-`json`, `re`, `statistics`, `pathlib`). Não há cliente HTTP, socket, nem
+`json`, `re`, `statistics`, `sys`, `pathlib`) — a lista completa, conferível
+com `grep "^import\|^from" audit/retrieval_audit.py`. Não há cliente HTTP, socket, nem
 SDK de provedor de modelo em nenhum ponto do caminho de execução.
 
 **Não usa LLM.** Nenhuma parte da análise é feita por modelo de linguagem.

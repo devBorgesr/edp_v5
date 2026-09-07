@@ -300,3 +300,126 @@ def test_fixture_limpa_sem_frase_de_impacto():
     assert "tokens pagos em dobro" not in report
     assert "decidindo no escuro" not in report
     assert "favoritos" not in report
+
+
+# ── família 4: chunking (07/09/2026) ────────────────────────────────────────
+#
+# É a primeira família que aponta A MONTANTE. As três anteriores descrevem o
+# comportamento do ranking; esta mede propriedades do texto entregue, que são
+# consequência da estratégia de chunking.
+#
+# O que falha se alguém desfizer isto:
+#   * corte no meio de frase deixa de ser detectado -> test_chunking_detecta_corte
+#   * texto bem cortado vira falso positivo         -> test_chunking_sem_falso_positivo
+#   * janela deslizante deixa de ser visível        -> test_chunking_sobreposicao
+#   * boilerplate passa despercebido                -> test_chunking_boilerplate
+#   * a seção passa a afirmar qualidade             -> test_chunking_nao_afirma_qualidade
+
+from audit.retrieval_audit import analyze_chunking, _termina_em_frase  # noqa: E402
+
+
+def test_termina_em_frase_tolera_fechamento():
+    assert _termina_em_frase("Uma frase completa.")
+    assert _termina_em_frase('Ele disse "sim".')
+    assert _termina_em_frase("Pergunta?")
+    assert not _termina_em_frase("cortado no meio")
+    assert not _termina_em_frase("Uma lista:")
+
+
+def test_chunking_detecta_corte():
+    """A patologia plantada: metade dos trechos cortada no meio."""
+    records = [_rec("q1", [
+        {"text": "Primeira frase completa."},
+        {"text": "segunda comeca minuscula e nao termina"},
+        {"text": "Terceira frase completa."},
+        {"text": "quarta tambem cortada no meio da"},
+    ])]
+    c = analyze_chunking(records, top_k=None)
+    assert c["n_textos"] == 4
+    assert c["frac_sem_fim_de_frase"] == 0.5
+    assert c["frac_inicio_minusculo"] == 0.5
+
+
+def test_chunking_sem_falso_positivo():
+    """Texto bem cortado não pode acusar."""
+    records = [_rec("q1", [
+        {"text": "Frase um."}, {"text": "Frase dois!"}, {"text": "Frase tres?"},
+    ])]
+    c = analyze_chunking(records, top_k=None)
+    assert c["frac_sem_fim_de_frase"] == 0.0
+    assert c["frac_inicio_minusculo"] == 0.0
+
+
+def test_chunking_sobreposicao_ve_janela_deslizante():
+    """
+    Sobreposição alta entre posições consecutivas NÃO é defeito — é assinatura
+    de janela deslizante. O teste garante que a assinatura é visível.
+    """
+    base = ("alfa bravo charlie delta echo foxtrot golf hotel india juliett "
+            "kilo lima mike november oscar papa quebec romeu sierra tango")
+    p = base.split()
+    records = [_rec("q1", [
+        {"text": " ".join(p[0:12]) + "."},
+        {"text": " ".join(p[6:18]) + "."},   # 6 palavras em comum
+    ])]
+    c = analyze_chunking(records, top_k=None)
+    assert c["sobreposicao_adjacente"]["n_pares"] == 1
+    assert c["sobreposicao_adjacente"]["mediana"] > 0.0
+
+    # sem sobreposição: dois textos sem palavra em comum
+    records2 = [_rec("q1", [
+        {"text": "alfa bravo charlie delta echo foxtrot."},
+        {"text": "kilo lima mike november oscar papa."},
+    ])]
+    c2 = analyze_chunking(records2, top_k=None)
+    assert c2["sobreposicao_adjacente"]["mediana"] == 0.0
+
+
+def test_chunking_boilerplate():
+    """Linha de cabeçalho repetida em vários trechos distintos."""
+    cab = "Este documento e confidencial e pertence a Empresa X"
+    records = [_rec("q1", [
+        {"text": cab + "\nConteudo unico A."},
+        {"text": cab + "\nConteudo unico B."},
+        {"text": cab + "\nConteudo unico C."},
+    ])]
+    c = analyze_chunking(records, top_k=None)
+    assert c["boilerplate"]["n_linhas_repetidas"] == 1
+    assert c["boilerplate"]["frac_chars"] > 0.3
+
+
+def test_chunking_degrada_sem_texto():
+    """Contrato: sem texto utilizável, omite com honestidade e não crasha."""
+    c = analyze_chunking([_rec("q1", [{"text": "   "}, {"text": ""}])], top_k=None)
+    assert c["n_textos"] == 0
+    assert c["comprimento"] is None
+    assert c["frac_sem_fim_de_frase"] is None
+
+
+def test_chunking_nao_afirma_qualidade(tmp_path):
+    """
+    A seção precisa declarar o que NÃO mede, no mesmo lugar em que dá o número.
+    Sem isso ela vira a quarta forma de dizer '15,7%'.
+    """
+    recs = [_rec(f"q{i}", [{"text": "cortado no meio da"},
+                           {"text": "Outra frase completa."}]) for i in range(3)]
+    caminho = _write_jsonl(tmp_path, recs)
+    saida = tmp_path / "rel.md"
+    assert main([caminho, "-o", str(saida)]) == 0
+    md = saida.read_text(encoding="utf-8")
+    assert "Chunking" in md
+    assert "NÃO diz" in md
+    assert "não mede relevância" in md or "mede relevância" in md
+    assert "não é defeito" in md
+
+
+def test_build_report_sem_chunk_continua_funcionando():
+    """Retrocompatibilidade: quem não passa `chunk` não ganha a seção."""
+    records = [_rec("q1", [{"id": "1", "text": "Frase.", "score": 0.5}])]
+    parse = type("P", (), {"records": records, "n_malformed_lines": 0,
+                           "n_dropped_results": 0, "malformed_examples": []})()
+    dup = analyze_intra_query_duplication(records, None)
+    rep = analyze_cross_query_repetition(records, None)
+    scale = analyze_score_scale(records, None)
+    md = build_report(parse, dup, rep, scale, top_k=None)
+    assert "Chunking" not in md
