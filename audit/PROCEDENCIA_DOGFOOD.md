@@ -66,3 +66,91 @@ qualidade de resposta com e sem duplicação.
 
 Ver `lab_edp/docs/sujeito_edp/NUMEROS_DE_DUPLICACAO.md` para a reconciliação
 completa.
+
+---
+
+## Família de chunking — permitido e proibido (07/09/2026)
+
+Medido sobre o **mesmo** `export_fase0.jsonl`, sha256 conferido
+(`6a22cc68…`), N=14, k=5, 70 trechos:
+
+```
+comprimento mediano ........ 722 chars    p10/p90 119/1462   min/max 102/3484
+sem fim de frase ...........   5,7%
+inicio minusculo ...........   0,0%
+sobreposicao adjacente .....   0,0%   (mediana sobre 56 pares)
+boilerplate ................   0,0%   (0 linhas repetidas)
+```
+
+**A leitura correta é que a família não acusa nada aqui — e o motivo importa
+mais que o número.** O EDP não tem chunker: ele guarda **turnos de conversa**,
+não documentos partidos por um divisor. Sem divisor não há corte no meio de
+frase, não há janela deslizante e não há cabeçalho repetido. Os quatro zeros
+não são nota boa; são **não se aplica**.
+
+Isso vale como verificação de especificidade do instrumento: rodado contra um
+sistema sem a patologia, ele **não dispara**. Uma métrica que acusa sempre é
+tão inútil quanto uma que nunca acusa.
+
+**Permitida:**
+> "5,7% dos trechos entregues não terminam em pontuação de fim de frase —
+> 70 trechos, N=14 queries, k=5, sobre `export_fase0.jsonl`."
+
+**Permitida, e a mais informativa deste conjunto:**
+> "O comprimento dos trechos varia de 102 a 3.484 caracteres, mediana 722."
+
+**Proibida:**
+> "O EDP tem bom chunking."
+
+Ele não tem chunking. Medir ausência de patologia num sistema que não pode
+tê-la não é evidência de qualidade.
+
+**Cuidado com `n_textos_distintos`.** São 37 distintos em 70 trechos, e esse
+quociente **não é** uma taxa de duplicação: ele mistura repetição dentro da
+query com repetição entre queries, que as famílias 1 e 2 medem separado e com
+definições próprias. Usar 37/70 como "47% de duplicação" cria o sexto número
+sem referente.
+
+---
+
+## Duas frases proibidas que reapareceram, e por quê
+
+Registradas aqui porque as duas voltaram em material comercial depois de já
+terem sido barradas uma vez.
+
+**1. Conversão de repetição de slot em custo de token.**
+
+> ~~"26% do orçamento de token do prompt vai para repetição."~~
+
+É a frase proibida do parágrafo anterior com outra roupa, e **pior**: empilha
+duas inferências não medidas. A primeira é que repetição desperdiça contexto —
+já barrada acima. A segunda é que todos os slots pesam o mesmo em tokens, e a
+própria família de chunking acaba de mostrar que **não pesam**: os trechos vão
+de 102 a 3.484 caracteres. Converter fração de slot em fração de token exige
+comprimento uniforme, e ele não existe.
+
+Esta frase já custou dois documentos: `comercial/OFERTA.md` e
+`comercial/PUBLICO_ALVO.md` foram retidos do repositório público em `5d30b89`
+por dizerem "token pago duas vezes ocupando o lugar de".
+
+**Permitida no lugar:**
+> "13 dos 50 slots do top-k foram ocupados por IDs já presentes no ranking —
+> 26% dos slots, IC [0,24; 0,26], sobre 50 queries."
+
+O leitor técnico completa a implicação de custo sozinho. Deixar que ele
+complete é mais forte que afirmar.
+
+**2. Atribuição de causa à duplicação por ID.**
+
+> ~~"Duplicação por ID sem duplicação por texto aponta dedup ausente após o
+> merge híbrido ou o RRF — é bug de junção, não de indexação."~~
+
+A auditoria `400f691a3fa6` **não registra** o estado de `EDP_RETRIEVE_DEDUP`,
+que está em `edp.config.FORMAT_STATE_FLAGS` com o comentário "muda o conjunto
+recuperado" e tem default desligado. A duplicação medida é indistinguível
+entre defeito do retriever e flag desligada por padrão. Ver
+`auditorias/diagnostico_edp/400f691a3fa6/ERRATA.md` no lab.
+
+A partir de agora `retriever.configuracao_sujeito` é gravado em toda execução,
+então esta frase **pode voltar a ser permitida** — mas só sobre uma auditoria
+que tenha a captura, e nunca sobre a `400f691a3fa6`.
