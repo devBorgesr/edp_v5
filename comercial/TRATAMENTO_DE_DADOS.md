@@ -12,6 +12,37 @@ importa exclusivamente biblioteca padrão do Python (`argparse`, `hashlib`,
 com `grep "^import\|^from" audit/retrieval_audit.py`. Não há cliente HTTP, socket, nem
 SDK de provedor de modelo em nenhum ponto do caminho de execução.
 
+**A medição não encolhe o seu sistema.** A capacidade do auditor não é a
+capacidade do sistema auditado, e o auditor se adapta ao sistema — nunca o
+contrário.
+
+Concretamente, o diagnóstico **não** reduz `k`, não trunca o corpus, não corta
+o conjunto de queries e não impõe teto de computação **quando o motivo é a
+máquina do auditor**. Um sistema medido numa janela menor que a real aparece
+com menos diversidade do que entrega, e a perda parece do cliente quando é do
+instrumento.
+
+Isso não é abstrato aqui: a máquina que executa o diagnóstico é modesta, e é
+exatamente por isso que a regra existe por escrito em vez de por boa intenção.
+
+**O que isso NÃO promete:** qualidade perfeita, nem que o seu retrieval vá
+parecer bom. Promete que ele não vai parecer pior por limitação minha.
+
+**O que fica registrado no manifesto**, para você conferir em vez de acreditar:
+
+```
+top_k                       a janela em que foi medido
+top_k_origem                de onde ela veio
+top_k_nativo_do_sistema     a janela que o SEU sistema usa, se declarada
+top_k_divergente            true quando as duas nao batem
+```
+
+**Limitação declarada, no estado de hoje:** o protocolo carrega uma janela
+própria e a impõe na consulta. Se o seu sistema roda com outra — um reranker
+com `topK=6`, por exemplo — a medição sai na janela do protocolo, e o manifesto
+marca `top_k_divergente: true`. A divergência fica **visível**; ela ainda não é
+negociada automaticamente. Enquanto for assim, está escrito aqui e no artefato.
+
 **Não usa LLM.** Nenhuma parte da análise é feita por modelo de linguagem.
 Todas as métricas são contagem, hash e estatística determinística. Seu
 texto não é enviado para OpenAI, Anthropic, Google ou qualquer outro
