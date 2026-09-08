@@ -157,3 +157,114 @@ Critérios de leitura (não decididos aqui — ver
 
 **PARAR — rodar os comandos acima, colar a saída e o veredito de H1/H2 é
 decisão do pesquisador.**
+
+---
+
+## T5/T6 rodados — 19/08/2026 (o "PARAR" acima foi cumprido)
+
+Store: `C:\edp_data_todo\edp_data_fase0` (episódica=133, semântica=51).
+Modelo irrelevante aqui — nenhum dos três comandos chama LLM.
+
+### Comando 1 — T5, `dup_rate@10` OFF vs ON
+
+| query | OFF `dup_id` | OFF `dup_hash` | ON `dup_id` | ON `dup_hash` |
+|---|---|---|---|---|
+| C1 `oi` | 0/10 | **9/10** | 0/10 | **0/10** |
+| C2 `me lembra o que discutimos` | 2/10 | 2/10 | 0/10 | 0/10 |
+| C3 `qual foi a última vez que ajustamos o piso…` | 3/10 | 3/10 | 0/10 | 0/10 |
+| C4 `voltando ao que estávamos vendo` | 3/10 | 3/10 | 0/10 | 0/10 |
+| C5 `pode resumir o que ficou pendente no exp016?` | 2/10 | 2/10 | 0/10 | 0/10 |
+
+**Sanidade (OFF reproduz `dup>0` em CADA query): OK nas 5.** Os espécimes não
+evaporaram do store desde a Fase 0 — a medição é válida, não vazia.
+
+`dup_rate@10 == 0` (id **E** hash) em todas as queries com ON: **SIM**.
+
+Nota: o C1 é o espécime das nove cópias de `"Q: oi / A: Oi! Tudo bem?"`
+contadas no store vivo em 18/08 (ver `ACHADO_DUPLICATA_EXPLICA_DOMINANCIA.md`
+no lab). `dup_hash` 9/10 → 0/10.
+
+### Comando 3 — regressão Fase 1, com `EDP_RETRIEVE_DEDUP=1`
+
+| medição | valor | veredito | restore==snapshot |
+|---|---|---|---|
+| R1 exp011 CP3 | presente=True | PASSA | True |
+| R2 exp010 Recall@5 | 2/3 = 67% | PASSA | True |
+| R3 exp009 %SS vagas | 3/30 = 10,0% | PASSA | True |
+
+### Comando 0 — suíte
+
+`443 passed, 1 deselected`. (4 `SyntaxWarning` em
+`tests/test_catalogo_de_modulos_mortos.py`: `\e` como escape inválido em
+docstring não-raw. Cosmético, não afeta asserção; anotado para ciclo próprio.)
+
+### Comando 2 — T6, os três brutos (H2)
+
+```
+repeat_OFF (kept, binário)      = 15,4%
+repeat_SHUFFLE (kept, binário)  = 15,4%
+repeat_RESERVA (kept, binário)  = 15,4%
+diff (OFF − SHUFFLE)            = +0,0pp
+diff (OFF − RESERVA)            = +0,0pp
+gate degenerado (diff ≥ 15pp)?    não
+controle-reserva (|diff| ≤ 5pp)?  SIM
+```
+
+Tautologia esperada confirmada: SHUFFLE roda em `llm_adapter.py`, depois de
+`mem.retrieve()`, e o top-k bruto tinha de sair igual — saiu.
+
+**H2 permanece INCONCLUSIVO-POR-DESENHO** (pré-classificado na Fase 0, E6).
+Estes números alimentam o E7/H2-C e **não reabrem** a hipótese. Nenhuma
+interpretação além do reporte é feita aqui.
+
+**Observação sobre a régua, não sobre a hipótese:** o script declara que o
+RESERVA **não** é tautológico (roda dentro de `mem.retrieve()`), e no binário
+ele deu idêntico ao OFF. No contínuo, não deu:
+
+| | contínuo (kept) | `dup_rate` id/hash |
+|---|---|---|
+| OFF | 14,5% | 12,4% |
+| SHUFFLE | 14,5% | 12,4% |
+| RESERVA | **19,5%** | **6,1%** |
+
+O RESERVA corta o `dup_rate` pela metade e sobe a sobreposição contínua. A
+métrica binária (`overlap ≥ min(2,k)`) não tem resolução para ver isso. Fica
+registrado como limitação do instrumento — não muda a classificação do H2.
+
+**Pendente:** `--ordem agrupada` (segunda ordem do E6). Não é perna do critério
+de H1.
+
+### Conferência do critério PASSA H1 (aritmética contra o texto congelado)
+
+> *"PASSA H1 sse, com flag ON: `dup_rate@10 = 0` (por ID E por hash) nos
+> retrieves de calibração; R1 CP3 presente | R2 Recall@5 ≥ 2/3 | R3 %SS vagas
+> ≤ 20%; suite pytest verde, incluindo novo teste flag-off."*
+
+| perna | exigido | medido | bate |
+|---|---|---|---|
+| `dup_rate@10` id, ON | 0 em C1–C5 | 0,0,0,0,0 | sim |
+| `dup_rate@10` hash, ON | 0 em C1–C5 | 0,0,0,0,0 | sim |
+| R1 CP3 | presente | presente=True | sim |
+| R2 Recall@5 | ≥ 2/3 | 67% | sim |
+| R3 %SS vagas | ≤ 20% | 10,0% | sim |
+| suíte | verde | 443 passed | sim |
+
+### VEREDITO H1 — a assinar
+
+O pré-registro atribui esta linha ao pesquisador, não à conferência acima.
+
+```
+H1: [  ] PASSA    [  ] FALHA        assinado por: ______________  data: __/__/____
+```
+
+**O que a passagem de H1 NÃO autoriza**, para a assinatura não carregar mais do
+que o dado sustenta:
+
+- **Não** estabelece que a resposta melhora. H1 mede que a duplicata zera e que
+  R1/R2/R3 não regridem. Se a memória que entra no lugar da cópia vale mais que
+  a cópia, **nenhuma medição deste arco responde**.
+- **Não** liga a flag em produção. A promoção é etapa separada e declarada como
+  tal na própria saída do comando 3 (*"Fase 1 pronta para a decisão de promoção
+  (etapa separada)"*).
+- **Não** vale fora deste store. C1–C5 são espécimes de calibração do
+  `edp_data_fase0`; o store vivo tem composição diferente.

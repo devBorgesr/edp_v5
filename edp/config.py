@@ -213,6 +213,20 @@ API_HOST    = os.environ.get("EDP_API_HOST", "127.0.0.1")
 API_PORT    = int(os.environ.get("EDP_API_PORT", "8000"))
 API_VERSION = "v3"
 
+# ── Cache da validacao de credencial do LLM (divida #56) ────────────────────────
+# `LLMClient.is_available()` para Anthropic faz uma chamada REAL ao provider
+# (prompt "1", max_tokens=1). Ela esta no caminho do turno via
+# `websocket.py:765 -> is_connected()`, e foi medida em producao valendo
+# 21,782s — ~44% de um turno de 49,6s.
+#
+# O TTL nao remove a verificacao; para de fazer-la a cada turno. Credencial nao
+# muda no meio de uma sessao. `0` desliga o cache e reproduz o comportamento
+# anterior byte a byte.
+#
+# So o resultado POSITIVO e cacheado: guardar um "falhou" manteria o sistema
+# fora do ar depois de o operador corrigir a chave.
+EDP_LLM_VALIDATE_TTL = float(os.environ.get("EDP_LLM_VALIDATE_TTL", "300"))
+
 # ── Live feed / sensor ingest (WEBSOCKET_API.md) ────────────────────────────────
 # Token vazio = aberto (default dev-friendly, igual ao CORS ["*"] acima).
 # Setar EDP_LIVE_FEED_TOKEN para exigir autenticação no WS /stream.
@@ -322,6 +336,7 @@ FORMAT_STATE_FLAGS = (
     "EDP_RETRIEVE_RANDOM_DROP",# remove itens do conjunto recuperado
     "EDP_ANCHOR_COMPACT",      # muda o bloco da âncora de tarefa
     "EDP_STORE_QUARANTINE",    # no caminho degradado, muda o que o store carrega
+    "EDP_SUMMARY_DEDUP",       # suprime escrita de resumo -> muda prompts futuros
 )
 
 # Classificadas como NÃO afetando o prompt — com o motivo, porque "não importa"
@@ -395,7 +410,39 @@ EDP_CONTRADICTION_TELEMETRY = os.environ.get("EDP_CONTRADICTION_TELEMETRY", "0")
 # recebe None e cada função gera o próprio id — byte-idêntico ao de hoje.
 EDP_CORRELATION_PROPAGATION = os.environ.get("EDP_CORRELATION_PROPAGATION", "0") == "1"
 
+# ── Duplicata de session_summary (18/08/2026) ───────────────────────────────
+# Medido no store vivo: 14 cópias extras em 5 grupos de texto EXATAMENTE igual,
+# e QUATRO dos cinco grupos são `session_summary`. Um resumo gravado 3× tem três
+# bilhetes no sorteio do top-5 — dominância por composição do índice, não por
+# ranking. Ver ACHADO_DUPLICATA_EXPLICA_DOMINANCIA.md (lab).
+#
+# Origem: `generate_session_summary` dispara em CADA `WebSocketDisconnect`
+# (websocket.py:1376) sobre `entries[-10:]`. Dois disconnects sem conversa nova
+# = mesma janela, mesmo prompt, mesmo resumo. O passo 4 já DETECTA a duplicata
+# (cosseno ≥ TAG_SIMILARITY_THRESHOLD=0.75) e usa isso só para copiar o
+# `topic_tag` — o passo 5 grava assim mesmo. Não há guarda de conteúdo.
+#
+# TELEMETRY: varre TODOS os resumos anteriores e emite `summary_write` com o
+# max_sim, sem mudar nada. Existe para o limiar abaixo ser calibrado com dado
+# em vez de escolhido por plausibilidade — que foi o erro de três constantes
+# Tier A no arco E9, todas no mesmo dia.
+EDP_SUMMARY_TELEMETRY = os.environ.get("EDP_SUMMARY_TELEMETRY", "0") == "1"
+
+# DEDUP: com a flag LIGADA, resumo acima do limiar NÃO é gravado. Desligada,
+# o caminho é byte-idêntico ao de hoje (§4.7).
+EDP_SUMMARY_DEDUP = os.environ.get("EDP_SUMMARY_DEDUP", "0") == "1"
+
+# Tier A (nu) — declarado, não medido. Justificativa do valor, e o que ele NÃO
+# cobre: as duplicatas observadas são texto EXATAMENTE igual, logo embedding
+# igual e cosseno 1.0; qualquer limiar em (0.75, 1.0] as pega. 0.98 fica acima
+# do 0.75 usado para "mesmo TEMA" (reuso de rótulo), então não suprime dois
+# resumos distintos do mesmo assunto — que é escrita legítima. Para o caso
+# quase-duplicado (texto diferente, conteúdo igual) este número é UNTESTED:
+# nenhum foi observado, e o `summary_write` existe para descobrir se existem.
+SUMMARY_DEDUP_THRESHOLD = float(os.environ.get("EDP_SUMMARY_DEDUP_THRESHOLD", "0.98"))
+
 FORMAT_STATE_FLAGS_IGNORADAS = (
+    "EDP_SUMMARY_TELEMETRY",  # só varre e emite; não decide gravação
     "EDP_RANKING_TELEMETRY",  # telemetria de seleção; não muda o prompt
     "EDP_REFLECTION_TELEMETRY",  # lê o ReflectionResult; não aplica nada
     "EDP_CONTRADICTION_TELEMETRY",  # lê o scan; não muda limiar nem flag

@@ -310,11 +310,148 @@ def analyze_score_scale(records: list[dict], top_k: int | None) -> dict:
 
 # ── T4: relatório Markdown ──────────────────────────────────────────────────
 
+# ── família 4: chunking ──────────────────────────────────────────────────────
+# As três famílias anteriores DESCREVEM o comportamento do ranking. Esta é a
+# primeira que APONTA a montante: ela mede propriedades do próprio texto
+# entregue, e essas propriedades são consequência da estratégia de chunking.
+#
+# Ela não precisa de `id`, não precisa de `score`, não precisa de corpus e não
+# precisa de rótulo. Só do `text`, que já é obrigatório no contrato.
+#
+# O QUE ELA NÃO MEDE, e precisa estar escrito antes dos números:
+#   * não mede relevância — um chunk bem cortado pode ser inútil para a query;
+#   * não mede qualidade de resposta — nenhum experimento aqui comparou
+#     resposta com e sem corte no meio de frase;
+#   * sobreposição adjacente ALTA não é defeito: janela deslizante é estratégia
+#     deliberada e comum. O número diz qual estratégia está em uso, não se ela
+#     está certa.
+
+# Sem regex de proposito: a classe de caracteres exigiria escapar aspas
+# dentro de aspas, e foi exatamente ai que a primeira versao quebrou.
+_PONTO_FINAL = ".!?\u2026"           # . ! ? …
+_FECHAMENTO = "\"'\u2019\u00bb)]"   # aspas, apostrofo tipografico, » ) ]
+
+
+def _termina_em_frase(t: str) -> bool:
+    """Fim de frase, tolerando fechamento de aspas/parenteses depois do ponto."""
+    t = t.rstrip().rstrip(_FECHAMENTO)
+    return bool(t) and t[-1] in _PONTO_FINAL
+_SHINGLE_N = 5
+_BOILER_MIN_CHARS = 20      # linha curta demais não é boilerplate, é ruído
+_BOILER_MIN_CHUNKS = 3      # aparecer em 3 chunks distintos: repetição, não coincidência
+
+
+def _shingles(texto: str) -> set:
+    """
+    Conjunto de n-gramas de palavra. Abaixo de N palavras, o próprio conjunto.
+
+    A pontuação de borda é removida de cada token. Sem isso, a última palavra
+    de um trecho (`hotel.`) nunca casa com a mesma palavra no trecho seguinte
+    (`hotel`), e uma janela deslizante real mede sobreposição zero. Encontrado
+    por teste que falhou em 07/09/2026.
+    """
+    palavras = [w.strip(_PONTO_FINAL + _FECHAMENTO + ",;:—-")
+                for w in normalize_text(texto).split()]
+    palavras = [w for w in palavras if w]
+    if len(palavras) < _SHINGLE_N:
+        return set(palavras)
+    return {tuple(palavras[i:i + _SHINGLE_N])
+            for i in range(len(palavras) - _SHINGLE_N + 1)}
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def analyze_chunking(records: list[dict], top_k: int | None) -> dict:
+    """
+    Propriedades do texto entregue. Ver o bloco de comentário acima para o que
+    esta família NÃO permite concluir.
+    """
+    comprimentos: list[int] = []
+    sem_fim = 0
+    inicio_minusculo = 0
+    n = 0
+    sobreposicoes: list[float] = []
+    distintos: dict = {}          # hash -> texto, para não contar o mesmo duas vezes
+
+    for rec in records:
+        resultados = _slice_top_k(rec.get("results") or [], top_k)
+        textos = [(r.get("text") or "") for r in resultados]
+        textos = [t for t in textos if t.strip()]
+
+        for t in textos:
+            n += 1
+            comprimentos.append(len(t))
+            if not _termina_em_frase(t):
+                sem_fim += 1
+            primeiro = t.lstrip()[:1]
+            if primeiro and primeiro.isalpha() and primeiro.islower():
+                inicio_minusculo += 1
+            distintos.setdefault(text_hash(t), t)
+
+        # sobreposição entre POSIÇÕES CONSECUTIVAS do mesmo ranking
+        for a, b in zip(textos, textos[1:]):
+            sobreposicoes.append(_jaccard(_shingles(a), _shingles(b)))
+
+    if n == 0:
+        return {"n_textos": 0, "n_textos_distintos": 0, "comprimento": None,
+                "frac_sem_fim_de_frase": None, "frac_inicio_minusculo": None,
+                "sobreposicao_adjacente": None, "boilerplate": None}
+
+    # boilerplate: linhas que reaparecem em muitos chunks DISTINTOS
+    linha_em: dict = {}
+    total_chars = 0
+    for h, t in distintos.items():
+        total_chars += len(t)
+        vistas = set()
+        for linha in t.splitlines():
+            linha = linha.strip()
+            if len(linha) >= _BOILER_MIN_CHARS and linha not in vistas:
+                vistas.add(linha)
+                linha_em.setdefault(linha, set()).add(h)
+    repetidas = {l for l, onde in linha_em.items()
+                 if len(onde) >= _BOILER_MIN_CHUNKS}
+    chars_repetidos = 0
+    for h, t in distintos.items():
+        for linha in t.splitlines():
+            if linha.strip() in repetidas:
+                chars_repetidos += len(linha.strip())
+
+    ordenados = sorted(comprimentos)
+
+    def _p(frac: float) -> int:
+        return ordenados[min(len(ordenados) - 1, int(frac * len(ordenados)))]
+
+    return {
+        "n_textos": n,
+        "n_textos_distintos": len(distintos),
+        "comprimento": {
+            "mediana": int(statistics.median(comprimentos)),
+            "p10": _p(0.10), "p90": _p(0.90),
+            "min": ordenados[0], "max": ordenados[-1],
+        },
+        "frac_sem_fim_de_frase": sem_fim / n,
+        "frac_inicio_minusculo": inicio_minusculo / n,
+        "sobreposicao_adjacente": (
+            {"mediana": statistics.median(sobreposicoes),
+             "n_pares": len(sobreposicoes)} if sobreposicoes else None),
+        "boilerplate": {
+            "n_linhas_repetidas": len(repetidas),
+            "frac_chars": (chars_repetidos / total_chars) if total_chars else 0.0,
+            "min_chunks": _BOILER_MIN_CHUNKS,
+        },
+    }
+
+
 def _pct(x) -> str:
     return f"{x * 100:.1f}%" if x is not None else "N/D"
 
 
-def build_report(parse: ParseResult, dup: dict, rep: dict, scale: dict, top_k: int | None) -> str:
+def build_report(parse: ParseResult, dup: dict, rep: dict, scale: dict,
+                 top_k: int | None, chunk: dict | None = None) -> str:
     k_desc = str(top_k) if top_k else "tamanho de cada export (sem truncamento)"
     n_queries = len(parse.records)
 
@@ -502,6 +639,47 @@ def build_report(parse: ParseResult, dup: dict, rep: dict, scale: dict, top_k: i
         for ex in parse.malformed_examples:
             lines.append(f"- {ex}")
 
+    if chunk and chunk.get("n_textos"):
+        c = chunk
+        comp = c["comprimento"]
+        lines.append("")
+        lines.append("## Chunking — propriedades do texto entregue")
+        lines.append("")
+        lines.append(
+            "Esta seção é a única que aponta **a montante**. As três anteriores "
+            "descrevem o comportamento do ranking; esta mede propriedades do "
+            "próprio texto, e essas propriedades são consequência da estratégia "
+            "de chunking."
+        )
+        lines.append("")
+        lines.append(f"Base: {c['n_textos']} trechos entregues, "
+                     f"{c['n_textos_distintos']} distintos.")
+        lines.append("")
+        lines.append("| grandeza | valor |")
+        lines.append("|---|---|")
+        lines.append(f"| comprimento mediano | {comp['mediana']} caracteres |")
+        lines.append(f"| comprimento p10 / p90 | {comp['p10']} / {comp['p90']} |")
+        lines.append(f"| comprimento mín / máx | {comp['min']} / {comp['max']} |")
+        lines.append(f"| trechos que **não terminam em fim de frase** | "
+                     f"{_pct(c['frac_sem_fim_de_frase'])} |")
+        lines.append(f"| trechos que começam em letra minúscula | "
+                     f"{_pct(c['frac_inicio_minusculo'])} |")
+        if c["sobreposicao_adjacente"]:
+            sa = c["sobreposicao_adjacente"]
+            lines.append(f"| sobreposição entre posições consecutivas (mediana) | "
+                         f"{_pct(sa['mediana'])} em {sa['n_pares']} pares |")
+        b = c["boilerplate"]
+        lines.append(f"| texto em linhas repetidas em ≥{b['min_chunks']} trechos | "
+                     f"{_pct(b['frac_chars'])} ({b['n_linhas_repetidas']} linhas) |")
+        lines.append("")
+        lines.append("**O que esta seção NÃO diz.** Nenhum destes números mede "
+                     "relevância, e nenhum mede qualidade de resposta — nenhum "
+                     "experimento comparou resposta com e sem corte no meio de "
+                     "frase. Sobreposição alta entre posições consecutivas **não "
+                     "é defeito**: janela deslizante é estratégia deliberada e "
+                     "comum; o número diz qual estratégia está em uso, não se ela "
+                     "está certa.")
+
     return "\n".join(lines) + "\n"
 
 
@@ -523,7 +701,9 @@ def main(argv=None) -> int:
     rep = analyze_cross_query_repetition(parse.records, args.top_k)
     scale = analyze_score_scale(parse.records, args.top_k)
 
-    report = build_report(parse, dup, rep, scale, args.top_k)
+    chunk = analyze_chunking(parse.records, args.top_k)
+
+    report = build_report(parse, dup, rep, scale, args.top_k, chunk)
     Path(args.output).write_text(report, encoding="utf-8")
     print(f"Relatório escrito em {args.output} ({len(parse.records)} queries válidas, "
           f"{parse.n_malformed_lines} linhas malformadas ignoradas)")

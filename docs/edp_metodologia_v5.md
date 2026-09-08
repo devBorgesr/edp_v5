@@ -211,6 +211,24 @@ zero consumidor — catalogados pela auditoria de 22/07 e ainda vivos
 > semanas em dois documentos. Agora quem confere é
 > `tests/test_catalogo_de_modulos_mortos.py`, por AST, no build.
 
+**A mesma lição se repetiu um nível acima, no repositório irmão.** A curadoria
+do ecossistema (`lab_edp_novo/docs/curadoria/`, iniciada 01/09/2026) mediu os
+módulos deste repositório com uma variação da própria heurística acima —
+e, entre a Fase 1 e a Fase 2 da curadoria, a mesma heurística rodou duas vezes
+com escopo de varredura diferente sem que ninguém notasse a divergência: a
+primeira rodada contou "6 módulos sem importador", a real (Fase 3, medida com
+a metodologia deste `test_catalogo_de_modulos_mortos.py`, repositório inteiro)
+é **2** — os mesmos `analytics` e `reranker` que este arquivo já cita acima.
+Terceira ocorrência do mesmo padrão de erro neste projeto: número não
+reconferido apodrece, mesmo quando a intenção original era medir.
+
+A curadoria completa — mapa de capacidade por módulo/flag, maturidade
+verificada por execução (não por existência de arquivo de teste), matriz de
+proveniência contra o vocabulário do MVP de diagnóstico, e candidatos de
+acoplamento com decisão em aberto — está em
+`lab_edp_novo/docs/curadoria/README.md`. Não versionada neste repositório
+público; `lab_edp_novo` é privado.
+
 ---
 
 ## 5. Fronteiras explícitas — o que os resultados acima NÃO autorizam concluir

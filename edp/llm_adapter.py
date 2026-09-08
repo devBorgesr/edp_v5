@@ -541,6 +541,11 @@ class LLMClient:
 
     def __init__(self, config: LLMConfig) -> None:
         self._cfg = config
+        # Divida #56: cache do resultado POSITIVO de `is_available()`.
+        # Por cliente — trocar de provider ou de chave constroi outro
+        # LLMClient, entao o cache morre junto e nao sobrevive a uma
+        # credencial que mudou.
+        self._validado_ate: float = 0.0
         # Lazy-init de provider Anthropic (apenas quando necessário)
         self._anthropic_provider = None
         if config.provider == LLMProvider.ANTHROPIC:
@@ -633,15 +638,47 @@ class LLMClient:
         else:
             yield from self._openai_stream(prompt, system)
 
-    def is_available(self) -> bool:
-        """Verifica se o servidor está disponível."""
+    def is_available(self, forcar: bool = False) -> bool:
+        """
+        Verifica se o servidor está disponível.
+
+        DÍVIDA #56 — o caminho Anthropic fazia um round-trip de rede por
+        turno. `websocket.py:765` chama `is_connected()` logo antes de iniciar
+        o streaming, e para Anthropic isso descia até `validate()`: chamada
+        real ao provider, prompt "1", max_tokens=1. Medido em produção:
+        21,782 s, ~44% de um turno de 49,6 s.
+
+        O cache não remove a verificação — para de fazê-la a cada turno.
+        Credencial não muda no meio de uma sessão.
+
+        `forcar=True` ignora o cache. É o que `_connect()` usa: ali a resposta
+        importa de verdade, e aceitar um "sim" guardado seria aceitar uma
+        chave que já pode não valer.
+
+        SÓ O POSITIVO É CACHEADO. Guardar um "falhou" manteria o sistema fora
+        do ar depois de o operador corrigir a chave — o erro se curaria só
+        quando o TTL expirasse, e ninguém entenderia por quê.
+
+        `EDP_LLM_VALIDATE_TTL=0` desliga e reproduz o comportamento anterior.
+        """
         # Anthropic: validação via provider (chamada de 1 token ~$0.00001)
         if self._cfg.provider == LLMProvider.ANTHROPIC:
+            # Import local, como em `llm_adapter.py:231`. Não dá para importar
+            # `config` no topo do módulo: `LLMClient.__init__` recebe um
+            # parâmetro chamado `config`, e o nome ficaria sombreado lá dentro.
+            from . import config as _conf
+            ttl = _conf.EDP_LLM_VALIDATE_TTL
+            agora = time.time()
+            if not forcar and ttl > 0 and agora < self._validado_ate:
+                return True
             try:
-                return self._anthropic_provider.validate()
+                ok = self._anthropic_provider.validate()
             except Exception as e:
                 logger.warning("[LLMClient] Anthropic validate falhou: %s", e)
                 return False
+            if ok and ttl > 0:
+                self._validado_ate = agora + ttl
+            return ok
         try:
             url = f"{self._cfg.base_url}/api/tags" if "ollama" in self._cfg.provider else \
                   f"{self._cfg.base_url}/v1/models"
@@ -1543,7 +1580,10 @@ REGRAS ABSOLUTAS:
 
     def _connect(self, cfg: LLMConfig) -> bool:
         client = LLMClient(cfg)
-        if not client.is_available():
+        # `forcar=True`: e AQUI que a resposta importa. Um cliente novo tem
+        # cache vazio, mas deixar explicito impede que uma refatoracao futura
+        # reaproveite cliente e passe a conectar com credencial nao conferida.
+        if not client.is_available(forcar=True):
             logger.warning("[EDPRuntime] %s indisponível em %s", cfg.provider, cfg.base_url)
             return False
         with self._lock:
@@ -2816,7 +2856,18 @@ REGRAS ABSOLUTAS:
             logger.debug("[ctx] #46 filtro blocks falhou: %s", _e46b)
 
         # Constrói contexto otimizado
-        # ── exp011 (EDP_CTX_SLOTS, default OFF): metadados fora da contagem ──
+        # ── exp011 (EDP_CTX_SLOTS) — DEFAULT **LIGADA** ──────────────────
+        # ERRATA 22/08/2026: aqui dizia "default OFF". É FALSO desde a promoção
+        # de 08/07/2026 (config.py:65 -> default "1"), feita JUNTO com o
+        # EDP_HYBRID_RETRIEVAL. Achei o comentário obsoleto do híbrido em 18/08
+        # e este ficou — os dois foram promovidos no mesmo dia e os dois
+        # deixaram comentário para trás.
+        #
+        # Quinta ocorrência do padrão em três dias, e a primeira encontrada por
+        # MECANISMO em vez de releitura: tests/test_comentario_nao_mente_sobre_
+        # default.py compara a afirmação com o 2º argumento do os.environ.get.
+        # A descrição OFF/ON abaixo continua correta — o que estava errado era
+        # dizer qual dos dois é o padrão.
         # OFF: chamada IDENTICA a atual (metadata=None e no-op no manager).
         # ON: separa `blocks` por identidade — memorias recuperadas (coletadas
         # em _last_similarity_blocks pelo _retrieve_context) vao ao slot

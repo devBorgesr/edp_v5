@@ -241,3 +241,91 @@ antes por serem legíveis e acionáveis para decisão de fix).
 | gravador | `prioridade→"media"`, `epistemic_status→"hypothesis"` |
 
 **CONGELADO ao primeiro disparo real. Mudou a régua → é o Experimento 010.**
+
+---
+
+## §8-bis. Errata — a hipótese ficou sem referente no caminho vivo
+
+**18/08/2026.** A H1 do §2 propõe remover os **privilégios de nascença** das
+`session_summary` (`prioridade` alta + `verified`). O `trat_gravador` do §8
+encarna isso como `prioridade→"media"`, `epistemic_status→"hypothesis"`.
+
+No caminho **vivo** (híbrido, default desde 08/07/2026) esses campos não
+ordenam nada:
+
+- `prioridade` aparece **uma vez** no bloco híbrido, numa f-string de exibição
+  (`store.py:1898`). Não entra em escore.
+- `epistemic_status` aparece **uma vez** (`store.py:1654`), como **exclusão
+  binária em tempo de índice**: `contradicted` e `quarantined` ficam de fora.
+  Não há demoção graduada.
+- `src_weight` não aparece.
+
+O tratamento move `verified → hypothesis`. **Nenhum dos dois pertence ao
+conjunto excluído**, então a entrada é indexada igual antes e depois, com o
+mesmo texto e o mesmo embedding — e os dois rankers (BM25 e vetorial) leem
+exatamente as mesmas coisas.
+
+**O `trat_gravador` é um no-op no caminho vivo.** O mesmo vale para o
+`trat_gravador_srcw` exploratório.
+
+O perigo não é o experimento falhar — é ele **passar**. Baseline e tratamento
+produziriam a mesma ordenação, a diferença medida seria zero, e zero diferença
+lê-se como *"H0 vence: a dominância não vem dos boosts de nascença"*. Essa
+conclusão é **verdadeira**, e seria alcançada **sem nenhuma evidência** — herdada
+por omissão de um tratamento que não trata. É o modo de falha mais caro que este
+projeto conhece: parece achado.
+
+O `trat_trivial` (regra v2, §3a) é outra coisa: filtra por **conteúdo**, não por
+metadado, e sobrevive ao híbrido. Mas não pode ser reportado sozinho sob um
+pré-registro cuja H1 é sobre privilégios — seria trocar a pergunta depois do
+dado.
+
+**O fenômeno continua real** e foi observado ao vivo em 18/08: `session_summary`
+dominando queries vagas de continuação, **sem nenhum privilégio ativo**. O que
+morreu foi a **explicação** que a hipótese assumia, não o problema.
+
+**Veredito: o exp009 não dispara como está.** O sucessor precisa de hipótese
+nova — propriedades do **texto** (comprimento, genericidade, centralidade
+semântica) sob BM25+RRF — e deve nascer do que a telemetria `ranking_decision`
+mostrar, não de palpite. Número novo.
+
+Fonte: `AUDITORIA_MECANISMO_APOSENTADO.md` (lab, `f1da6e4`).
+
+---
+
+## §8-ter. Errata — o disparo aconteceu e não foi registrado aqui
+
+**18/08/2026.** O §8-bis acima diz que o exp009 não dispara *como está*. Isso
+vale para **hoje**. Este documento, porém, também não registra que ele **já
+disparou** — e disparou.
+
+A evidência é indireta mas convergente:
+
+- `edp/session_summary.py:324` afirma, num comentário de produção, *"exp009 (H1
+  confirmada, limiares §6) … a dominância cai 86.7%→33% nas queries vagas"*.
+- o store `edp_data_exp009` existe, com **813 eventos**, o último em **02/07/2026**.
+- em 02/07 o caminho vivo era o **cosseno** — a promoção do híbrido a default é
+  de 08/07 (`config.py:53`).
+
+Ou seja: o resultado foi medido, é plausivelmente válido **para o caminho
+cosseno**, e vive **apenas num comentário de código**. O pré-registro que o
+governa não tem seção de resultado, não tem data de disparo, e não tem os
+números.
+
+**Por que isto importa mais que a formalidade.** Um número que existe só em
+comentário de produção não tem escopo declarado. Foi exatamente assim que ele
+sobreviveu à mudança de 08/07: nada o obrigava a dizer *contra qual caminho*
+tinha sido medido, então continuou lido como fato sobre o sistema atual — por
+mim inclusive, até a auditoria de 18/08.
+
+**O que NÃO se faz aqui.** Não transcrevo `86.7%→33%` para uma tabela de
+resultado. O número não foi reproduzido, não sei o N, não sei as condições
+exatas do disparo, e promovê-lo de comentário a resultado registrado seria dar
+a ele um selo que a medição original não ganhou. Fica citado como **alegação de
+origem conhecida e escopo cosseno**, Tier B (anedótico) — que é o que ele é.
+
+Quem quiser convertê-lo em Tier D precisa do log do disparo de 02/07, não deste
+documento.
+
+Fonte: `AUDITORIA_MECANISMO_APOSENTADO.md` e
+`ACHADO_DUPLICATA_EXPLICA_DOMINANCIA.md` (lab).

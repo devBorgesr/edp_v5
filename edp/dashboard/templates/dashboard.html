@@ -3,7 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EDP v3.5 - Cognitive Runtime Dashboard</title>
+<title>EDP v3.5 — Cognitive Runtime</title>
+<!-- Sem <link> para Google Fonts: a regra de seguranca ("nao adicionar
+     chamadas externas") vence a preferencia tipografica. Inter e JetBrains
+     Mono sao usadas SE estiverem instaladas na maquina; senao caem no stack
+     de sistema declarado em dashboard.css. Um console de runtime local nao
+     deve telefonar para fora nem quebrar sem rede. -->
 <link rel="stylesheet" href="/static/dashboard.css">
 <!--SIDEBAR_CSS-->
 </head>
@@ -13,47 +18,146 @@
 
 <header>
   <div class="status-dot" id="status-dot"></div>
-  <h1>EDP v3.5</h1>
-  <span class="badge">Cognitive Runtime</span>
-  <span style="margin-left:auto;color:var(--muted);font-size:11px" id="last-update">-</span>
+  <h1>EDP Runtime</h1>
+  <span class="badge">Cognitive Engine</span>
+  <div class="hdr-right">
+    <span>v<span id="h-version">—</span></span>
+    <span id="last-update">—</span>
+  </div>
 </header>
 
 <main>
 
-  <div class="card">
-    <h2>Runtime Health</h2>
-    <div class="metric"><span class="label">Status</span><span class="value" id="h-status">...</span></div>
-    <div class="metric"><span class="label">Versao</span><span class="value" id="h-version">...</span></div>
-    <div class="metric"><span class="label">Sessoes ativas</span><span class="value" id="h-sessions">...</span></div>
+  <!-- ── Sumário do runtime ─────────────────────────────────────────────
+       Os quatro vêm de /dashboard/state. `queue` e `pressure` chegavam ao
+       navegador e só iam para console.log — agora aparecem. -->
+
+  <div class="card span-3">
+    <div class="stat">
+      <span class="stat-label">Status</span>
+      <span class="value" id="h-status">—</span>
+      <span class="stat-sub" id="rt-uptime">—</span>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Memoria Cognitiva</h2>
-    <div class="metric"><span class="label">Episodica</span><span class="value" id="m-episodic">...</span></div>
-    <div class="metric"><span class="label">Semantica</span><span class="value" id="m-semantic">...</span></div>
-    <div class="metric"><span class="label">Working</span><span class="value" id="m-working">...</span></div>
-    <div class="metric"><span class="label">Total</span><span class="value" id="m-total">...</span></div>
+  <div class="card span-3">
+    <div class="stat">
+      <span class="stat-label">Inferências ativas</span>
+      <span class="value" id="q-active">—</span>
+      <span class="stat-sub" id="q-capacity">—</span>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>LLM Performance</h2>
-    <div class="metric"><span class="label">Modelo</span><span class="value" id="llm-model">-</span></div>
-    <div class="metric"><span class="label">Provider</span><span class="value" id="llm-provider">-</span></div>
-    <div class="metric"><span class="label">Latencia media</span><span class="value" id="llm-lat">-</span></div>
-    <div class="metric"><span class="label">Requests total</span><span class="value" id="llm-req">-</span></div>
-    <div class="metric"><span class="label">Memory hits medio</span><span class="value" id="llm-hits">-</span></div>
-    <div class="metric"><span class="label">Erros</span><span class="value" id="llm-err">-</span></div>
+  <div class="card span-3">
+    <div class="stat">
+      <span class="stat-label">Memória</span>
+      <span class="value" id="m-total">—</span>
+      <span class="stat-sub" id="m-sub">—</span>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Retrieval Stats</h2>
-    <div class="metric"><span class="label">Score medio</span><span class="value" id="r-score">...</span></div>
-    <div class="metric"><span class="label">Compressao media</span><span class="value" id="r-comp">...</span></div>
-    <div class="metric"><span class="label">Cache hits</span><span class="value" id="r-cache">...</span></div>
+  <div class="card span-3">
+    <div class="stat">
+      <span class="stat-label">Fila</span>
+      <span class="value" id="q-queued">—</span>
+      <span class="stat-sub" id="q-wait">—</span>
+    </div>
   </div>
 
-  <div class="card chat-area">
-    <h2>Chat Cognitivo</h2>
+  <!-- ── Runtime flow ───────────────────────────────────────────────────
+       Este é o pipeline REAL do EDP, dirigido pelos eventos do WebSocket
+       (start, pipeline_done, llm_start, chunk, done, warn, error).
+
+       NÃO é o pipeline do agent_runtime (REQUEST→ROUTER→MODEL→INTENTION→
+       POLICY→CAPABILITY→OBSERVATION): aquele vive em lab_edp_novo, outro
+       repositório, e este backend não tem como alimentá-lo. -->
+
+  <div class="card span-8">
+    <h2>Runtime Flow<span class="stat-sub" id="flow-sub">— aguardando turno</span></h2>
+    <div class="flow" id="flow">
+      <div class="flow-node" data-node="request"  data-state="waiting"><div class="flow-mark">○</div><div class="flow-name">Request</div></div>
+      <div class="flow-node" data-node="pipeline" data-state="waiting"><div class="flow-mark">○</div><div class="flow-name">Pipeline</div></div>
+      <div class="flow-node" data-node="model"    data-state="waiting"><div class="flow-mark">○</div><div class="flow-name">Model</div></div>
+      <div class="flow-node" data-node="stream"   data-state="waiting"><div class="flow-mark">○</div><div class="flow-name">Stream</div></div>
+      <div class="flow-node" data-node="response" data-state="waiting"><div class="flow-mark">○</div><div class="flow-name">Response</div></div>
+    </div>
+    <div class="flow-legend">
+      <span><i class="dot a"></i>ativo</span>
+      <span><i class="dot d"></i>concluído</span>
+      <span><i class="dot w"></i>aguardando</span>
+      <span><i class="dot b"></i>alerta</span>
+      <span><i class="dot e"></i>falha</span>
+    </div>
+  </div>
+
+  <!-- ── Componentes: runtime_state.components, nunca exibido antes ───── -->
+
+  <div class="card span-4">
+    <h2>Componentes</h2>
+    <div id="components"><div class="empty">—</div></div>
+  </div>
+
+  <!-- ── Memória ────────────────────────────────────────────────────────
+       Os alvos de setVal (m-episodic etc.) são folhas: setVal sobrescreve
+       className, então a barra fica em elemento irmão. -->
+
+  <div class="card span-4">
+    <h2>Memória cognitiva</h2>
+    <div class="metric"><span class="label">Episódica</span><span class="value" id="m-episodic">—</span></div>
+    <div class="bar"><i id="bar-episodic"></i></div>
+    <div class="metric"><span class="label">Semântica</span><span class="value" id="m-semantic">—</span></div>
+    <div class="bar"><i id="bar-semantic"></i></div>
+    <div class="metric"><span class="label">Working</span><span class="value" id="m-working">—</span></div>
+    <div class="bar"><i class="cy" id="bar-working"></i></div>
+  </div>
+
+  <!-- ── Modelo / LLM ───────────────────────────────────────────────────
+       avg_first_token_ms e avg_throughput_tps existem e só iam para
+       console.log. -->
+
+  <div class="card span-4">
+    <h2>Modelo</h2>
+    <div class="metric"><span class="label">Modelo</span><span class="value" id="llm-model">—</span></div>
+    <div class="metric"><span class="label">Provider</span><span class="value" id="llm-provider">—</span></div>
+    <div class="metric"><span class="label">Latência média</span><span class="value" id="llm-lat">—</span></div>
+    <div class="metric"><span class="label">1º token</span><span class="value" id="llm-ttft">—</span></div>
+    <div class="metric"><span class="label">Requests</span><span class="value" id="llm-req">—</span></div>
+    <div class="metric"><span class="label">Memory hits (média)</span><span class="value" id="llm-hits">—</span></div>
+    <div class="metric"><span class="label">Erros</span><span class="value" id="llm-err">—</span></div>
+  </div>
+
+  <!-- ── Retrieval ──────────────────────────────────────────────────────
+       r-trend vem de retrieval_quality.trend, que o backend já devolvia e
+       o front nunca leu. -->
+
+  <div class="card span-4">
+    <h2>Retrieval</h2>
+    <div class="metric"><span class="label">Score médio</span><span class="value" id="r-score">—</span></div>
+    <div class="metric"><span class="label">Compressão média</span><span class="value" id="r-comp">—</span></div>
+    <div class="metric"><span class="label">Cache hits</span><span class="value" id="r-cache">—</span></div>
+    <div class="metric"><span class="label">Tendência</span><span class="value" id="r-trend">—</span></div>
+    <div class="metric"><span class="label">Turnos observados</span><span class="value" id="r-turns">—</span></div>
+  </div>
+
+  <!-- ── Atividade ──────────────────────────────────────────────────────
+       Alimentada pelos eventos do WS + contradictions.recent. -->
+
+  <div class="card span-4">
+    <h2>Atividade</h2>
+    <div class="event-list" id="event-list"><div class="empty">Sem eventos ainda.</div></div>
+  </div>
+
+  <!-- ── Console ────────────────────────────────────────────────────────
+       O chat vira o console de interação com o runtime. Todos os IDs
+       originais preservados: provider, model-input, url-input,
+       apikey-input, connect-btn, conn-status, chat-box, stage-info,
+       chat-input, send-btn. -->
+
+  <div class="card span-8">
+    <div class="console-head">
+      <h2 style="margin:0">Cognitive Console</h2>
+      <span class="conn-pill"><i class="dot w" id="conn-dot"></i><span id="conn-status">Desconectado</span></span>
+    </div>
 
     <div class="connect-row">
       <select id="provider">
@@ -62,34 +166,43 @@
         <option value="lm_studio">LM Studio (local)</option>
         <option value="openai">OpenAI</option>
       </select>
-      <input id="model-input" placeholder="modelo" value="claude-haiku-4-5">
-      <input id="url-input" placeholder="URL base (apenas local)" value="" style="display:none">
-      <input id="apikey-input" placeholder="API key (sk-ant-... ou sk-...)" type="password" value="" style="flex:2">
+      <input id="model-input" placeholder="modelo" value="claude-haiku-4-5" style="flex:1">
+      <input id="url-input" placeholder="URL base (apenas local)" value="" style="display:none;flex:1">
+      <input id="apikey-input" placeholder="API key" type="password" value="" autocomplete="off" style="flex:2">
       <button id="connect-btn">Conectar</button>
-      <span id="conn-status">Desconectado</span>
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:4px">
-      Modelos: <b>claude-haiku-4-5</b> (barato), <b>claude-sonnet-4-6</b> (qualidade), <b>claude-opus-4-7</b> (raciocínio)
     </div>
 
     <div class="chat-box" id="chat-box"></div>
     <div id="stage-info"></div>
 
     <div class="input-row">
-      <input id="chat-input" placeholder="Digite sua mensagem...">
-      <button id="send-btn">Enviar</button>
+      <input id="chat-input" placeholder="Investigue…">
+      <button id="send-btn">Run</button>
     </div>
   </div>
 
-  <div class="card">
-    <h2>Snapshot Info</h2>
-    <pre id="snapshot-data">Carregando...</pre>
-  </div>
+  <!-- ── System / debug: fora da primeira camada visual ─────────────── -->
 
-  <div class="card">
-    <h2>Metricas de Sistema</h2>
-    <pre id="raw-metrics">Carregando...</pre>
-  </div>
+  <details class="sys">
+    <summary>System · Snapshot · Debug</summary>
+    <div class="sys-body">
+      <div>
+        <h2>Sessões</h2>
+        <div class="metric"><span class="label">Ativas</span><span class="value" id="h-sessions">—</span></div>
+        <div class="metric"><span class="label">Pressão de memória</span><span class="value" id="p-level">—</span></div>
+        <div class="metric"><span class="label">RAM disponível</span><span class="value" id="p-ram">—</span></div>
+        <div class="metric"><span class="label">Contradições sinalizadas</span><span class="value" id="c-flags">—</span></div>
+      </div>
+      <div>
+        <h2>Snapshot</h2>
+        <pre id="snapshot-data">Carregando…</pre>
+      </div>
+      <div>
+        <h2>Métricas de sistema</h2>
+        <pre id="raw-metrics">Carregando…</pre>
+      </div>
+    </div>
+  </details>
 
 </main>
 

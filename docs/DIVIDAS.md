@@ -161,6 +161,178 @@ Reabre quando `edp.profiles` for versionado por inteiro: nesse momento os
 
 ---
 
+## Dívida #54 — Caminho com LLM real do runtime flow nunca foi exercitado
+
+**Status:** ABERTA
+**Origem:** validação visual do Dashboard v3.5 (03/09/2026)
+
+### O problema
+A validação em navegador real provou o turno cognitivo sem LLM
+(`request → pipeline → stream → response`). O caminho com provider real
+(`request → pipeline → model → stream → response`) foi **lido no código**, não
+executado: `advanceFlow('model')` no handler de `llm_start`
+(`edp/dashboard/static/dashboard.js`) exige chave de provider.
+
+A distinção importa porque a correção de `concluiSeAtivo` mudou justamente
+quando um nó pode ser marcado concluído. Com LLM ausente o comportamento está
+medido; com LLM presente está deduzido.
+
+### Caminho de correção
+Smoke test de um turno com provider real, verificando que `model` chega a
+`active` antes de `done`, e que `flow-sub` não usa a redação "sem LLM".
+
+### Workaround
+Nenhum necessário — o comportamento sem LLM é o correto e está validado.
+
+### Atualização 03/09/2026 — precondição medida, render ainda não
+Log de execução em produção (host Windows, store `C:\edp_data_todo\edp_data`,
+`claude-haiku-4-5`) mostra a cadeia completa no servidor: `msg recebida` →
+`pipeline ok` → `LLM stream iniciando` → `LLM primeiro chunk` → `LLM done` →
+`done llm_used=True`. A ordem é a que o frontend espera e `llm_used=True`
+chega ao cliente.
+
+Isso fecha a metade de trás: existe um `llm_start` real para ativar o nó
+`model` antes do `chunk`. Não fecha a dívida — o log é do servidor, e o que
+falta medir é o **render**. Ver `VEREDITO_dashboard_v3.5.md` §4.2.
+
+---
+
+## Dívida #56 — `is_connected()` faz round-trip de rede no caminho do turno
+
+**Status:** ABERTA
+**Origem:** log de execução em produção, 03/09/2026
+
+### O problema
+`edp/api/routes/websocket.py:765` chama `runtime.is_connected()` no caminho
+quente do turno, logo depois de `pipeline_done` e imediatamente antes de
+iniciar o streaming. Para Anthropic essa cadeia é:
+
+```
+is_connected() -> LLMClient.is_available()   (llm_adapter.py:1898, :636)
+               -> AnthropicProvider.validate()  (anthropic.py:515)
+               -> chamada real a api.anthropic.com, prompt "1", max_tokens=1
+```
+
+Para Ollama/OpenAI o mesmo `is_available()` é um GET local com timeout de 3 s.
+Só o caminho Anthropic paga uma ida e volta à rede.
+
+### A medida
+No log, o probe do turno levou **21.782 s**, entre o fim da recuperação de
+memória (04:54:16,192) e o `LLM stream iniciando` (04:54:37,999). O turno
+inteiro — `msg recebida` a `done` — levou **49,6 s**. O probe foi **~44% do
+turno**, para produzir 1 token.
+
+Cinco probes `tok_in=9 tok_out=1` aparecem em ~5 minutos de operação, com
+latências de 22.065, 9.836, 21.818, 21.782 e 11.091 ms: **86,6 s somados**.
+Além de `websocket.py:765`, alcançam `is_available()` os caminhos de
+`session_summary.py:154`, `ingest/consolidator.py:47`, `api/routes/llm.py:59`
+e `:89` — ou seja, jobs de fundo também pagam o probe.
+
+O custo em dinheiro é desprezível (`cost=$0.0000`, e `validate()` já passa
+`telemetria=False` justamente para não sujar o dataset). O custo é **latência
+percebida**: quase metade da espera do usuário é o sistema perguntando ao
+provider se ele está lá, antes de perguntar o que o usuário quis saber.
+
+### Caminho de correção
+Não é remover a verificação — é não fazê-la por turno. Estado de conexão já é
+conhecido: `_connect()` validou na conexão, e um turno que falha por
+credencial já levanta `AuthError` no lugar certo. As opções, em ordem de
+custo: cachear o resultado de `validate()` com TTL no `LLMClient`; ou trocar
+`is_connected()` por uma leitura de estado (`self._client is not None`) no
+caminho do turno, deixando o probe para `/connect` e para o endpoint de
+providers, que é onde ele responde uma pergunta que alguém fez.
+
+Qualquer das duas muda comportamento do caminho quente do kernel num
+repositório público — decisão antes de código, como o resto do projeto.
+
+### Atualização 03/09/2026 — decisão preparada, aguardando assinatura
+[`docs/DECISAO_probe_por_turno.md`](DECISAO_probe_por_turno.md), no mesmo
+formato de `DECISAO_TRANSPORTE.md`: três opções com custo, e a verificação de
+que **os seis chamadores de `is_connected()` usam o valor como guarda**, não
+como relatório de saúde. Recomendação: opção A (ler estado; probe fica em
+`/connect` e `/providers`). Não implementada — é caminho quente do kernel em
+repositório público, e aqui decisão vem antes de código.
+
+Achado de reforço: `health.py:25` já documenta ter recusado o probe pelo mesmo
+motivo — *"NÃO chama provider.validate() (isso pinga a rede)"*. A decisão já
+foi tomada uma vez, num lugar só.
+
+### Correção implementada 05/09/2026 — mas a dívida continua ABERTA
+
+`EDP_LLM_VALIDATE_TTL` (default `300 s`) cacheia o resultado **positivo** de
+`LLMClient.is_available()` no caminho Anthropic. `_connect()` passa
+`forcar=True`, porque ali a resposta importa de verdade. Negativo e exceção
+**nunca** são cacheados: guardar um "falhou" manteria o sistema fora do ar
+depois de o operador corrigir a chave. `EDP_LLM_VALIDATE_TTL=0` reproduz o
+comportamento anterior.
+
+11 testes em `tests/test_divida_56_probe.py`; suíte em 459 passed.
+
+**Por que continua ABERTA:** o critério do pré-registro
+(`docs/preregistro_divida_56_probe.md` §6) exige medida **em produção** — o
+gap entre `[WS] memory | hits=` e `[WS] LLM stream iniciando`, mediana de ao
+menos 3 turnos com LLM conectado, abaixo de 1,0 s, e zero chamadas
+`tok_in=9 tok_out=1` nesse intervalo.
+
+Código escrito não é dívida fechada. Fecha quando
+`docs/VEREDITO_divida_56_probe.md` existir com o número medido.
+
+### Workaround
+Nenhum. O sistema funciona; só espera mais do que precisa.
+
+---
+
+## Dívida #55 — `avg_top` não tem definição fechada
+
+**Status:** ABERTA
+**Origem:** validação visual do Dashboard v3.5 (03/09/2026)
+
+### O problema
+`/dashboard/state` devolve `retrieval_quality` com série diária contendo
+`avg_top` e `turns`. O dashboard lê apenas `trend` e `total_turns`; a série é
+descartada. Existe aí um gráfico de tendência sem custo de backend.
+
+O bloqueio não é de engenharia: **não está escrito o que `avg_top`
+representa** — sobre qual população, com qual ranking, e o que pode ser
+afirmado a partir de uma variação dele. Sem isso, plotar a série transforma um
+indicador operacional (NÍVEL 1) em alegação de qualidade de recuperação
+(NÍVEL 3), que é a fronteira que o resto do projeto sustenta.
+
+### Caminho de correção
+1. ~~Documentar a grandeza a partir do código que a produz.~~ **FEITO**
+   03/09/2026: [`docs/DEFINICAO_avg_top.md`](DEFINICAO_avg_top.md).
+2. Implementar os quatro pré-requisitos do §5 daquele documento.
+3. Só então decidir se vai ao dashboard, e com qual ressalva na tela.
+
+### O que a definição revelou
+Três coisas que o nome escondia:
+
+**(a) `avg_top` mistura duas grandezas.** `turn_count` conta todo turno,
+`sum_top` só os não-vazios — então
+`avg_top = média(top-1 | não-vazio) × (1 − empty_rate)`. Uma queda pode ser
+score caindo ou retrieval vazio subindo, e o número não distingue.
+
+**(b) `ranking_score` tem três escalas**, conforme o caminho: cosseno
+(`store.py:1560`), `rank_score` composto (`:792`) e **RRF** (`:1750`),
+`~1/(60+rank)`, máx ≈0,016.
+
+**(c) O mostrador atual não tem interpretação.** O dashboard exibe
+`Score médio 0.010` e o payload trouxe `avg_top: 0.0123`. Lido como
+similaridade seria quase ortogonal — sistema recuperando lixo. Lido como RRF
+é `1/81`, perto do teto de `0,016` — normal. **É o mesmo número**, e o
+payload não carrega `ranking_breakdown.method`, então não dá para saber qual.
+
+Isto reforça a dívida em vez de fechá-la: plotar a série sem publicar a
+escala junto transformaria mudança de caminho em "queda de qualidade".
+
+### Workaround
+Nenhum. O dado segue disponível no payload para quem quiser inspecioná-lo
+diretamente; nada é exibido, então nada é afirmado.
+
+Referência: [`docs/VEREDITO_dashboard_v3.5.md`](VEREDITO_dashboard_v3.5.md) §5.
+
+---
+
 ## Notas de decisão
 
 Retrieval duplo (caminho cosine puro + caminho híbrido) é requisito de

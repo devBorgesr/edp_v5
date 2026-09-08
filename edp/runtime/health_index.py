@@ -192,14 +192,16 @@ class CognitiveHealthIndex:
         n_samples = gauss_stats.n_samples if gauss_stats else 0
 
         if n_samples < self._min_samples_gauss:
+            diagnostico = self._diagnostico_de_amostra(n_samples, gauss_stats)
             logger.info(
-                "[chi] insufficient_data | n_samples=%d < %d",
-                n_samples, self._min_samples_gauss,
+                "[chi] insufficient_data | n_samples=%d < %d | %s",
+                n_samples, self._min_samples_gauss, diagnostico,
             )
             return HealthResult(
                 score=None,
                 level="INSUFFICIENT_DATA",
-                components={"reason": f"need {self._min_samples_gauss} gauss samples, have {n_samples}"},
+                components={"reason": f"need {self._min_samples_gauss} gauss samples, have {n_samples}",
+                            "diagnostico": diagnostico},
                 samples_used=n_samples,
                 computed_at=_now(),
             )
@@ -244,6 +246,48 @@ class CognitiveHealthIndex:
             samples_used=n_samples,
             computed_at=_now(),
         )
+
+    def _diagnostico_de_amostra(self, n: int, gauss_stats) -> str:
+        """
+        DIVIDA: `n_samples=0` significava QUATRO coisas diferentes, e o log
+        colapsava as quatro no mesmo numero.
+
+            store nunca existiu no EDP_BASE_DIR resolvido
+            store existe e esta vazio
+            erro de I/O lendo events.jsonl
+            ha eventos, mas nenhum na janela (ou < MIN_SAMPLES_FOR_STATS)
+
+        Medido em 07/09/2026: o kernel tem CINCO defaults distintos para
+        EDP_BASE_DIR, quatro deles relativos a cwd, e havia 41 events.jsonl
+        divergentes no disco. "Zero amostras" quase nunca significa "o sistema
+        nao foi usado" — costuma significar "o store nao esta onde o leitor
+        procura", e o numero sozinho nao separa as duas leituras.
+
+        `pareto_store.last_query_stats()` ja existia para exatamente isso
+        (Divida #40) e nao era consultada aqui.
+
+        RESSALVA: o Gauss tem cache com TTL. Se a resposta veio do cache,
+        nenhuma query foi feita e `last_query_stats()` reflete a leitura
+        ANTERIOR. Por isso o texto abaixo descreve a ultima leitura conhecida,
+        e nao afirma ser desta chamada.
+        """
+        if gauss_stats is not None:
+            return f"{n} amostras na janela, abaixo do minimo"
+        try:
+            from .pareto_store import get_pareto_store
+            q = get_pareto_store().last_query_stats()
+        except Exception as e:                                  # pragma: no cover
+            return f"gauss devolveu None e o store nao respondeu: {e}"
+        if q.get("had_exception"):
+            return "erro de I/O lendo events.jsonl (ultima leitura conhecida)"
+        if not q.get("file_existed", True):
+            return ("events.jsonl nao existe no EDP_BASE_DIR resolvido "
+                    "(ultima leitura conhecida)")
+        if not q.get("lines_read", 0):
+            return "events.jsonl existe e esta vazio (ultima leitura conhecida)"
+        return (f"events.jsonl com {q.get('lines_read')} linhas e "
+                f"{q.get('events_yielded')} eventos apos filtros; nenhuma "
+                f"amostra na janela ou abaixo de MIN_SAMPLES_FOR_STATS")
 
     def _compute_memory_utility(self) -> float:
         """Bayes P(memory_accessed | memory_added). Default 0.5 (neutro) se sem dado."""
