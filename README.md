@@ -1,4 +1,10 @@
-# EDP v5 — Kernel de memória e governança epistêmica para LLM
+# EDP v5 — Research Runtime for LLM Memory and Epistemic Governance
+
+> **Public role / client boundary**
+>
+> This repository is a **research runtime**, not the client-facing audit service and not a repository for client audit data. External audit deliveries belong in **[edp-audits](https://github.com/devBorgesr/edp-audits)**. Private client queries, proprietary corpora, credentials, raw exports, and other non-public audit material should not be committed here.
+>
+> The audit workflow can evaluate retrieval exports without requiring this runtime, model weights, or infrastructure credentials.
 
 **Não é um chatbot, não é AGI.** É um runtime de memória persistente para
 LLMs — WebSocket + FastAPI, embeddings locais, retrieval híbrido, e uma
@@ -6,8 +12,9 @@ camada de governança que trata **confiabilidade da memória** como estado
 de primeira classe (`contestado`/`quarentenado`/`hipótese`), não como
 detalhe de implementação.
 
-Este é o **kernel** de um ecossistema de três repositórios
-(`NORTE.md §1`) — ver §6.
+O objetivo público deste repositório é pesquisa e engenharia reproduzível:
+mostrar mecanismos, testes, limitações, resultados negativos e decisões
+experimentais que sustentam o desenvolvimento do EDP.
 
 ---
 
@@ -195,18 +202,15 @@ graphify update .
 
 ## 6. Onde isto se encaixa
 
-Três repositórios, um produto (`NORTE.md §1`):
+Os repositórios públicos têm papéis separados:
 
-| repo | papel |
+| repo | papel público |
 |---|---|
-| **`edp_v5` (este)** | **Kernel** — memória, governança epistêmica, retrieval, API |
-| `lab_edp_novo` | Certificação — experimentos pré-registrados, oráculo externo |
-| `sf_exportador` | Sensor + Copiloto — captura passiva, análise, interface |
+| **`edp_v5` (este)** | **Research runtime** — memória, governança epistêmica, retrieval e API |
+| [`lab_edp`](https://github.com/devBorgesr/lab_edp) | Laboratório de pesquisa, instrumentação e diagnósticos reproduzíveis |
+| [`edp-audits`](https://github.com/devBorgesr/edp-audits) | **Entrega pública de auditorias externas**, metodologia, resultados e feedback autorizado |
 
-Este README cobre só o kernel. Ver `NORTE.md` para o norte do
-ecossistema inteiro.
-
----
+Eles compartilham princípios de evidência e reprodutibilidade, mas **não são um único pipeline de dados do cliente**. Uma auditoria externa não exige que dados privados sejam enviados ou persistidos no `edp_v5`.
 
 ## 7. Metodologia
 
