@@ -158,11 +158,6 @@ condição). Detalhe completo:
 Inventário completo, com número e comando de reprodução:
 [`docs/edp_metodologia_v5.md §4`](docs/edp_metodologia_v5.md).
 
-- **Curadoria do ecossistema (repo irmão `lab_edp_novo`, 01/09/2026)** —
-  mapa de capacidade por módulo/flag, com maturidade medida (existe / testado
-  por execução / validado), matriz de proveniência EDP×MVP e candidatos de
-  acoplamento: `lab_edp_novo/docs/curadoria/README.md`. Não versionada neste
-  repositório — `lab_edp_novo` é privado.
 
 ---
 
